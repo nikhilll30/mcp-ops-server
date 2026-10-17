@@ -27,6 +27,7 @@ select = ["E", "F", "I", "B", "UP", "S"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
+"docs/briefs/*.py" = ["E501"]  # brief text is prose
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

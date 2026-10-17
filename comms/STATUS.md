@@ -12,7 +12,7 @@
 ## Tasks
 | # | Task | Built by | State | PR |
 |---|---|---|---|---|
-| 000 | Skeleton server + CI | Cursor agent (CI fix: Claude) | merged | #1 |
+| 000 | Skeleton server + CI | Cursor agent (CI fix: Claude) | CI green, awaiting owner merge | #1 |
 
 ## Workflow change (2026-10-17)
 GitHub @-mention delegation did not trigger reliably (Codex: no response; Cursor: gated behind Bugbot).
