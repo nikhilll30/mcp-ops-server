@@ -1,6 +1,6 @@
 # Master Plan — mcp-ops-server
 
-**Owner:** Nikhil (approves each part) · **Planner/reviewer:** Claude · **Implementer:** Codex
+**Owner:** Nikhil (approves each part) · **Planner + implementer:** Claude · **Independent reviewer:** Codex (end of each part)
 
 ## Goal
 A production-shaped MCP server for a **synthetic clinic-operations domain** (appointments,

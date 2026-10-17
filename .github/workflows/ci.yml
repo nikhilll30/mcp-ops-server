@@ -27,6 +27,9 @@ jobs:
       - run: pytest -q
 
   secrets:
+    # gitleaks-action's pull_request mode fails on this repo; every PR branch here
+    # is also pushed, and the push run scans full history (fetch-depth: 0).
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
