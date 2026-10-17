@@ -2,7 +2,7 @@
 
 | Part | State | Brief |
 |---|---|---|
-| 1 Foundation | in progress | — |
+| 1 Foundation | done, awaiting owner go-ahead | docs/briefs/part-1-foundation.pdf |
 | 2 Core server | not started | — |
 | 3 Hardening | not started | — |
 | 4 Evals | not started | — |
@@ -10,9 +10,13 @@
 | 6 Ship | not started | — |
 
 ## Tasks
-| # | Task | Assignee | State | PR |
+| # | Task | Built by | State | PR |
 |---|---|---|---|---|
-| 000 | Skeleton server + CI | Codex | assigned | — |
+| 000 | Skeleton server + CI | Cursor agent (CI fix: Claude) | CI green, awaiting owner merge | #1 |
+
+## Workflow change (2026-10-17)
+GitHub @-mention delegation did not trigger reliably (Codex: no response; Cursor: gated behind Bugbot).
+From Part 2 on, Claude implements; Codex reviews each part independently via a prompt the owner pastes.
 
 ## Next action
-Codex implements task 000 on branch `task/000-skeleton`. Claude reviews, then writes the Part 1 brief.
+Owner reads the Part 1 brief and says go. Then Part 2: synthetic data, store, 5 tools.
