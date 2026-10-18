@@ -1,8 +1,12 @@
 name: Live evals
 
 # Paid: runs the golden tasks with a real OpenAI model. Owner-triggered only
-# (Actions > Live evals > Run workflow); never on push or pull_request, so fork PRs
-# can never reach the OPENAI_API_KEY secret.
+# (Actions > Live evals > Run workflow); never on push or pull_request.
+#
+# The key is an *environment* secret of the "live-evals" environment, whose deployment
+# branches are limited to main (Settings > Environments). GitHub enforces that limit
+# server-side, so dispatching this workflow on an unreviewed branch (whose copy of this file
+# could drop any in-file check) cannot reach the key. Do not also store it as a repo secret.
 on:
   workflow_dispatch:
     inputs:
@@ -37,7 +41,13 @@ jobs:
   live:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment: live-evals
     steps:
+      - name: Only main runs live evals
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Live evals run only on main (got $GITHUB_REF)."
+          exit 1
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -48,7 +58,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           if [ -z "$OPENAI_API_KEY" ]; then
-            echo "::error::Repository secret OPENAI_API_KEY is not set (Settings > Secrets and variables > Actions)."
+            echo "::error::OPENAI_API_KEY is not set as a secret of the live-evals environment (Settings > Environments > live-evals)."
             exit 1
           fi
       - name: Run live evals

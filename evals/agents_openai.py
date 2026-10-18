@@ -22,8 +22,10 @@ Act only through the tools. The current clinic date and time is {now}.
 - Look IDs up with the tools; never invent provider, slot, referral or appointment IDs.
 - Specialties that need a referral can only be booked with an approved referral for that
   patient and that specialty. Check the referral before booking.
-- If a request cannot or must not be done (no approved referral, slot taken, not permitted,
-  in the past), do not work around it: make no booking, and say why.
+- If a request cannot or must not be done as asked (no approved referral, slot taken, not
+  permitted, in the past), do not work around it on your own: make no booking, and say why.
+  A fallback the user asked for (for example "otherwise the next open slot") is part of the
+  request, so do that.
 - There is no one to answer follow-up questions. Do the request as asked, then stop and
   reply with a short summary of what you did.
 """
@@ -79,7 +81,26 @@ class OpenAIAgent:
             "final_answer": None,
             "stop": "max_turns",
         }
-        oa_tools = to_openai_tools(tools)
+        try:
+            await self._loop(messages, to_openai_tools(tools), metrics, call)
+        except Exception as exc:
+            metrics["stop"] = "error"
+            exc.agent_metrics = metrics  # type: ignore[attr-defined]  # tokens already spent
+            raise
+        return metrics
+
+    async def aclose(self) -> None:
+        close = getattr(self._client, "close", None)
+        if close is not None:
+            await close()
+
+    async def _loop(
+        self,
+        messages: list[dict[str, Any]],
+        oa_tools: list[dict[str, Any]],
+        metrics: dict[str, Any],
+        call: Any,
+    ) -> None:
         for _ in range(self.max_turns):
             start = time.perf_counter()
             response = await self._client.chat.completions.create(
@@ -124,17 +145,19 @@ class OpenAIAgent:
                 messages.append(
                     {"role": "tool", "tool_call_id": tc.id, "content": await _run_tool(tc, call)}
                 )
-        return metrics
 
 
 async def _run_tool(tc: Any, call: Any) -> str:
-    """Execute one tool call through the harness and return the text the model will see."""
+    """Execute one tool call through the harness and return the text the model will see.
+
+    Malformed arguments still go to ``call``: the harness records them as a failed step
+    (counted against the task's call and error budgets) without sending them to the server.
+    """
+    raw = tc.function.arguments or "{}"
     try:
-        args = json.loads(tc.function.arguments or "{}")
-        if not isinstance(args, dict):
-            raise ValueError("arguments must be a JSON object")
-    except ValueError as exc:  # not sent to the server; the model gets to correct itself
-        return f"Error: invalid JSON arguments ({exc}). Send a JSON object."
+        args = json.loads(raw)
+    except ValueError:
+        args = raw
     step = await call(tc.function.name, args)
     if step.ok:
         return json.dumps(step.result)

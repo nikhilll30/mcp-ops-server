@@ -4,7 +4,8 @@ through ``call``.
 
 The harness records every call made through ``call``; that record, not anything the agent
 returns or claims, is what gets graded. An agent may return a metrics dict (token usage,
-its final answer) for the report; it is never used for grading.
+its final answer) for the report; it is never used for grading. An agent with an async
+``aclose()`` has it called once after its last task.
 
 ``ReplayAgent`` needs no LLM: it replays a scripted trajectory, resolving ``$ref`` values
 against earlier results (``steps[1].slots[0].slot_id``) and setup results. It runs free and
@@ -17,7 +18,9 @@ from typing import Any, Protocol
 
 from evals.grader import Step, resolve_refs
 
-CallTool = Callable[[str, dict[str, Any]], Awaitable[Step]]
+# ``call(tool, args)``. Arguments that are not a dict (a model's malformed JSON) are recorded
+# as a failed step and never sent to the server.
+CallTool = Callable[[str, Any], Awaitable[Step]]
 
 
 class Agent(Protocol):

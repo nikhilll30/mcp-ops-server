@@ -2,6 +2,21 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-18 · Part 5: Codex review found the live eval broken or misleading 6 ways (4x P1, 2x P2, all fixed)
+I reproduced the event-loop bug with the real SDK before fixing it. Each fix has a test that fails with the bug put back.
+- **P1 · The live agent failed from the second task on.** Every task ran in its own `asyncio.run()`, but one `AsyncOpenAI` client served them all, and its connection pool is bound to the first loop. **Reproduced:** the real SDK against a local stand-in endpoint; task 2 failed with `RuntimeError: Event loop is closed`. My fake client had no pool, so my tests could not see it. **Fix:** the whole suite runs in one event loop, and the agent's client is closed after the last task. **Tests:**
+  - the real SDK against a local endpoint (CI's test job now installs it);
+  - a fake client that, like the real pool, refuses a second loop.
+
+  Both fail with a fresh loop per task.
+- **P1 · Malformed tool arguments were invisible to the grader.** The agent rejected them itself, so they never reached the recorder and cost no calls or errors. **Fix:** the agent passes them to the harness's `call`, which records a failed step without sending it to the server. **Test:** two malformed calls now fail r01's error budget (the old test asserted the misleading pass).
+- **P1 · Dispatching the live workflow on an unreviewed branch would run that branch's code with the key.** An in-file `if: ref == main` check is not enough, because the dispatched branch's own copy of the file could delete it. **Fix:** the key is a secret of a `live-evals` environment that only `main` may use; GitHub enforces that server-side. The in-file check stays as a clear error message. *Not testable from here: the environment is configured by the owner in repo settings.*
+- **P1 · A live run where every API call failed exited 0.** API errors became task failures, and live runs gate on no pass rate. **Fix:** any agent error (crash, bad key, unknown model, outage after the SDK's retries) fails the run, and agent errors are counted in the report. **Test:** the CLI with a failing client exits 1.
+- **P2s:**
+  - Tokens spent before a failure vanished from the report. They are now attached to the error and reported, with a test where the failure comes after one successful call.
+  - The system prompt said "never work around a taken slot", while task k01 explicitly asks for the next open slot as a fallback. The prompt now allows fallbacks the user asked for.
+- **Lesson:** I tested the agent loop against a fake that was simpler than the real client in exactly the way that mattered (no connection state). Where a dependency has state, test against the real one at least once, even if only on localhost.
+
 ## 2026-10-18 · Part 5: Part 4's evals never tested the tools as a model sees them
 - **What surprised me:** The replay agent follows a script and never reads tool names, descriptions or schemas. So in Part 4 a misleading or wrong tool description would pass every eval; only the schema snapshot test would notice it changed, not whether it is any good.
 - **What changed:** The harness now lists the server's tools in each task's session and hands them to the agent. The live OpenAI agent builds its tool definitions from that list only. `test_correct_run_passes_and_is_accounted` checks that the model receives the server's `book_appointment` schema.

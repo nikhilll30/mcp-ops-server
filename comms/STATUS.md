@@ -6,7 +6,7 @@
 | 2 Core server | done (PR #3 merged) | docs/briefs/part-2-core-server.pdf |
 | 3 Hardening | done (PR #4 merged) | docs/briefs/part-3-hardening.pdf |
 | 4 Evals | done (PR #5 merged) | docs/briefs/part-4-evals.pdf |
-| 5 CI gate + numbers | in review (PR #6); live numbers pending owner's key | docs/briefs/part-5-ci-gate.pdf |
+| 5 CI gate + numbers | in review (PR #6, Codex findings fixed); live numbers pending owner's key | docs/briefs/part-5-ci-gate.pdf |
 | 6 Ship | not started | — |
 
 ## Tasks
@@ -27,12 +27,13 @@ History: GitHub @-mention delegation to Codex and Cursor did not trigger reliabl
 ## Owner decisions for Part 5 (2026-10-18)
 - **Free replay evals run on every push and PR and block merges** (dedicated `evals` CI job).
 - **Paid live eval runs only when the owner triggers it** (GitHub Actions "Run workflow", about weekly). No schedule.
-- **Provider: OpenAI.** Key goes in the repo secret `OPENAI_API_KEY` (owner adds it; never pasted in chat).
+- **Provider: OpenAI.** Key goes in secret `OPENAI_API_KEY` of the `live-evals` environment, deployment branches limited to `main` (owner adds it; never pasted in chat; not a repo-level secret).
   Model: owner names the exact model ID when the key is ready; it is config, not hard-coded.
 
 ## Next action: Part 5 · PR #6 review, then the first live run
 - Built: `evals` CI job (gate on every push/PR), `evals/agents_openai.py` (tested with a fake client), `.github/workflows/live-evals.yml` (manual only).
-- Owner: Codex review of PR #6; mark `evals` a required check on `main`; add secret `OPENAI_API_KEY` (+ OpenAI spending limit); trigger *Live evals* with the model ID.
+- Codex review of PR #6: 4x P1, 2x P2, all fixed (see FAILURES.md).
+- Owner: merge PR #6; mark `evals` a required check on `main`; create environment `live-evals` (deployment branches: `main` only) and add `OPENAI_API_KEY` there (+ OpenAI spending limit); trigger *Live evals* on `main` with the model ID.
 - Claude: fix review findings; after the first live run, put its pass rate, cost and latency into the README (can ride Part 6 if PR #6 is merged first).
 - Do not start Part 6 (Ship) without the owner's "go".
 - Known limits carried forward: tokens never expire; rate limit is per process; live runs are single-sample (no repeat runs or variance yet).

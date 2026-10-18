@@ -66,8 +66,16 @@ async def _run_task(srv: TaskServer, task: dict[str, Any], agent: Agent) -> dict
             for t in listed.tools
         ]
 
-        async def call(tool: str, args: dict[str, Any]) -> Step:
-            step = await srv.call(session, tool, args)
+        async def call(tool: str, args: Any) -> Step:
+            if isinstance(args, dict):
+                step = await srv.call(session, tool, args)
+            else:  # e.g. a model's malformed JSON: never sent, but recorded and graded
+                step = Step(
+                    tool,
+                    {"_invalid_arguments": args if isinstance(args, str) else repr(args)},
+                    ok=False,
+                    error="invalid arguments: expected a JSON object; not sent to the server",
+                )
             recorded.append(step)
             return step
 
@@ -76,6 +84,7 @@ async def _run_task(srv: TaskServer, task: dict[str, Any], agent: Agent) -> dict
             metrics = await agent.run(task, prompt, setup, call, tools)
         except Exception as exc:  # noqa: BLE001 - an agent crash fails its task, not the run
             agent_error = f"{type(exc).__name__}: {exc}"
+            metrics = getattr(exc, "agent_metrics", None)  # usage spent before the failure
         wall_ms = (time.perf_counter() - start) * 1000
     change = diff(before, srv.snapshot())
     context = {"setup": setup, "steps": [s.result for s in recorded]}
@@ -83,6 +92,7 @@ async def _run_task(srv: TaskServer, task: dict[str, Any], agent: Agent) -> dict
     record = _record(task, prompt, recorded, change, result)
     record["wall_ms"] = round(wall_ms, 1)
     record["agent_metrics"] = metrics  # reported, never graded
+    record["agent_error"] = agent_error
     return record
 
 
@@ -90,13 +100,28 @@ def _task_now(task: dict[str, Any]) -> datetime:
     return datetime.fromisoformat(task["now"]) if "now" in task else seed.CLINIC_NOW
 
 
-def run_tasks(h: Harness, tasks: list[dict], agent: Agent) -> list[dict]:
+async def run_tasks(h: Harness, tasks: list[dict], agent: Agent) -> list[dict]:
     """Each task on its own freshly seeded server, so tasks cannot affect each other."""
     results = []
     for task in tasks:
         with h.task_server(_task_now(task)) as srv:
-            results.append(asyncio.run(_run_task(srv, task, agent)))
+            results.append(await _run_task(srv, task, agent))
     return results
+
+
+async def _run_all(
+    h: Harness, tasks: list[dict], neg_tasks: list[dict], agent: Agent
+) -> tuple[list[dict], list[dict]]:
+    # One event loop for the whole suite: an agent's HTTP client pools connections bound to
+    # the loop that opened them, so a loop per task breaks the second task.
+    try:
+        golden = await run_tasks(h, tasks, agent)
+    finally:
+        if hasattr(agent, "aclose"):
+            await agent.aclose()
+    # Controls always use the replay agent: they check the grader, not the agent.
+    controls = await run_tasks(h, neg_tasks, ReplayAgent())
+    return golden, controls
 
 
 def run_suite(
@@ -117,9 +142,7 @@ def run_suite(
         {**by_id[n["task"]], "id": n["id"], "replay": n["replay"], "_neg": n} for n in negatives
     ]
     with Harness({t["as"] for t in tasks}) as h:
-        golden = run_tasks(h, tasks, agent)
-        # Controls always use the replay agent: they check the grader, not the agent.
-        controls = run_tasks(h, neg_tasks, ReplayAgent())
+        golden, controls = asyncio.run(_run_all(h, tasks, neg_tasks, agent))
     for r, t in zip(controls, neg_tasks, strict=True):
         want = set(t["_neg"]["expect_failed"])
         r["description"] = t["_neg"]["description"]
@@ -186,6 +209,7 @@ def summarize(
         "by_category": {c: {"tasks": len(v), "passed": sum(v)} for c, v in sorted(by_cat.items())},
         "tool_calls": sum(calls),
         "tool_errors": sum(not s["ok"] for r in golden for s in r["steps"]),
+        "agent_errors": sum(r.get("agent_error") is not None for r in golden),
         "negative_controls": len(controls),
         "negative_caught": sum(c["caught"] for c in controls),
         "latency_ms": {
@@ -211,7 +235,8 @@ def report(results: dict[str, Any]) -> str:
         "",
         f"**{s['passed']}/{s['tasks']} golden tasks passed** · "
         f"**{s['negative_caught']}/{s['negative_controls']} negative controls caught** · "
-        f"{s['tool_calls']} tool calls, {s['tool_errors']} tool errors.",
+        f"{s['tool_calls']} tool calls, {s['tool_errors']} tool errors, "
+        f"{s['agent_errors']} agent errors (crashes or API failures).",
         "",
         "## By category",
         "",
@@ -297,7 +322,10 @@ def _live_section(results: dict[str, Any]) -> list[str]:
     ]
     for r in results["tasks"]:
         m = r.get("agent_metrics") or {}
-        answer = m.get("final_answer") if m.get("stop") == "answered" else "(hit turn limit)"
+        answer = {
+            "answered": m.get("final_answer"),
+            "max_turns": "(hit turn limit)",
+        }.get(m.get("stop"), f"(agent error: {r.get('agent_error')})")
         lines.append(f"| `{r['id']}` | {'pass' if r['passed'] else '**FAIL**'} | {_cell(answer)} |")
     return [*lines, ""]
 
@@ -358,13 +386,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     # Negative controls test the grader, so they must always be caught. The golden pass rate
     # gates replay runs (deterministic); live runs measure a model and do not fail by default.
+    # An agent error (crash, bad key, unknown model, API outage after the SDK's retries) is
+    # not a measurement, so it always fails the run.
     min_rate = (
         args.min_pass_rate
         if args.min_pass_rate is not None
         else (1.0 if args.agent == "replay" else 0.0)
     )
     rate = s["passed"] / s["tasks"] if s["tasks"] else 1.0
-    ok = rate >= min_rate and s["negative_caught"] == s["negative_controls"]
+    ok = (
+        rate >= min_rate
+        and s["negative_caught"] == s["negative_controls"]
+        and s["agent_errors"] == 0
+    )
+    if s["agent_errors"]:
+        print(f"{s['agent_errors']} task(s) ended in an agent error; see the report")  # noqa: T201
     return 0 if ok else 1
 
 

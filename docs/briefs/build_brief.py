@@ -504,7 +504,7 @@ def part5() -> list:
     return [
         Paragraph("Part 5 Brief · CI eval gate and live evals", title),
         Paragraph(
-            "mcp-ops-server · 18 Oct 2026 · PR #6 · Status: built and green; first live run waits on your API key and model ID",
+            "mcp-ops-server · 18 Oct 2026 · PR #6 · Status: Codex review fixed (4x P1, 2x P2); live run waits on your key",
             sub,
         ),
         Spacer(1, 4),
@@ -537,8 +537,8 @@ def part5() -> list:
                 ],
                 [
                     "live-evals.yml",
-                    "workflow_dispatch only, read-only token, key from the OPENAI_API_KEY secret, inputs passed "
-                    "via env (no script injection), 30-minute timeout, fails clearly if the secret is missing.",
+                    "workflow_dispatch only. The key lives in a live-evals environment that only main can use "
+                    "(enforced by GitHub, not by this file). Inputs via env (no script injection), 30-min timeout.",
                 ],
             ],
             [1.35 * inch, w - 1.35 * inch],
@@ -546,16 +546,16 @@ def part5() -> list:
         section("Why it was done this way"),
         bl(
             "<b>Free gate, paid measurement.</b> Replay is deterministic, so it can block merges. A model's score "
-            "varies run to run, so live runs report a number and do not fail the build unless you ask "
-            f"({cf}--min-pass-rate</font>)."
+            "varies run to run, so live runs report a number and do not fail on it unless you ask "
+            f"({cf}--min-pass-rate</font>). An API error does fail the run: it measured nothing."
         ),
         bl(
-            "<b>Manual trigger only.</b> No schedule and no PR trigger, so cost stays under your control and "
-            "fork PRs can never reach the key."
+            "<b>Manual trigger only, main only.</b> No schedule and no PR trigger, so cost stays under your "
+            "control, and code that has not been merged never runs with the key."
         ),
         bl(
             "<b>Optional dependency.</b> openai is a separate install extra imported lazily; the server and the "
-            "CI gate never install it. Tests use a fake client, so they need no key or network."
+            "CI gate never install it. Tests use a fake client and the real SDK against a local endpoint: no key."
         ),
         section("What went wrong or surprised me (logged in FAILURES.md)"),
         bl(
@@ -564,14 +564,16 @@ def part5() -> list:
             "tool list; the live agent is scored on it."
         ),
         bl(
-            "<b>One stray import would have broken CI.</b> CI does not install openai. I ran the full suite in a "
-            "Python 3.12 venv without it (167 passed) and mutation-checked the agent loop: 5 of 5 mutations caught."
+            "<b>Codex review: 4x P1, 2x P2, all fixed with tests.</b> The real client broke from the 2nd task on "
+            "(a loop per task; my fake client had no connection pool to break). Malformed tool calls escaped the "
+            "grader. A dispatch on an unreviewed branch could reach the key. A run where every API call failed "
+            "was green. Also: partial token usage lost on error, and a prompt rule that contradicted a task."
         ),
         section("Verify it yourself"),
         codebox(
             [
                 "python -m evals.run       # 31/31 tasks passed; 12/12 negative controls caught",
-                "ruff check . && python -m pytest -q   # 167 passed (8 new: fake-client agent loop)",
+                "ruff check . && python -m pytest -q   # 170 passed (11 for the live agent loop)",
                 "PR #6 > Checks > evals > Summary      # the report CI just produced",
             ]
         ),
@@ -579,13 +581,14 @@ def part5() -> list:
         Paragraph(
             '"Every PR runs a free, deterministic trajectory eval that blocks merges. Real-model runs are a '
             "separate, owner-triggered measurement of pass rate, cost and latency, graded by the same code, "
-            'and the API key is unreachable from pull requests."',
+            'and only merged code on main can reach the API key."',
             body,
         ),
         section("Next"),
         Paragraph(
-            "<b>Your actions:</b> mark <b>evals</b> a required check; add the OPENAI_API_KEY secret (and an OpenAI "
-            "spending limit); trigger Live evals with your model ID. I then turn the first live run into the "
+            "<b>Your actions:</b> mark <b>evals</b> a required check; create environment <b>live-evals</b> limited to "
+            "main and add OPENAI_API_KEY there (not as a repo secret), plus an OpenAI spending limit; trigger Live "
+            "evals with your model ID. I then turn the first live run into the "
             'README\'s results table. Part 6 waits for your "go".',
             body,
         ),

@@ -49,10 +49,11 @@ python -m evals.golden.make_tasks      # regenerate golden/*.json after editing 
   negative controls. Free, no secrets. It fails on any failed task or uncaught control, and the
   report goes to the job summary and an artifact.
 - **Live runs are paid and owner-triggered only**: Actions > *Live evals* > Run workflow, with
-  the exact model ID (and optionally task IDs and per-1M-token prices for a cost line). It needs
-  the repository secret `OPENAI_API_KEY`; it never runs on push or PRs, so fork PRs cannot reach
-  the key. A live run reports a pass rate; it does not fail the build unless
-  `--min-pass-rate` is set.
+  the exact model ID (and optionally task IDs and per-1M-token prices for a cost line). The key
+  is the secret `OPENAI_API_KEY` of the `live-evals` environment, which only `main` can use, so
+  neither PRs nor a dispatch on an unreviewed branch can reach it. A live run reports a pass
+  rate and does not fail on it unless `--min-pass-rate` is set, but it does fail on any agent
+  error (bad key, unknown model, API outage), since that run measured nothing.
 
 Locally:
 

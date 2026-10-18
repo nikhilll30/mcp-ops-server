@@ -26,7 +26,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e ".[dev]"
+      # live: the real OpenAI SDK, so its tests run against a local fake endpoint (no key)
+      - run: pip install -e ".[dev,live]"
       - run: pytest -q
 
   evals:
