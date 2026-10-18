@@ -2,6 +2,16 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-18 · Part 4: a loosened server rule was invisible to every golden task
+- **What surprised me:** As a mutation check, I made pending referrals bookable in `store.py`. All 31 golden tasks still passed: the replay agent behaves well, checks the referral, and never tries the forbidden booking, so it never hit the loosened rule. Only negative control `n02` (which tries to book with a pending referral) failed, and that failure is what failed the test suite.
+- **What changed:** Negative controls are now required to cover every grader check (`test_negative_controls_cover_every_check`). They stay in CI next to the golden tasks.
+- **What happened next:** Mutation checks on the suite: removing patient binding fails a golden task; making pending referrals bookable fails a negative control; disabling the grader's patient-scope check fails a negative control. Lesson: a suite of well-behaved agents only proves the happy paths. Something has to try the wrong thing.
+
+## 2026-10-18 · Part 4: negative controls crashed on a shared database
+- **What broke:** The first full run passed all 31 golden tasks, then crashed on negative control `n07`. It reuses task `k02`'s setup, which books a fixed slot, and the golden run had already booked it ("Slot SLT-00211 is already booked").
+- **What changed:** Negative controls get their own freshly seeded server. A setup failure is now recorded as a failed `setup` check on that task instead of aborting the whole run.
+- **What happened next:** 31/31 golden tasks pass and 7/7 controls are caught. The suite also reuses one MCP session per principal instead of opening one per task, cutting a full run from 35 s to 22 s on this container.
+
 ## 2026-10-18 · Part 3: Codex review found 2x P1, 1x P2 (all reproduced, then fixed)
 - **P1 · The "per-call time limit" did not cover the whole call.** The deadline started *after* waiting for the in-process lock, and SQLite's busy wait used a fixed timeout outside it. **Reproduced:** a booking succeeded after 336 ms against a 200 ms limit (150 ms lock contention, then 150 ms of another connection's write lock). **Fix:** one deadline fixed before any waiting; SQLite's busy timeout is set to the time left before BEGIN, reads and COMMIT; a write that reaches COMMIT past the deadline is rolled back. After the fix the same scenario fails cleanly at ~200 ms. **Tests:** lock-plus-DB contention, work that overruns before COMMIT, and a reader blocking COMMIT. Each finishes within the budget plus 80 ms, and the slot stays open.
 - **P1 · Tokens sharing a client_id shared sessions.** The SDK ties a Streamable HTTP session to (client_id, issuer, subject), and my verifier set no subject. **Reproduced:** a PAT-0008 token DELETEd a staff token's session (200), and the staff token's next request got 404. Tool calls were still checked per token, so no patient data leaked, but sessions weren't isolated. **Fix:** each token's subject is its own hash. **Tests:** a unit test that subjects differ; an HTTP test where a second token with the same client_id gets 404 for ping and DELETE on the first token's session, and the owner keeps working.
