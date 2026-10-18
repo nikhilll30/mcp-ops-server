@@ -1,4 +1,9 @@
-"""Builds the one-page PDF brief for a part. Usage: python docs/briefs/build_brief.py"""
+"""Builds the one-page PDF brief for a part.
+
+Usage:
+    pip install -e ".[docs]"
+    python docs/briefs/build_brief.py
+"""
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
@@ -155,14 +160,19 @@ def part1() -> list:
             "a paid add-on. New workflow: Claude implements, Codex independently reviews each part."
         ),
         bl(
-            "<b>Secret scan failed only on PRs.</b> The gitleaks action's PR mode broke while the push run "
-            "on the same commit passed. Scoped it to push, which still scans full history."
+            "<b>Secret scan failed only on PRs.</b> My first fix scoped it to push. Codex's review (P1) caught "
+            "that fork PRs would then skip scanning. Final fix: gitleaks CLI on push and PR, read-only token."
+        ),
+        bl(
+            "<b>Codex review: 3 findings, all fixed.</b> The fork-PR gap above; tests never started the real "
+            "server (added an HTTP integration test that fails fast if startup breaks); the brief generator's "
+            "dependency was undeclared (added a <font face='Courier'>docs</font> extra)."
         ),
         section("Verify it yourself"),
         codebox(
             [
                 'pip install -e ".[dev]"',
-                "ruff check . && pytest -q          # 2 passed",
+                "ruff check . && pytest -q          # 3 passed (incl. live HTTP test)",
                 "python -m mcp_ops_server           # serves http://127.0.0.1:8000/mcp",
             ]
         ),

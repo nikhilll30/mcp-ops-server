@@ -1,4 +1,7 @@
-# AGENTS.md — instructions for Codex
+# AGENTS.md — instructions for non-Claude coding agents
+
+> Current workflow: Claude implements (see `CLAUDE.md`); Codex reviews. The task/reply protocol below
+> applies only if a part is ever delegated to another agent again.
 
 You are the implementer on this repo. Claude (the planner) writes task specs; you write the code.
 Read `comms/PLAN.md` once for context, then work only on the task you are given.
