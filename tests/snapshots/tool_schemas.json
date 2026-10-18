@@ -4,7 +4,7 @@
       "destructive_hint": false,
       "open_world_hint": false
     },
-    "description": "Book an open slot for a patient.\n\nFails if the slot is taken, the patient already has an overlapping appointment, or the\nspecialty requires a referral and ``referral_id`` is missing, not approved, belongs to\nanother patient, or is for a different specialty.\n",
+    "description": "Book an open slot for a patient.\n\nFails if the slot is taken, the patient already has an overlapping appointment, or the\nspecialty requires a referral and ``referral_id`` is missing, not approved, belongs to\nanother patient, or is for a different specialty.",
     "input_schema": {
       "properties": {
         "patient_id": {
@@ -232,7 +232,7 @@
       "open_world_hint": false,
       "read_only_hint": true
     },
-    "description": "List a patient's referrals (newest first), optionally for one specialty.\n\nOnly a referral with status ``approved`` can be used to book a specialty that requires one.\n",
+    "description": "List a patient's referrals (newest first), optionally for one specialty.\n\nOnly a referral with status ``approved`` can be used to book a specialty that requires one.",
     "input_schema": {
       "properties": {
         "patient_id": {
@@ -371,7 +371,7 @@
       "open_world_hint": false,
       "read_only_hint": true
     },
-    "description": "List a provider's unbooked 30-minute slots, earliest first.\n\nTimes are clinic-local ISO 8601 without offset. ``truncated`` is true when more slots\nexist than ``limit``; narrow the dates or raise the limit to see them.\n",
+    "description": "List a provider's unbooked 30-minute slots, earliest first.\n\nTimes are clinic-local ISO 8601 without offset. ``truncated`` is true when more slots\nexist than ``limit``; narrow the dates or raise the limit to see them.",
     "input_schema": {
       "properties": {
         "end_date": {
@@ -488,7 +488,7 @@
       "open_world_hint": false,
       "read_only_hint": true
     },
-    "description": "Find providers by specialty, clinic location, and/or name.\n\nEach result says whether the specialty requires an approved referral before booking.\n",
+    "description": "Find providers by specialty, clinic location, and/or name.\n\nEach result says whether the specialty requires an approved referral before booking.",
     "input_schema": {
       "properties": {
         "limit": {

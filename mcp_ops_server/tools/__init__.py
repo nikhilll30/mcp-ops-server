@@ -1,9 +1,11 @@
 """Tool modules. Each exposes ``register(server, store)`` and wraps the store thinly."""
 
-from collections.abc import Iterator
+import inspect
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Annotated
 
+from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field
@@ -36,3 +38,16 @@ def store_errors() -> Iterator[None]:
         yield
     except StoreError as exc:
         raise ToolError(str(exc)) from exc
+
+
+def tool(server: MCPServer, **kwargs: object) -> Callable[[Callable], Callable]:
+    """Register a tool whose description is its docstring, dedented the same on every Python.
+
+    Python 3.13 dedents docstrings at compile time and 3.12 does not, so a raw ``__doc__``
+    gives agents different (indented) descriptions depending on the interpreter.
+    """
+
+    def register(fn: Callable) -> Callable:
+        return server.tool(description=inspect.cleandoc(fn.__doc__ or ""), **kwargs)(fn)
+
+    return register

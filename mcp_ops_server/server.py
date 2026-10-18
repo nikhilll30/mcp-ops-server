@@ -10,7 +10,7 @@ from mcp_ops_server import __version__
 from mcp_ops_server.auth import Guard
 from mcp_ops_server.limits import RateLimiter
 from mcp_ops_server.store import Store
-from mcp_ops_server.tools import referrals, scheduling
+from mcp_ops_server.tools import referrals, scheduling, tool
 
 
 class HealthResult(TypedDict):
@@ -40,7 +40,7 @@ def build_server(
     server = MCPServer("mcp-ops-server", auth=auth, token_verifier=token_verifier)
     guard = Guard(RateLimiter(rate_limit_per_minute))
 
-    @server.tool()
+    @tool(server)
     def health() -> HealthResult:
         """Liveness check. Returns server status and version."""
         return {"status": "ok", "version": __version__}

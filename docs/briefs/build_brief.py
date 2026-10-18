@@ -360,7 +360,8 @@ def part3() -> list:
         ),
         section("What went wrong or surprised me (logged in FAILURES.md)"),
         bl(
-            "<b>Loose SDK defaults:</b> 4 MiB bodies, 10,000 sessions, 30-minute idle. Tightened, with a 413 test."
+            "<b>The schema test caught a real bug on its first CI run:</b> Python 3.12 keeps docstring indents, 3.13 "
+            "strips them, so agents saw different tool descriptions. Now normalized; tests pass on both."
         ),
         bl(
             "<b>The obvious timeout was wrong</b> (see above). Caught at design time; a test proves a timed-out "

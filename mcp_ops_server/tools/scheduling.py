@@ -24,11 +24,12 @@ from mcp_ops_server.tools import (
     ReferralId,
     SlotId,
     store_errors,
+    tool,
 )
 
 
 def register(server: MCPServer, store: Store, guard: Guard) -> None:
-    @server.tool(annotations=READ_ONLY)
+    @tool(server, annotations=READ_ONLY)
     def search_providers(
         specialty: Specialty | None = None,
         location: Location | None = None,
@@ -46,7 +47,7 @@ def register(server: MCPServer, store: Store, guard: Guard) -> None:
         with store_errors():
             return store.search_providers(specialty, location, name, limit)
 
-    @server.tool(annotations=READ_ONLY)
+    @tool(server, annotations=READ_ONLY)
     def list_open_slots(
         provider_id: ProviderId,
         start_date: Annotated[date, Field(description="First day to search (YYYY-MM-DD).")],
@@ -68,7 +69,7 @@ def register(server: MCPServer, store: Store, guard: Guard) -> None:
         with store_errors():
             return store.list_open_slots(provider_id, start_date, end_date, limit)
 
-    @server.tool(annotations=ToolAnnotations(destructiveHint=False, openWorldHint=False))
+    @tool(server, annotations=ToolAnnotations(destructiveHint=False, openWorldHint=False))
     def book_appointment(
         patient_id: PatientId,
         slot_id: SlotId,
@@ -87,7 +88,7 @@ def register(server: MCPServer, store: Store, guard: Guard) -> None:
         with store_errors():
             return store.book_appointment(patient_id, slot_id, referral_id)
 
-    @server.tool(annotations=ToolAnnotations(destructiveHint=True, openWorldHint=False))
+    @tool(server, annotations=ToolAnnotations(destructiveHint=True, openWorldHint=False))
     def cancel_appointment(
         appointment_id: AppointmentId,
         patient_id: Annotated[

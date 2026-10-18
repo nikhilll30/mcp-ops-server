@@ -5,11 +5,11 @@ from mcp.server.mcpserver import MCPServer
 from mcp_ops_server.auth import Guard
 from mcp_ops_server.models import ReferralStatusResult, Specialty
 from mcp_ops_server.store import Store
-from mcp_ops_server.tools import READ_ONLY, PatientId, store_errors
+from mcp_ops_server.tools import READ_ONLY, PatientId, store_errors, tool
 
 
 def register(server: MCPServer, store: Store, guard: Guard) -> None:
-    @server.tool(annotations=READ_ONLY)
+    @tool(server, annotations=READ_ONLY)
     def get_referral_status(
         patient_id: PatientId, specialty: Specialty | None = None
     ) -> ReferralStatusResult:

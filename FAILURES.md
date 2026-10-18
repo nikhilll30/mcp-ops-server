@@ -2,6 +2,11 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-18 · Part 3: tool descriptions differed between Python 3.12 and 3.13
+- **What broke:** The new schema snapshot test passed locally (Python 3.13) and failed in CI (Python 3.12). Python 3.13 strips docstring indentation at compile time; 3.12 does not. The SDK uses a tool's raw `__doc__` as its description, so on 3.12 every multi-line description an agent saw was full of stray indentation. This was already true in Part 2; nothing checked it until now.
+- **What changed:** Tools are registered through a small `tool()` helper that passes `inspect.cleandoc(fn.__doc__)` as the description, so agents see the same text on every Python. The snapshot was regenerated; the only change is that 4 descriptions lose a trailing newline.
+- **What happened next:** Reproduced in a fresh Python 3.12 venv with CI's dependency versions (failed there before the fix). After the fix, all 112 tests pass on both 3.12 and 3.13. The snapshot test caught a real cross-version contract difference on its first CI run.
+
 ## 2026-10-18 · Part 3: SDK defaults were far looser than this server needs
 - **What surprised me:** The MCP SDK's Streamable HTTP defaults are a 4 MiB request body cap, 10,000 concurrent sessions and a 30-minute session idle timeout. The largest legitimate request to this server is well under 1 KiB.
 - **What changed:** The entry point now builds the app itself, with a 64 KiB cap (413 above it), 100 sessions and a 10-minute idle timeout, all set by env vars. An HTTP test checks for the 413.
