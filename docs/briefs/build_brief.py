@@ -398,10 +398,110 @@ def part3() -> list:
     ]
 
 
+def part4() -> list:
+    w = 7.0 * inch
+    cf = "<font face='Courier'>"
+    return [
+        Paragraph("Part 4 Brief · Evals", title),
+        Paragraph(
+            "mcp-ops-server · 18 Oct 2026 · PR #5 · Status: 31/31 tasks pass, 7/7 negative controls caught, awaiting Codex review",
+            sub,
+        ),
+        Spacer(1, 4),
+        section("What was built"),
+        bl(
+            "<b>31 golden tasks</b> in 7 categories (lookups, bookings, referral bookings, refusals, "
+            "cancellations, auth, conflicts). Each has a prompt, who it runs as (staff, read-only, or a "
+            "patient-bound portal token) and what must and must not happen."
+        ),
+        bl(
+            "<b>A trajectory grader</b> that checks every step, not just the final answer: required steps "
+            "in order, forbidden steps, no touching other patients, call and error budgets, and the "
+            "<b>exact change in the database</b>."
+        ),
+        bl(
+            "<b>A replay agent</b> (no LLM, free, deterministic) that runs in CI, plus "
+            f"{cf}evals/report.md</font>: per-task results, pass rate by category, tool latency."
+        ),
+        bl(
+            "<b>7 negative controls:</b> deliberately bad runs (wrong patient, skipped referral check, "
+            "writes during a lookup, flailing) that the grader must fail. Together they cover every check."
+        ),
+        section("How it works"),
+        table(
+            [
+                ["Piece", "Role"],
+                [
+                    "harness.py",
+                    "Starts the real server with issued tokens and a file database; agents talk to it over "
+                    "MCP like any client. Diffs the appointments table before and after each task.",
+                ],
+                [
+                    "grader.py",
+                    "Six checks per task. final_state compares the actual database change to the expected "
+                    "bookings and cancellations, so a correct-sounding but wrong run still fails.",
+                ],
+                [
+                    "agents.py",
+                    "One Agent interface. Replay now; the Part 5 LLM agent plugs into the same slot and is "
+                    "graded identically.",
+                ],
+            ],
+            [1.2 * inch, w - 1.2 * inch],
+        ),
+        section("Why it was done this way"),
+        bl(
+            '<b>Grade the database, not the reply.</b> An agent can say "booked!" and book the wrong '
+            "patient. The diff catches that; a final-answer check would not."
+        ),
+        bl(
+            "<b>Grade the steps.</b> Booking with a valid referral ID but never checking its status can "
+            "still succeed. Only step-level grading sees that the check was skipped."
+        ),
+        bl(
+            "<b>Evals use real auth.</b> 7 of the 64 calls are expected refusals (scope, patient binding, "
+            "double booking), so the suite also tests Part 3's rules end to end."
+        ),
+        section("What went wrong or surprised me (logged in FAILURES.md)"),
+        bl(
+            "<b>A loosened rule was invisible to every golden task.</b> I made pending referrals bookable as "
+            "a test; all 31 tasks still passed, because a well-behaved agent never tries it. Only a negative "
+            "control failed. Now the controls must cover every check."
+        ),
+        bl(
+            "<b>Controls crashed on a shared database</b> by reusing a slot the golden run had booked. They now "
+            "get a fresh server, and a broken setup fails one task instead of the run."
+        ),
+        section("Verify it yourself"),
+        codebox(
+            [
+                "python -m evals.run       # 31/31 tasks passed; 7/7 negative controls caught",
+                "cat evals/report.md       # per-task results, categories, latency",
+                "ruff check . && python -m pytest -q   # 150 passed (includes the full suite)",
+            ]
+        ),
+        section("Interview talking point"),
+        Paragraph(
+            '"My eval grades what the agent did, step by step, and what changed in the database, not what it '
+            "said. And I test the grader: deliberately bad runs must fail. One caught a server regression that "
+            'every well-behaved task missed."',
+            body,
+        ),
+        section("Next: Part 5, CI gate and real numbers"),
+        Paragraph(
+            "A dedicated eval job that blocks merges, and a live LLM agent on the same 31 tasks to measure pass "
+            "rate, cost and latency. That needs an API key as a secret, your call. <b>Your action:</b> paste "
+            "the Codex prompt, then merge PR #5 once fixes are in.",
+            body,
+        ),
+    ]
+
+
 PARTS = {
     1: (part1, "part-1-foundation", "Part 1 Brief: Foundation"),
     2: (part2, "part-2-core-server", "Part 2 Brief: Core server"),
     3: (part3, "part-3-hardening", "Part 3 Brief: Hardening"),
+    4: (part4, "part-4-evals", "Part 4 Brief: Evals"),
 }
 
 
