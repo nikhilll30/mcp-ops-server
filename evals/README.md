@@ -38,7 +38,31 @@ python -m evals.golden.make_tasks      # regenerate golden/*.json after editing 
 - `ReplayAgent` (no LLM): replays each task's reference trajectory, resolving `$ref` values
   against earlier results. Free and deterministic, so it runs in CI on every push: a server
   change that breaks a known-good flow fails the build.
-- An LLM agent plugs into the same `Agent` interface in Part 5.
+- `OpenAIAgent` (`agents_openai.py`): an OpenAI model driving the server through Chat
+  Completions tool calling. It sees exactly the tools the server advertises (names,
+  descriptions, input schemas), so a vague description costs score. Its tool calls go through
+  the same recorded `call`, so it is graded exactly like the replay agent. Tokens, cost,
+  latency and final answers are reported, never graded.
+
+## CI gate and live runs
+- **Every push and PR** runs the `evals` job: all golden tasks with the replay agent and all
+  negative controls. Free, no secrets. It fails on any failed task or uncaught control, and the
+  report goes to the job summary and an artifact.
+- **Live runs are paid and owner-triggered only**: Actions > *Live evals* > Run workflow, with
+  the exact model ID (and optionally task IDs and per-1M-token prices for a cost line). The key
+  is the secret `OPENAI_API_KEY` of the `live-evals` environment, which only `main` can use, so
+  neither PRs nor a dispatch on an unreviewed branch can reach it. A live run reports a pass
+  rate and does not fail on it unless `--min-pass-rate` is set, but it does fail on any agent
+  error (bad key, unknown model, API outage), since that run measured nothing.
+
+Locally:
+
+```bash
+pip install -e ".[dev,live]"
+export OPENAI_API_KEY=...   # your own key; never commit it
+python -m evals.run --agent openai --model <model-id> --tasks r01-find-cardiologists \
+    --price-in <usd-per-1M-in> --price-out <usd-per-1M-out>   # report: evals/results/live-report.md
+```
 
 ## Negative controls
 `golden/negative.json` holds deliberately bad trajectories (wrong patient, skipped referral

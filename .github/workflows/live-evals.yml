@@ -1,0 +1,89 @@
+name: Live evals
+
+# Paid: runs the golden tasks with a real OpenAI model. Owner-triggered only
+# (Actions > Live evals > Run workflow); never on push or pull_request.
+#
+# The key is an *environment* secret of the "live-evals" environment, whose deployment
+# branches are limited to main (Settings > Environments). GitHub enforces that limit
+# server-side, so dispatching this workflow on an unreviewed branch (whose copy of this file
+# could drop any in-file check) cannot reach the key. Do not also store it as a repo secret.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Exact OpenAI model ID"
+        required: true
+        type: string
+      tasks:
+        description: "Comma-separated task IDs (empty = all 31)"
+        required: false
+        type: string
+        default: ""
+      price_in:
+        description: "USD per 1M input tokens (optional, for the cost line)"
+        required: false
+        type: string
+        default: ""
+      price_out:
+        description: "USD per 1M output tokens (optional, for the cost line)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-evals
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: live-evals
+    steps:
+      - name: Only main runs live evals
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Live evals run only on main (got $GITHUB_REF)."
+          exit 1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,live]"
+      - name: Check the API key secret is set
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::OPENAI_API_KEY is not set as a secret of the live-evals environment (Settings > Environments > live-evals)."
+            exit 1
+          fi
+      - name: Run live evals
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # Inputs go through env, never interpolated into the script.
+          MODEL: ${{ inputs.model }}
+          TASKS: ${{ inputs.tasks }}
+          PRICE_IN: ${{ inputs.price_in }}
+          PRICE_OUT: ${{ inputs.price_out }}
+        run: |
+          args=(--agent openai --model "$MODEL" --out live-results.json --report live-report.md)
+          if [ -n "$TASKS" ]; then args+=(--tasks "$TASKS"); fi
+          if [ -n "$PRICE_IN" ] || [ -n "$PRICE_OUT" ]; then
+            args+=(--price-in "$PRICE_IN" --price-out "$PRICE_OUT")
+          fi
+          python -m evals.run "${args[@]}"
+      - name: Publish report to the job summary
+        if: always()
+        run: test -f live-report.md && cat live-report.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-eval-results
+          path: |
+            live-report.md
+            live-results.json
+          if-no-files-found: ignore

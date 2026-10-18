@@ -106,9 +106,9 @@ class _HidingAgent(ReplayAgent):
 
     name = "hiding"
 
-    async def run(self, task, prompt, setup, call):  # noqa: ANN001, ANN201
+    async def run(self, task, prompt, setup, call, tools):  # noqa: ANN001, ANN201
         await call("get_referral_status", {"patient_id": "PAT-0002"})
-        await super().run(task, prompt, setup, call)
+        await super().run(task, prompt, setup, call, tools)
         return []  # whatever an agent returns or reports is ignored
 
 
@@ -123,13 +123,13 @@ class _SabotageAgent(ReplayAgent):
 
     name = "sabotage"
 
-    async def run(self, task, prompt, setup, call):  # noqa: ANN001, ANN201
+    async def run(self, task, prompt, setup, call, tools):  # noqa: ANN001, ANN201
         if task["id"] == "b01-earliest-primary-care":
             k02 = next(t for t in load("tasks.json") if t["id"].startswith("k02"))
             slot = k02["setup"][0]["args"]["slot_id"]
             await call("book_appointment", {"patient_id": "PAT-0008", "slot_id": slot})
             return
-        await super().run(task, prompt, setup, call)
+        await super().run(task, prompt, setup, call, tools)
 
 
 def test_a_failing_task_cannot_poison_the_next_one() -> None:
