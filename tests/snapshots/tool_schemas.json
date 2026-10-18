@@ -1,0 +1,627 @@
+{
+  "book_appointment": {
+    "annotations": {
+      "destructive_hint": false,
+      "open_world_hint": false
+    },
+    "description": "Book an open slot for a patient.\n\nFails if the slot is taken, the patient already has an overlapping appointment, or the\nspecialty requires a referral and ``referral_id`` is missing, not approved, belongs to\nanother patient, or is for a different specialty.\n",
+    "input_schema": {
+      "properties": {
+        "patient_id": {
+          "description": "Patient ID, e.g. PAT-0001.",
+          "pattern": "^PAT-[0-9]{4}$",
+          "title": "Patient Id",
+          "type": "string"
+        },
+        "referral_id": {
+          "anyOf": [
+            {
+              "description": "Referral ID from get_referral_status.",
+              "pattern": "^REF-[0-9]{4}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Required for specialties that need a referral; must be approved.",
+          "title": "Referral Id"
+        },
+        "slot_id": {
+          "description": "Slot ID from list_open_slots.",
+          "pattern": "^SLT-[0-9]{5}$",
+          "title": "Slot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "patient_id",
+        "slot_id"
+      ],
+      "title": "book_appointmentArguments",
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "appointment_id": {
+          "title": "Appointment Id",
+          "type": "string"
+        },
+        "end": {
+          "title": "End",
+          "type": "string"
+        },
+        "patient_id": {
+          "title": "Patient Id",
+          "type": "string"
+        },
+        "provider_id": {
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "provider_name": {
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "referral_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Referral Id"
+        },
+        "slot_id": {
+          "title": "Slot Id",
+          "type": "string"
+        },
+        "specialty": {
+          "enum": [
+            "primary_care",
+            "pediatrics",
+            "cardiology",
+            "dermatology",
+            "orthopedics",
+            "neurology"
+          ],
+          "title": "Specialty",
+          "type": "string"
+        },
+        "start": {
+          "title": "Start",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "booked",
+            "cancelled"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "appointment_id",
+        "status",
+        "patient_id",
+        "provider_id",
+        "provider_name",
+        "specialty",
+        "slot_id",
+        "start",
+        "end",
+        "referral_id"
+      ],
+      "title": "AppointmentResult",
+      "type": "object"
+    }
+  },
+  "cancel_appointment": {
+    "annotations": {
+      "destructive_hint": true,
+      "open_world_hint": false
+    },
+    "description": "Cancel a booked appointment. The slot becomes open again.",
+    "input_schema": {
+      "properties": {
+        "appointment_id": {
+          "description": "Appointment ID from book_appointment.",
+          "pattern": "^APT-[0-9]{5,18}$",
+          "title": "Appointment Id",
+          "type": "string"
+        },
+        "patient_id": {
+          "description": "Must match the appointment's patient.",
+          "pattern": "^PAT-[0-9]{4}$",
+          "title": "Patient Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "appointment_id",
+        "patient_id"
+      ],
+      "title": "cancel_appointmentArguments",
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "appointment_id": {
+          "title": "Appointment Id",
+          "type": "string"
+        },
+        "end": {
+          "title": "End",
+          "type": "string"
+        },
+        "patient_id": {
+          "title": "Patient Id",
+          "type": "string"
+        },
+        "provider_id": {
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "provider_name": {
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "referral_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Referral Id"
+        },
+        "slot_id": {
+          "title": "Slot Id",
+          "type": "string"
+        },
+        "specialty": {
+          "enum": [
+            "primary_care",
+            "pediatrics",
+            "cardiology",
+            "dermatology",
+            "orthopedics",
+            "neurology"
+          ],
+          "title": "Specialty",
+          "type": "string"
+        },
+        "start": {
+          "title": "Start",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "booked",
+            "cancelled"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "appointment_id",
+        "status",
+        "patient_id",
+        "provider_id",
+        "provider_name",
+        "specialty",
+        "slot_id",
+        "start",
+        "end",
+        "referral_id"
+      ],
+      "title": "AppointmentResult",
+      "type": "object"
+    }
+  },
+  "get_referral_status": {
+    "annotations": {
+      "idempotent_hint": true,
+      "open_world_hint": false,
+      "read_only_hint": true
+    },
+    "description": "List a patient's referrals (newest first), optionally for one specialty.\n\nOnly a referral with status ``approved`` can be used to book a specialty that requires one.\n",
+    "input_schema": {
+      "properties": {
+        "patient_id": {
+          "description": "Patient ID, e.g. PAT-0001.",
+          "pattern": "^PAT-[0-9]{4}$",
+          "title": "Patient Id",
+          "type": "string"
+        },
+        "specialty": {
+          "anyOf": [
+            {
+              "enum": [
+                "primary_care",
+                "pediatrics",
+                "cardiology",
+                "dermatology",
+                "orthopedics",
+                "neurology"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Specialty"
+        }
+      },
+      "required": [
+        "patient_id"
+      ],
+      "title": "get_referral_statusArguments",
+      "type": "object"
+    },
+    "output_schema": {
+      "$defs": {
+        "ReferralInfo": {
+          "properties": {
+            "issued_on": {
+              "title": "Issued On",
+              "type": "string"
+            },
+            "referral_id": {
+              "title": "Referral Id",
+              "type": "string"
+            },
+            "specialty": {
+              "enum": [
+                "primary_care",
+                "pediatrics",
+                "cardiology",
+                "dermatology",
+                "orthopedics",
+                "neurology"
+              ],
+              "title": "Specialty",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "pending",
+                "approved",
+                "denied"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          "required": [
+            "referral_id",
+            "specialty",
+            "status",
+            "issued_on"
+          ],
+          "title": "ReferralInfo",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "count": {
+          "title": "Count",
+          "type": "integer"
+        },
+        "patient_id": {
+          "title": "Patient Id",
+          "type": "string"
+        },
+        "referrals": {
+          "items": {
+            "$ref": "#/$defs/ReferralInfo"
+          },
+          "title": "Referrals",
+          "type": "array"
+        }
+      },
+      "required": [
+        "patient_id",
+        "referrals",
+        "count"
+      ],
+      "title": "ReferralStatusResult",
+      "type": "object"
+    }
+  },
+  "health": {
+    "annotations": null,
+    "description": "Liveness check. Returns server status and version.",
+    "input_schema": {
+      "properties": {},
+      "title": "healthArguments",
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "version"
+      ],
+      "title": "HealthResult",
+      "type": "object"
+    }
+  },
+  "list_open_slots": {
+    "annotations": {
+      "idempotent_hint": true,
+      "open_world_hint": false,
+      "read_only_hint": true
+    },
+    "description": "List a provider's unbooked 30-minute slots, earliest first.\n\nTimes are clinic-local ISO 8601 without offset. ``truncated`` is true when more slots\nexist than ``limit``; narrow the dates or raise the limit to see them.\n",
+    "input_schema": {
+      "properties": {
+        "end_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Last day to search, inclusive. Defaults to start_date + 6 days. Range at most 31 days.",
+          "title": "End Date"
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "provider_id": {
+          "description": "Provider ID from search_providers.",
+          "pattern": "^PRV-[0-9]{3}$",
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "start_date": {
+          "description": "First day to search (YYYY-MM-DD).",
+          "format": "date",
+          "title": "Start Date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_id",
+        "start_date"
+      ],
+      "title": "list_open_slotsArguments",
+      "type": "object"
+    },
+    "output_schema": {
+      "$defs": {
+        "SlotInfo": {
+          "properties": {
+            "end": {
+              "title": "End",
+              "type": "string"
+            },
+            "slot_id": {
+              "title": "Slot Id",
+              "type": "string"
+            },
+            "start": {
+              "title": "Start",
+              "type": "string"
+            }
+          },
+          "required": [
+            "slot_id",
+            "start",
+            "end"
+          ],
+          "title": "SlotInfo",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "count": {
+          "title": "Count",
+          "type": "integer"
+        },
+        "end_date": {
+          "title": "End Date",
+          "type": "string"
+        },
+        "provider_id": {
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "slots": {
+          "items": {
+            "$ref": "#/$defs/SlotInfo"
+          },
+          "title": "Slots",
+          "type": "array"
+        },
+        "start_date": {
+          "title": "Start Date",
+          "type": "string"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "provider_id",
+        "start_date",
+        "end_date",
+        "slots",
+        "count",
+        "truncated"
+      ],
+      "title": "OpenSlotsResult",
+      "type": "object"
+    }
+  },
+  "search_providers": {
+    "annotations": {
+      "idempotent_hint": true,
+      "open_world_hint": false,
+      "read_only_hint": true
+    },
+    "description": "Find providers by specialty, clinic location, and/or name.\n\nEach result says whether the specialty requires an approved referral before booking.\n",
+    "input_schema": {
+      "properties": {
+        "limit": {
+          "default": 20,
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "location": {
+          "anyOf": [
+            {
+              "enum": [
+                "north",
+                "south",
+                "downtown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 50,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Case-insensitive name substring.",
+          "title": "Name"
+        },
+        "specialty": {
+          "anyOf": [
+            {
+              "enum": [
+                "primary_care",
+                "pediatrics",
+                "cardiology",
+                "dermatology",
+                "orthopedics",
+                "neurology"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Specialty"
+        }
+      },
+      "title": "search_providersArguments",
+      "type": "object"
+    },
+    "output_schema": {
+      "$defs": {
+        "ProviderInfo": {
+          "properties": {
+            "location": {
+              "enum": [
+                "north",
+                "south",
+                "downtown"
+              ],
+              "title": "Location",
+              "type": "string"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "provider_id": {
+              "title": "Provider Id",
+              "type": "string"
+            },
+            "requires_referral": {
+              "title": "Requires Referral",
+              "type": "boolean"
+            },
+            "specialty": {
+              "enum": [
+                "primary_care",
+                "pediatrics",
+                "cardiology",
+                "dermatology",
+                "orthopedics",
+                "neurology"
+              ],
+              "title": "Specialty",
+              "type": "string"
+            }
+          },
+          "required": [
+            "provider_id",
+            "name",
+            "specialty",
+            "location",
+            "requires_referral"
+          ],
+          "title": "ProviderInfo",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "count": {
+          "title": "Count",
+          "type": "integer"
+        },
+        "providers": {
+          "items": {
+            "$ref": "#/$defs/ProviderInfo"
+          },
+          "title": "Providers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "providers",
+        "count"
+      ],
+      "title": "SearchProvidersResult",
+      "type": "object"
+    }
+  }
+}
