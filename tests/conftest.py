@@ -2,9 +2,13 @@
 
 import asyncio
 from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import pytest
+from mcp.server.auth.middleware.auth_context import auth_context_var
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
+from mcp.server.auth.provider import AccessToken
 from mcp.server.mcpserver import MCPServer
 
 from mcp_ops_server import seed
@@ -26,6 +30,36 @@ WEEK_ONE = "2026-11-02"
 
 _SEED = seed.generate()
 _SLOTS = {s.id: s for s in _SEED.slots}
+
+
+ALL_SCOPES = ["read:schedule", "write:schedule", "read:referrals"]
+
+
+@contextmanager
+def as_principal(
+    client_id: str = "test-staff",
+    scopes: list[str] | None = None,
+    patient_id: str | None = None,
+) -> Iterator[None]:
+    """Act as an authenticated caller, the way the HTTP auth middleware would set it."""
+    token = AccessToken(
+        token="test-token",  # noqa: S106 - not a credential; never checked in-process
+        client_id=client_id,
+        scopes=ALL_SCOPES if scopes is None else scopes,
+        claims={"patient_id": patient_id} if patient_id else None,
+    )
+    reset = auth_context_var.set(AuthenticatedUser(token))
+    try:
+        yield
+    finally:
+        auth_context_var.reset(reset)
+
+
+@pytest.fixture(autouse=True)
+def staff_principal() -> Iterator[None]:
+    """Unit tests run as fully-scoped staff unless they opt into another principal."""
+    with as_principal():
+        yield
 
 
 @pytest.fixture

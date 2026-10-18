@@ -2,6 +2,38 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-18 · Part 3: Codex review found 2x P1, 1x P2 (all reproduced, then fixed)
+- **P1 · The "per-call time limit" did not cover the whole call.** The deadline started *after* waiting for the in-process lock, and SQLite's busy wait used a fixed timeout outside it. **Reproduced:** a booking succeeded after 336 ms against a 200 ms limit (150 ms lock contention, then 150 ms of another connection's write lock). **Fix:** one deadline fixed before any waiting; SQLite's busy timeout is set to the time left before BEGIN, reads and COMMIT; a write that reaches COMMIT past the deadline is rolled back. After the fix the same scenario fails cleanly at ~200 ms. **Tests:** lock-plus-DB contention, work that overruns before COMMIT, and a reader blocking COMMIT. Each finishes within the budget plus 80 ms, and the slot stays open.
+- **P1 · Tokens sharing a client_id shared sessions.** The SDK ties a Streamable HTTP session to (client_id, issuer, subject), and my verifier set no subject. **Reproduced:** a PAT-0008 token DELETEd a staff token's session (200), and the staff token's next request got 404. Tool calls were still checked per token, so no patient data leaked, but sessions weren't isolated. **Fix:** each token's subject is its own hash. **Tests:** a unit test that subjects differ; an HTTP test where a second token with the same client_id gets 404 for ping and DELETE on the first token's session, and the owner keeps working.
+- **P2 · Invalid calls and `health` bypassed the rate limit.** The limit ran inside tool bodies, after the SDK validated arguments. **Reproduced:** with a 1-call budget, 4 invalid calls cost nothing, and `health` worked after the budget was spent. **Fix:** an `MCPServer` subclass rate-limits in `call_tool`, before validation, for every tool. `health` counts, and its description now says so (the schema snapshot flagged that change).
+- **Lesson:** my Part 3 claims ("every call is bounded", "a token can't affect another's") were true for the paths I tested and false for paths I didn't think of: waits outside the statement, and session state outside the tools. Each fix above was checked by putting the bug back and watching its test fail.
+
+## 2026-10-18 · Part 3: tool descriptions differed between Python 3.12 and 3.13
+- **What broke:** The new schema snapshot test passed locally (Python 3.13) and failed in CI (Python 3.12). Python 3.13 strips docstring indentation at compile time; 3.12 does not. The SDK uses a tool's raw `__doc__` as its description, so on 3.12 every multi-line description an agent saw was full of stray indentation. This was already true in Part 2; nothing checked it until now.
+- **What changed:** Tools are registered through a small `tool()` helper that passes `inspect.cleandoc(fn.__doc__)` as the description, so agents see the same text on every Python. The snapshot was regenerated; the only change is that 4 descriptions lose a trailing newline.
+- **What happened next:** Reproduced in a fresh Python 3.12 venv with CI's dependency versions (failed there before the fix). After the fix, all 112 tests pass on both 3.12 and 3.13. The snapshot test caught a real cross-version contract difference on its first CI run.
+
+## 2026-10-18 · Part 3: SDK defaults were far looser than this server needs
+- **What surprised me:** The MCP SDK's Streamable HTTP defaults are a 4 MiB request body cap, 10,000 concurrent sessions and a 30-minute session idle timeout. The largest legitimate request to this server is well under 1 KiB.
+- **What changed:** The entry point now builds the app itself, with a 64 KiB cap (413 above it), 100 sessions and a 10-minute idle timeout, all set by env vars. An HTTP test checks for the 413.
+- **What happened next:** `python -m mcp_ops_server` serves the tightened app instead of `server.run()` with defaults.
+
+## 2026-10-18 · Part 3: a naive per-call timeout would have lied about writes
+- **What surprised me:** The obvious timeout, wrapping the worker thread in `anyio.fail_after`, can't stop a thread. The caller would be told "timed out" while the booking could still commit afterwards.
+- **What changed:** The time limit is enforced inside SQLite instead. A progress handler interrupts the running statement past the deadline, the transaction rolls back, and the lock wait and busy wait use the same limit.
+- **What happened next:** `test_runaway_write_is_rolled_back` shows a timed-out insert never lands. Removing the progress handler makes both timeout tests fail.
+
+## 2026-10-18 · Part 3: 111 tests passed on the first run, so I tried to break them
+- **What surprised me:** A brand-new auth layer with every test green on the first run looked too good, given that Part 2's race test had passed without testing what it claimed.
+- **What changed:** Mutation checks, one at a time:
+  - remove the guard from `book_appointment`: 4 tests fail;
+  - disable patient binding: 3 fail;
+  - remove the progress handler: 2 fail;
+  - drop the past-slot filter: 1 fails;
+  - disable the rate limiter: 2 fail;
+  - change one word in a tool description: the schema snapshot fails.
+- **What happened next:** Each protection now has at least one test that fails without it.
+
 ## 2026-10-18 · Part 2: Codex review found 2x P1, 3x P2 (all fixed)
 Every bug finding was reproduced here before fixing, and each new test was checked by putting the bug back and watching the test fail.
 - **P1 · A failed COMMIT wedged the store.** `COMMIT` sat outside the rollback path. With a file database and another connection holding a read lock, COMMIT failed ("database is locked") and left the transaction open, so every later write failed with "cannot start a transaction within a transaction". **Fix:** COMMIT is inside the `try`; any open transaction is rolled back before the lock is released; lock timeouts become `BusyError` ("busy, retry"). **Test:** a second connection holds a read lock; the booking fails cleanly, the slot stays open, the next booking succeeds.

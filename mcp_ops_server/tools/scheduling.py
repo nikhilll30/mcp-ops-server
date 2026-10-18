@@ -7,6 +7,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
+from mcp_ops_server.auth import Guard
 from mcp_ops_server.models import (
     AppointmentResult,
     Location,
@@ -23,11 +24,12 @@ from mcp_ops_server.tools import (
     ReferralId,
     SlotId,
     store_errors,
+    tool,
 )
 
 
-def register(server: MCPServer, store: Store) -> None:
-    @server.tool(annotations=READ_ONLY)
+def register(server: MCPServer, store: Store, guard: Guard) -> None:
+    @tool(server, annotations=READ_ONLY)
     def search_providers(
         specialty: Specialty | None = None,
         location: Location | None = None,
@@ -41,9 +43,11 @@ def register(server: MCPServer, store: Store) -> None:
 
         Each result says whether the specialty requires an approved referral before booking.
         """
-        return store.search_providers(specialty, location, name, limit)
+        guard.check("read:schedule")
+        with store_errors():
+            return store.search_providers(specialty, location, name, limit)
 
-    @server.tool(annotations=READ_ONLY)
+    @tool(server, annotations=READ_ONLY)
     def list_open_slots(
         provider_id: ProviderId,
         start_date: Annotated[date, Field(description="First day to search (YYYY-MM-DD).")],
@@ -61,10 +65,11 @@ def register(server: MCPServer, store: Store) -> None:
         Times are clinic-local ISO 8601 without offset. ``truncated`` is true when more slots
         exist than ``limit``; narrow the dates or raise the limit to see them.
         """
+        guard.check("read:schedule")
         with store_errors():
             return store.list_open_slots(provider_id, start_date, end_date, limit)
 
-    @server.tool(annotations=ToolAnnotations(destructiveHint=False, openWorldHint=False))
+    @tool(server, annotations=ToolAnnotations(destructiveHint=False, openWorldHint=False))
     def book_appointment(
         patient_id: PatientId,
         slot_id: SlotId,
@@ -79,10 +84,11 @@ def register(server: MCPServer, store: Store) -> None:
         specialty requires a referral and ``referral_id`` is missing, not approved, belongs to
         another patient, or is for a different specialty.
         """
+        guard.check("write:schedule", patient_id)
         with store_errors():
             return store.book_appointment(patient_id, slot_id, referral_id)
 
-    @server.tool(annotations=ToolAnnotations(destructiveHint=True, openWorldHint=False))
+    @tool(server, annotations=ToolAnnotations(destructiveHint=True, openWorldHint=False))
     def cancel_appointment(
         appointment_id: AppointmentId,
         patient_id: Annotated[
@@ -90,5 +96,6 @@ def register(server: MCPServer, store: Store) -> None:
         ],
     ) -> AppointmentResult:
         """Cancel a booked appointment. The slot becomes open again."""
+        guard.check("write:schedule", patient_id)
         with store_errors():
             return store.cancel_appointment(appointment_id, patient_id)
