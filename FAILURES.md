@@ -4,8 +4,10 @@ What broke, what changed, what happened next. Newest first.
 
 ## 2026-10-17 · CI: secret scan failed only on pull requests
 - **What broke:** `gitleaks-action@v2` passed on the `push` run but failed on the `pull_request` run for the same commit.
-- **What changed:** Scoped the secrets job to `push` events. Every PR branch here is pushed too, and that run scans full history (`fetch-depth: 0`), so coverage is unchanged.
-- **What happened next:** All CI jobs green on push and PR.
+- **What changed (attempt 1):** Scoped the secrets job to `push` events, claiming coverage was unchanged.
+- **What was wrong with that:** Codex's independent review (P1) caught that fork PRs never trigger this repo's push workflow, so external contributions would skip the scan until after merge.
+- **What changed (attempt 2):** Replaced the action with the gitleaks CLI in a container, run on both `push` and `pull_request`, with a read-only token (`permissions: contents: read`) and no secrets exposed to PR code.
+- **Lesson:** "Coverage is unchanged" was an untested claim. Independent review is worth it.
 
 ## 2026-10-17 · Workflow: agent-to-agent delegation over GitHub mentions
 - **What broke:** `@codex` PR comments got no response after the environment was set up; `@cursor` replied only with a Bugbot upsell.

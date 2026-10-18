@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -27,14 +30,15 @@ jobs:
       - run: pytest -q
 
   secrets:
-    # gitleaks-action's pull_request mode fails on this repo; every PR branch here
-    # is also pushed, and the push run scans full history (fetch-depth: 0).
-    if: github.event_name == 'push'
+    # Runs on push AND pull_request (fork PRs never trigger this repo's push runs).
+    # Uses the gitleaks CLI directly: no action-specific PR logic, no tokens, and the
+    # pull_request event gives fork code a read-only token with no repo secrets.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Scan full git history for secrets
+        run: >
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo"
+          ghcr.io/gitleaks/gitleaks:latest git /repo --no-banner --redact --exit-code 1
