@@ -2,6 +2,27 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-18 · Part 3: SDK defaults were far looser than this server needs
+- **What surprised me:** The MCP SDK's Streamable HTTP defaults are a 4 MiB request body cap, 10,000 concurrent sessions and a 30-minute session idle timeout. The largest legitimate request to this server is well under 1 KiB.
+- **What changed:** The entry point now builds the app itself, with a 64 KiB cap (413 above it), 100 sessions and a 10-minute idle timeout, all set by env vars. An HTTP test checks for the 413.
+- **What happened next:** `python -m mcp_ops_server` serves the tightened app instead of `server.run()` with defaults.
+
+## 2026-10-18 · Part 3: a naive per-call timeout would have lied about writes
+- **What surprised me:** The obvious timeout, wrapping the worker thread in `anyio.fail_after`, can't stop a thread. The caller would be told "timed out" while the booking could still commit afterwards.
+- **What changed:** The time limit is enforced inside SQLite instead. A progress handler interrupts the running statement past the deadline, the transaction rolls back, and the lock wait and busy wait use the same limit.
+- **What happened next:** `test_runaway_write_is_rolled_back` shows a timed-out insert never lands. Removing the progress handler makes both timeout tests fail.
+
+## 2026-10-18 · Part 3: 111 tests passed on the first run, so I tried to break them
+- **What surprised me:** A brand-new auth layer with every test green on the first run looked too good, given that Part 2's race test had passed without testing what it claimed.
+- **What changed:** Mutation checks, one at a time:
+  - remove the guard from `book_appointment`: 4 tests fail;
+  - disable patient binding: 3 fail;
+  - remove the progress handler: 2 fail;
+  - drop the past-slot filter: 1 fails;
+  - disable the rate limiter: 2 fail;
+  - change one word in a tool description: the schema snapshot fails.
+- **What happened next:** Each protection now has at least one test that fails without it.
+
 ## 2026-10-18 · Part 2: Codex review found 2x P1, 3x P2 (all fixed)
 Every bug finding was reproduced here before fixing, and each new test was checked by putting the bug back and watching the test fail.
 - **P1 · A failed COMMIT wedged the store.** `COMMIT` sat outside the rollback path. With a file database and another connection holding a read lock, COMMIT failed ("database is locked") and left the transaction open, so every later write failed with "cannot start a transaction within a transaction". **Fix:** COMMIT is inside the `try`; any open transaction is rolled back before the lock is released; lock timeouts become `BusyError` ("busy, retry"). **Test:** a second connection holds a read lock; the booking fails cleanly, the slot stays open, the next booking succeeds.

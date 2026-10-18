@@ -295,9 +295,111 @@ def part2() -> list:
     ]
 
 
+def part3() -> list:
+    w = 7.0 * inch
+    cf = "<font face='Courier'>"
+    return [
+        Paragraph("Part 3 Brief · Hardening", title),
+        Paragraph(
+            "mcp-ops-server · 18 Oct 2026 · PR #4 · Status: 112 tests, security review clean, awaiting CI and Codex review",
+            sub,
+        ),
+        Spacer(1, 4),
+        section("What was built"),
+        bl(
+            "<b>Bearer-token auth.</b> No token or a wrong one gets HTTP 401. Tokens are stored only as SHA-256 "
+            "hashes, and the server refuses to start without a tokens file (fails closed)."
+        ),
+        bl(
+            "<b>Scopes and patient binding, checked in server code.</b> Each tool needs its scope "
+            f"({cf}read:schedule</font>, {cf}write:schedule</font>, {cf}read:referrals</font>). A token "
+            "bound to one patient can only book, cancel or read referrals for that patient."
+        ),
+        bl(
+            "<b>Limits:</b> a per-client rate limit, a 64 KiB request cap (SDK default: 4 MiB), a time limit on "
+            "every database call, and 100 sessions with a 10-minute idle timeout."
+        ),
+        bl(
+            "<b>Simulated clinic clock</b> (default Mon 2 Nov 2026, 08:00): past slots are hidden and can't be "
+            "booked. <b>Schema snapshot test:</b> any change to what agents see fails CI until approved."
+        ),
+        section("How it works"),
+        table(
+            [
+                ["Piece", "Role"],
+                [
+                    "SDK middleware",
+                    "Verifies the bearer token on every HTTP request and puts it in a context variable "
+                    "the tools can read.",
+                ],
+                [
+                    "Guard.check()",
+                    "Called first in every tool: authenticated? within rate limit? has the scope? right "
+                    "patient? Raises an error the agent can read; nothing touches the database.",
+                ],
+                [
+                    "Store",
+                    "Each call gets a deadline. A SQLite progress handler interrupts a slow statement and the "
+                    "transaction rolls back. Clinic time comes from an injected clock.",
+                ],
+            ],
+            [1.2 * inch, w - 1.2 * inch],
+        ),
+        section("Why it was done this way"),
+        bl(
+            "<b>Security lives in code, not prompts.</b> Tools check the token themselves, so even a call "
+            "that skips HTTP (as the unit tests do) is refused without one."
+        ),
+        bl(
+            "<b>Interrupt inside SQLite, don't abandon a thread.</b> A thread can't be killed; a thread timeout "
+            'would report "failed" while the booking still committed. Interrupting SQLite rolls it back.'
+        ),
+        bl(
+            '<b>Simulated time.</b> A real clock would make every synthetic slot "past" after November 2026 '
+            f"and break the evals. {cf}MCP_OPS_NOW=system</font> switches to the real clock."
+        ),
+        section("What went wrong or surprised me (logged in FAILURES.md)"),
+        bl(
+            "<b>Loose SDK defaults:</b> 4 MiB bodies, 10,000 sessions, 30-minute idle. Tightened, with a 413 test."
+        ),
+        bl(
+            "<b>The obvious timeout was wrong</b> (see above). Caught at design time; a test proves a timed-out "
+            "write never lands."
+        ),
+        bl(
+            "<b>All 111 tests passed on the first run,</b> which Part 2 taught me to distrust. I removed each "
+            "protection in turn (guard, patient binding, rate limit, timeout, past filter, schema): each removal "
+            "fails at least one test."
+        ),
+        section("Verify it yourself"),
+        codebox(
+            [
+                "python -m mcp_ops_server.auth issue --file tokens.json --client dev \\",
+                "    --scope read:schedule --scope write:schedule --scope read:referrals   # prints token",
+                "MCP_OPS_TOKENS_FILE=tokens.json python -m mcp_ops_server   # 401 without the token",
+                "ruff check . && python -m pytest -q                        # 112 passed",
+            ]
+        ),
+        section("Interview talking point"),
+        Paragraph(
+            '"Authorization is enforced inside every tool, not in the prompt and not only at the HTTP edge. '
+            "A token bound to one patient can't book for another, even if the model is tricked into asking. "
+            'And every protection has a test that fails when I delete it."',
+            body,
+        ),
+        section("Next: Part 4, evals"),
+        Paragraph(
+            "A golden set of about 30 tasks, a step-by-step (trajectory) grader, a replay agent that needs no LLM, "
+            "and a report. <b>Your action:</b> paste the Codex prompt, then merge PR #4 once fixes are in.",
+            body,
+        ),
+    ]
+
+
 PARTS = {
     1: (part1, "part-1-foundation", "Part 1 Brief: Foundation"),
     2: (part2, "part-2-core-server", "Part 2 Brief: Core server"),
+    3: (part3, "part-3-hardening", "Part 3 Brief: Hardening"),
 }
 
 
