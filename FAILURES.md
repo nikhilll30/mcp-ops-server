@@ -2,6 +2,32 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-18 · Part 4: Codex review found the grader could be fooled 9 ways (5x P1, 5x P2, all fixed)
+I reproduced the grader-level holes directly (all four passed bad trajectories before the fix), then fixed each and added a test or negative control that fails with the hole put back.
+- **P1 · The agent chose what got graded.** The harness graded the step list the agent returned, so an agent could hide a call or invent one. **Fix:** the harness records every call made through `call()` and grades that; the agent's return value is ignored. **Test:** an agent that does an out-of-scope lookup and reports nothing fails `patient_scope`.
+- **P1 · "Earliest" and "next" were checked only by date.** b01 accepted any slot that day. k01's own reference booked the wrong slot (09:00 instead of the next one after 10:00) and still passed. **Fix:** both expectations are exact slot IDs computed from the seed. **Control:** n11 books a later slot.
+- **P1 · The referral check could be the wrong one, or come too late.** A cardiology check satisfied a dermatology booking, and "book, check, cancel, rebook" satisfied the ordered requirement. **Fix:** a new `preconditions` check (every successful booking must follow a check of that specialty's referral) and an `$optional` matcher for the specialty argument. **Controls:** n08 and n09.
+- **P1 · Net-change grading hid write cycles.** An appointment booked and cancelled within a task vanished from the diff. **Fix:** the diff reports `transient` appointments, which fail unless expected, and every refusal and auth task forbids successful writes. **Control:** n10.
+- **P1 · One bad run could poison later tasks.** Tasks shared one database. **Reproduced:** with an agent that books k02's setup slot during b01, k02 then failed `setup`. **Fix:** every task gets its own freshly seeded database and server (in-process, ~100 ms). **Test:** that sabotage now fails only b01.
+- **P2s:**
+  - unordered requirements could reuse one step: now one-to-one assignment;
+  - greedy state matching rejected valid sets of changes: now one-to-one assignment;
+  - a bad `$ref` crashed the suite: now an `agent_error` failure, which caught my own wrong-day a01 script on its first run;
+  - the harness inherited `MCP_OPS_NOW`: the clock is now pinned per task, with a test;
+  - a01 never attempted a cross-patient booking: it does now;
+  - k03 queried a day with no slots: it now uses a real 09:00 slot, made past by a task clock of 12:00.
+- **Lesson:** I claimed the grader checks "every step" but tested it only with well-behaved and obviously bad trajectories. Codex attacked it like an agent trying to pass would. Negative controls should include adversarial ones, not just clumsy ones (now 12, covering every check).
+
+## 2026-10-18 · Part 4: a loosened server rule was invisible to every golden task
+- **What surprised me:** As a mutation check, I made pending referrals bookable in `store.py`. All 31 golden tasks still passed: the replay agent behaves well, checks the referral, and never tries the forbidden booking, so it never hit the loosened rule. Only negative control `n02` (which tries to book with a pending referral) failed, and that failure is what failed the test suite.
+- **What changed:** Negative controls are now required to cover every grader check (`test_negative_controls_cover_every_check`). They stay in CI next to the golden tasks.
+- **What happened next:** Mutation checks on the suite: removing patient binding fails a golden task; making pending referrals bookable fails a negative control; disabling the grader's patient-scope check fails a negative control. Lesson: a suite of well-behaved agents only proves the happy paths. Something has to try the wrong thing.
+
+## 2026-10-18 · Part 4: negative controls crashed on a shared database
+- **What broke:** The first full run passed all 31 golden tasks, then crashed on negative control `n07`. It reuses task `k02`'s setup, which books a fixed slot, and the golden run had already booked it ("Slot SLT-00211 is already booked").
+- **What changed:** Negative controls get their own freshly seeded server. A setup failure is now recorded as a failed `setup` check on that task instead of aborting the whole run.
+- **What happened next:** 31/31 golden tasks pass and 7/7 controls are caught. The suite also reuses one MCP session per principal instead of opening one per task, cutting a full run from 35 s to 22 s on this container.
+
 ## 2026-10-18 · Part 3: Codex review found 2x P1, 1x P2 (all reproduced, then fixed)
 - **P1 · The "per-call time limit" did not cover the whole call.** The deadline started *after* waiting for the in-process lock, and SQLite's busy wait used a fixed timeout outside it. **Reproduced:** a booking succeeded after 336 ms against a 200 ms limit (150 ms lock contention, then 150 ms of another connection's write lock). **Fix:** one deadline fixed before any waiting; SQLite's busy timeout is set to the time left before BEGIN, reads and COMMIT; a write that reaches COMMIT past the deadline is rolled back. After the fix the same scenario fails cleanly at ~200 ms. **Tests:** lock-plus-DB contention, work that overruns before COMMIT, and a reader blocking COMMIT. Each finishes within the budget plus 80 ms, and the slot stays open.
 - **P1 · Tokens sharing a client_id shared sessions.** The SDK ties a Streamable HTTP session to (client_id, issuer, subject), and my verifier set no subject. **Reproduced:** a PAT-0008 token DELETEd a staff token's session (200), and the staff token's next request got 404. Tool calls were still checked per token, so no patient data leaked, but sessions weren't isolated. **Fix:** each token's subject is its own hash. **Tests:** a unit test that subjects differ; an HTTP test where a second token with the same client_id gets 404 for ping and DELETE on the first token's session, and the owner keeps working.

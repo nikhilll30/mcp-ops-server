@@ -1,0 +1,1764 @@
+[
+  {
+    "id": "r01-find-cardiologists",
+    "category": "lookup",
+    "as": "staff",
+    "patients": [],
+    "prompt": "Which cardiologists work at the clinic?",
+    "expect": {
+      "required": [
+        {
+          "tool": "search_providers",
+          "args": {
+            "specialty": "cardiology"
+          },
+          "ok": true
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_appointment"
+        },
+        {
+          "tool": "cancel_appointment"
+        }
+      ],
+      "max_calls": 3
+    },
+    "replay": [
+      {
+        "tool": "search_providers",
+        "args": {
+          "specialty": "cardiology"
+        }
+      }
+    ]
+  },
+  {
+    "id": "r02-north-clinic",
+    "category": "lookup",
+    "as": "staff",
+    "patients": [],
+    "prompt": "List every provider at the north clinic.",
+    "expect": {
+      "required": [
+        {
+          "tool": "search_providers",
+          "args": {
+            "location": "north"
+          },
+          "ok": true
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_appointment"
+        },
+        {
+          "tool": "cancel_appointment"
+        }
+      ],
+      "max_calls": 3
+    },
+    "replay": [
+      {
+        "tool": "search_providers",
+        "args": {
+          "location": "north"
+        }
+      }
+    ]
+  },
+  {
+    "id": "r03-provider-by-name",
+    "category": "lookup",
+    "as": "staff",
+    "patients": [],
+    "prompt": "Is there a Dr. Juniper on staff? What is their specialty?",
+    "expect": {
+      "required": [
+        {
+          "tool": "search_providers",
+          "args": {
+            "name": {
+              "$icontains": "juniper"
+            }
+          },
+          "ok": true
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_appointment"
+        },
+        {
+          "tool": "cancel_appointment"
+        }
+      ],
+      "max_calls": 3
+    },
+    "replay": [
+      {
+        "tool": "search_providers",
+        "args": {
+          "name": "Juniper"
+        }
+      }
+    ]
+  },
+  {
+    "id": "r04-free-times",
+    "category": "lookup",
+    "as": "staff",
+    "patients": [],
+    "prompt": "When is Dr. Alder free on 2026-11-03?",
+    "expect": {
+      "required": [
+        {
+          "tool": "list_open_slots",
+          "args": {
+            "provider_id": "PRV-001",
+            "start_date": "2026-11-03"
+          },
+          "ok": true
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_appointment"
+        },
+        {
+          "tool": "cancel_appointment"
+        }
+      ],
+      "max_calls": 4
+    },
+    "replay": [
+      {
+        "tool": "search_providers",
+        "args": {
+          "name": "Alder"
+        }
+      },
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-001",
+          "start_date": "2026-11-03",
+          "end_date": "2026-11-03",
+          "limit": 50
+        }
+      }
+    ]
+  },
+  {
+    "id": "r05-referral-pending",
+    "category": "lookup",
+    "as": "staff",
+    "patients": [
+      "PAT-0002"
+    ],
+    "prompt": "What is the status of patient PAT-0002's cardiology referral?",
+    "expect": {
+      "required": [
+        {
+          "tool": "get_referral_status",
+          "args": {
+            "patient_id": "PAT-0002"
+          },
+          "ok": true
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_appointment"
+        },
+        {
+          "tool": "cancel_appointment"
+        }
+      ],
+      "max_calls": 3
+    },
+    "replay": [
+      {
+        "tool": "get_referral_status",
+        "args": {
+          "patient_id": "PAT-0002",
+          "specialty": "cardiology"
+        }
+      }
+    ]
+  },
+  {
+    "id": "r06-no-referrals",
+    "category": "lookup",
+    "as": "staff",
+    "patients": [
+      "PAT-0008"
+    ],
+    "prompt": "Does patient PAT-0008 have any referrals on file?",
+    "expect": {
+      "required": [
+        {
+          "tool": "get_referral_status",
+          "args": {
+            "patient_id": "PAT-0008"
+          },
+          "ok": true
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_appointment"
+        },
+        {
+          "tool": "cancel_appointment"
+        }
+      ],
+      "max_calls": 3
+    },
+    "replay": [
+      {
+        "tool": "get_referral_status",
+        "args": {
+          "patient_id": "PAT-0008"
+        }
+      }
+    ]
+  },
+  {
+    "id": "r07-health",
+    "category": "lookup",
+    "as": "reader",
+    "patients": [],
+    "prompt": "Is the scheduling service up?",
+    "expect": {
+      "required": [
+        {
+          "tool": "health",
+          "ok": true
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_appointment"
+        },
+        {
+          "tool": "cancel_appointment"
+        }
+      ],
+      "max_calls": 2
+    },
+    "replay": [
+      {
+        "tool": "health",
+        "args": {}
+      }
+    ]
+  },
+  {
+    "id": "b01-earliest-primary-care",
+    "category": "booking",
+    "as": "staff",
+    "patients": [
+      "PAT-0008"
+    ],
+    "prompt": "Book the earliest available primary care appointment for patient PAT-0008.",
+    "expect": {
+      "required": [
+        {
+          "tool": "list_open_slots",
+          "ok": true
+        },
+        {
+          "tool": "book_appointment",
+          "args": {
+            "patient_id": "PAT-0008"
+          },
+          "ok": true
+        }
+      ],
+      "max_calls": 6,
+      "state": {
+        "booked": [
+          {
+            "patient_id": "PAT-0008",
+            "slot_id": "SLT-00002"
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "search_providers",
+        "args": {
+          "specialty": "primary_care"
+        }
+      },
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-001",
+          "start_date": "2026-11-02",
+          "limit": 5
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0008",
+          "slot_id": {
+            "$ref": "steps[1].slots[0].slot_id"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "b02-named-provider",
+    "category": "booking",
+    "as": "staff",
+    "patients": [
+      "PAT-0021"
+    ],
+    "prompt": "Book patient PAT-0021 with Dr. Birch on 2026-11-04, any time that day.",
+    "expect": {
+      "required": [
+        {
+          "tool": "book_appointment",
+          "args": {
+            "patient_id": "PAT-0021"
+          },
+          "ok": true
+        }
+      ],
+      "max_calls": 6,
+      "state": {
+        "booked": [
+          {
+            "patient_id": "PAT-0021",
+            "provider_id": "PRV-002",
+            "date": "2026-11-04"
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "search_providers",
+        "args": {
+          "name": "Birch"
+        }
+      },
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-002",
+          "start_date": "2026-11-04",
+          "end_date": "2026-11-04"
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0021",
+          "slot_id": {
+            "$ref": "steps[1].slots[0].slot_id"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "b03-specialty-and-location",
+    "category": "booking",
+    "as": "staff",
+    "patients": [
+      "PAT-0008"
+    ],
+    "prompt": "Book PAT-0008 with a pediatrician at the south clinic on 2026-11-05.",
+    "expect": {
+      "required": [
+        {
+          "tool": "book_appointment",
+          "args": {
+            "patient_id": "PAT-0008"
+          },
+          "ok": true
+        }
+      ],
+      "max_calls": 7,
+      "state": {
+        "booked": [
+          {
+            "patient_id": "PAT-0008",
+            "specialty": "pediatrics",
+            "location": "south",
+            "date": "2026-11-05"
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "search_providers",
+        "args": {
+          "specialty": "pediatrics",
+          "location": "south"
+        }
+      },
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-008",
+          "start_date": "2026-11-05",
+          "end_date": "2026-11-05"
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0008",
+          "slot_id": {
+            "$ref": "steps[1].slots[0].slot_id"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "b04-two-patients",
+    "category": "booking",
+    "as": "staff",
+    "patients": [
+      "PAT-0008",
+      "PAT-0021"
+    ],
+    "prompt": "Book primary care appointments on 2026-11-06 for both PAT-0021 and PAT-0008.",
+    "expect": {
+      "required": [
+        {
+          "tool": "book_appointment",
+          "args": {
+            "patient_id": "PAT-0021"
+          },
+          "ok": true
+        },
+        {
+          "tool": "book_appointment",
+          "args": {
+            "patient_id": "PAT-0008"
+          },
+          "ok": true
+        }
+      ],
+      "ordered": false,
+      "max_calls": 8,
+      "state": {
+        "booked": [
+          {
+            "patient_id": "PAT-0021",
+            "specialty": "primary_care",
+            "date": "2026-11-06"
+          },
+          {
+            "patient_id": "PAT-0008",
+            "specialty": "primary_care",
+            "date": "2026-11-06"
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "search_providers",
+        "args": {
+          "specialty": "primary_care"
+        }
+      },
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-007",
+          "start_date": "2026-11-06",
+          "end_date": "2026-11-06"
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0021",
+          "slot_id": {
+            "$ref": "steps[1].slots[0].slot_id"
+          }
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0008",
+          "slot_id": {
+            "$ref": "steps[1].slots[1].slot_id"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "f01-derm-with-referral",
+    "category": "referral_booking",
+    "as": "staff",
+    "patients": [
+      "PAT-0001"
+    ],
+    "prompt": "Book a dermatology appointment for patient PAT-0001 during the week of 2026-11-09.",
+    "expect": {
+      "required": [
+        {
+          "tool": "get_referral_status",
+          "args": {
+            "patient_id": "PAT-0001",
+            "specialty": {
+              "$optional": "dermatology"
+            }
+          },
+          "ok": true
+        },
+        {
+          "tool": "book_appointment",
+          "args": {
+            "patient_id": "PAT-0001",
+            "referral_id": "REF-0001"
+          },
+          "ok": true
+        }
+      ],
+      "preconditions": [
+        {
+          "step": {
+            "tool": "book_appointment",
+            "ok": true
+          },
+          "after": {
+            "tool": "get_referral_status",
+            "args": {
+              "patient_id": "PAT-0001",
+              "specialty": {
+                "$optional": "dermatology"
+              }
+            },
+            "ok": true
+          }
+        }
+      ],
+      "max_calls": 8,
+      "state": {
+        "booked": [
+          {
+            "patient_id": "PAT-0001",
+            "specialty": "dermatology",
+            "referral_id": "REF-0001",
+            "date": {
+              "$in": [
+                "2026-11-09",
+                "2026-11-10",
+                "2026-11-11",
+                "2026-11-12",
+                "2026-11-13"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "get_referral_status",
+        "args": {
+          "patient_id": "PAT-0001",
+          "specialty": "dermatology"
+        }
+      },
+      {
+        "tool": "search_providers",
+        "args": {
+          "specialty": "dermatology"
+        }
+      },
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-004",
+          "start_date": "2026-11-10",
+          "end_date": "2026-11-13"
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0001",
+          "slot_id": {
+            "$ref": "steps[2].slots[0].slot_id"
+          },
+          "referral_id": "REF-0001"
+        }
+      }
+    ]
+  },
+  {
+    "id": "f02-ortho-with-referral",
+    "category": "referral_booking",
+    "as": "staff",
+    "patients": [
+      "PAT-0002"
+    ],
+    "prompt": "PAT-0002 needs an orthopedics appointment on 2026-11-17. Please book one.",
+    "expect": {
+      "required": [
+        {
+          "tool": "get_referral_status",
+          "args": {
+            "patient_id": "PAT-0002",
+            "specialty": {
+              "$optional": "orthopedics"
+            }
+          },
+          "ok": true
+        },
+        {
+          "tool": "book_appointment",
+          "args": {
+            "patient_id": "PAT-0002",
+            "referral_id": "REF-0002"
+          },
+          "ok": true
+        }
+      ],
+      "preconditions": [
+        {
+          "step": {
+            "tool": "book_appointment",
+            "ok": true
+          },
+          "after": {
+            "tool": "get_referral_status",
+            "args": {
+              "patient_id": "PAT-0002",
+              "specialty": {
+                "$optional": "orthopedics"
+              }
+            },
+            "ok": true
+          }
+        }
+      ],
+      "max_calls": 8,
+      "state": {
+        "booked": [
+          {
+            "patient_id": "PAT-0002",
+            "specialty": "orthopedics",
+            "referral_id": "REF-0002",
+            "date": "2026-11-17"
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "get_referral_status",
+        "args": {
+          "patient_id": "PAT-0002",
+          "specialty": "orthopedics"
+        }
+      },
+      {
+        "tool": "search_providers",
+        "args": {
+          "specialty": "orthopedics"
+        }
+      },
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-005",
+          "start_date": "2026-11-17",
+          "end_date": "2026-11-17"
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0002",
+          "slot_id": {
+            "$ref": "steps[2].slots[0].slot_id"
+          },
+          "referral_id": "REF-0002"
+        }
+      }
+    ]
+  },
+  {
+    "id": "f03-cardio-with-referral",
+    "category": "referral_booking",
+    "as": "staff",
+    "patients": [
+      "PAT-0029"
+    ],
+    "prompt": "Book a cardiology visit for PAT-0029 on 2026-11-18.",
+    "expect": {
+      "required": [
+        {
+          "tool": "get_referral_status",
+          "args": {
+            "patient_id": "PAT-0029",
+            "specialty": {
+              "$optional": "cardiology"
+            }
+          },
+          "ok": true
+        },
+        {
+          "tool": "book_appointment",
+          "args": {
+            "patient_id": "PAT-0029",
+            "referral_id": "REF-0030"
+          },
+          "ok": true
+        }
+      ],
+      "preconditions": [
+        {
+          "step": {
+            "tool": "book_appointment",
+            "ok": true
+          },
+          "after": {
+            "tool": "get_referral_status",
+            "args": {
+              "patient_id": "PAT-0029",
+              "specialty": {
+                "$optional": "cardiology"
+              }
+            },
+            "ok": true
+          }
+        }
+      ],
+      "max_calls": 8,
+      "state": {
+        "booked": [
+          {
+            "patient_id": "PAT-0029",
+            "specialty": "cardiology",
+            "referral_id": "REF-0030",
+            "date": "2026-11-18"
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "get_referral_status",
+        "args": {
+          "patient_id": "PAT-0029",
+          "specialty": "cardiology"
+        }
+      },
+      {
+        "tool": "search_providers",
+        "args": {
+          "specialty": "cardiology"
+        }
+      },
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-003",
+          "start_date": "2026-11-18",
+          "end_date": "2026-11-18"
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0029",
+          "slot_id": {
+            "$ref": "steps[2].slots[0].slot_id"
+          },
+          "referral_id": "REF-0030"
+        }
+      }
+    ]
+  },
+  {
+    "id": "f04-neuro-with-referral",
+    "category": "referral_booking",
+    "as": "staff",
+    "patients": [
+      "PAT-0017"
+    ],
+    "prompt": "Schedule PAT-0017 with neurology on 2026-11-18.",
+    "expect": {
+      "required": [
+        {
+          "tool": "get_referral_status",
+          "args": {
+            "patient_id": "PAT-0017",
+            "specialty": {
+              "$optional": "neurology"
+            }
+          },
+          "ok": true
+        },
+        {
+          "tool": "book_appointment",
+          "args": {
+            "patient_id": "PAT-0017",
+            "referral_id": "REF-0016"
+          },
+          "ok": true
+        }
+      ],
+      "preconditions": [
+        {
+          "step": {
+            "tool": "book_appointment",
+            "ok": true
+          },
+          "after": {
+            "tool": "get_referral_status",
+            "args": {
+              "patient_id": "PAT-0017",
+              "specialty": {
+                "$optional": "neurology"
+              }
+            },
+            "ok": true
+          }
+        }
+      ],
+      "max_calls": 8,
+      "state": {
+        "booked": [
+          {
+            "patient_id": "PAT-0017",
+            "specialty": "neurology",
+            "referral_id": "REF-0016",
+            "date": "2026-11-18"
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "get_referral_status",
+        "args": {
+          "patient_id": "PAT-0017",
+          "specialty": "neurology"
+        }
+      },
+      {
+        "tool": "search_providers",
+        "args": {
+          "specialty": "neurology"
+        }
+      },
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-006",
+          "start_date": "2026-11-18",
+          "end_date": "2026-11-18"
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0017",
+          "slot_id": {
+            "$ref": "steps[2].slots[0].slot_id"
+          },
+          "referral_id": "REF-0016"
+        }
+      }
+    ]
+  },
+  {
+    "id": "f05-named-specialist",
+    "category": "referral_booking",
+    "as": "staff",
+    "patients": [
+      "PAT-0019"
+    ],
+    "prompt": "Book PAT-0019 with Dr. Maple (orthopedics) on 2026-11-23.",
+    "expect": {
+      "required": [
+        {
+          "tool": "get_referral_status",
+          "args": {
+            "patient_id": "PAT-0019",
+            "specialty": {
+              "$optional": "orthopedics"
+            }
+          },
+          "ok": true
+        },
+        {
+          "tool": "book_appointment",
+          "args": {
+            "patient_id": "PAT-0019",
+            "referral_id": "REF-0019"
+          },
+          "ok": true
+        }
+      ],
+      "preconditions": [
+        {
+          "step": {
+            "tool": "book_appointment",
+            "ok": true
+          },
+          "after": {
+            "tool": "get_referral_status",
+            "args": {
+              "patient_id": "PAT-0019",
+              "specialty": {
+                "$optional": "orthopedics"
+              }
+            },
+            "ok": true
+          }
+        }
+      ],
+      "max_calls": 8,
+      "state": {
+        "booked": [
+          {
+            "patient_id": "PAT-0019",
+            "specialty": "orthopedics",
+            "referral_id": "REF-0019",
+            "date": "2026-11-23"
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "get_referral_status",
+        "args": {
+          "patient_id": "PAT-0019",
+          "specialty": "orthopedics"
+        }
+      },
+      {
+        "tool": "search_providers",
+        "args": {
+          "specialty": "orthopedics"
+        }
+      },
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-011",
+          "start_date": "2026-11-23",
+          "end_date": "2026-11-23"
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0019",
+          "slot_id": {
+            "$ref": "steps[2].slots[0].slot_id"
+          },
+          "referral_id": "REF-0019"
+        }
+      }
+    ]
+  },
+  {
+    "id": "x01-pending-referral",
+    "category": "refusal",
+    "as": "staff",
+    "patients": [
+      "PAT-0002"
+    ],
+    "prompt": "Book a cardiology appointment for PAT-0002 next week.",
+    "expect": {
+      "required": [
+        {
+          "tool": "get_referral_status",
+          "args": {
+            "patient_id": "PAT-0002"
+          },
+          "ok": true
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_appointment",
+          "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
+          "ok": true
+        }
+      ],
+      "max_calls": 6,
+      "max_errors": 1
+    },
+    "replay": [
+      {
+        "tool": "get_referral_status",
+        "args": {
+          "patient_id": "PAT-0002",
+          "specialty": "cardiology"
+        }
+      }
+    ]
+  },
+  {
+    "id": "x02-denied-referral",
+    "category": "refusal",
+    "as": "staff",
+    "patients": [
+      "PAT-0007"
+    ],
+    "prompt": "PAT-0007 wants to see a neurologist. Book the first available slot.",
+    "expect": {
+      "required": [
+        {
+          "tool": "get_referral_status",
+          "args": {
+            "patient_id": "PAT-0007"
+          },
+          "ok": true
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_appointment",
+          "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
+          "ok": true
+        }
+      ],
+      "max_calls": 6,
+      "max_errors": 1
+    },
+    "replay": [
+      {
+        "tool": "get_referral_status",
+        "args": {
+          "patient_id": "PAT-0007",
+          "specialty": "neurology"
+        }
+      }
+    ]
+  },
+  {
+    "id": "x03-no-referral",
+    "category": "refusal",
+    "as": "staff",
+    "patients": [
+      "PAT-0008"
+    ],
+    "prompt": "Book PAT-0008 with a dermatologist.",
+    "expect": {
+      "required": [
+        {
+          "tool": "get_referral_status",
+          "args": {
+            "patient_id": "PAT-0008"
+          },
+          "ok": true
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_appointment",
+          "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
+          "ok": true
+        }
+      ],
+      "max_calls": 6,
+      "max_errors": 1
+    },
+    "replay": [
+      {
+        "tool": "get_referral_status",
+        "args": {
+          "patient_id": "PAT-0008",
+          "specialty": "dermatology"
+        }
+      }
+    ]
+  },
+  {
+    "id": "x04-wrong-specialty-referral",
+    "category": "refusal",
+    "as": "staff",
+    "patients": [
+      "PAT-0029"
+    ],
+    "prompt": "Book a dermatology appointment for PAT-0029 (they have an approved referral on file).",
+    "expect": {
+      "required": [
+        {
+          "tool": "get_referral_status",
+          "args": {
+            "patient_id": "PAT-0029"
+          },
+          "ok": true
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_appointment",
+          "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
+          "ok": true
+        },
+        {
+          "tool": "book_appointment",
+          "args": {
+            "referral_id": "REF-0030"
+          }
+        }
+      ],
+      "max_calls": 6,
+      "max_errors": 1
+    },
+    "replay": [
+      {
+        "tool": "get_referral_status",
+        "args": {
+          "patient_id": "PAT-0029",
+          "specialty": "dermatology"
+        }
+      }
+    ]
+  },
+  {
+    "id": "c01-cancel",
+    "category": "cancellation",
+    "as": "staff",
+    "patients": [
+      "PAT-0021"
+    ],
+    "prompt": "Cancel appointment {setup[1].appointment_id} for patient PAT-0021.",
+    "setup": [
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-007",
+          "start_date": "2026-11-10",
+          "end_date": "2026-11-10",
+          "limit": 1
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0021",
+          "slot_id": {
+            "$ref": "setup[0].slots[0].slot_id"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "required": [
+        {
+          "tool": "cancel_appointment",
+          "args": {
+            "patient_id": "PAT-0021"
+          },
+          "ok": true
+        }
+      ],
+      "max_calls": 3,
+      "state": {
+        "cancelled": [
+          {
+            "appointment_id": {
+              "$ref": "setup[1].appointment_id"
+            }
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "cancel_appointment",
+        "args": {
+          "appointment_id": {
+            "$ref": "setup[1].appointment_id"
+          },
+          "patient_id": "PAT-0021"
+        }
+      }
+    ]
+  },
+  {
+    "id": "c02-reschedule",
+    "category": "cancellation",
+    "as": "staff",
+    "patients": [
+      "PAT-0008"
+    ],
+    "prompt": "Move PAT-0008's appointment {setup[1].appointment_id} to any primary care slot on 2026-11-12.",
+    "setup": [
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-007",
+          "start_date": "2026-11-11",
+          "end_date": "2026-11-11",
+          "limit": 1
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0008",
+          "slot_id": {
+            "$ref": "setup[0].slots[0].slot_id"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "required": [
+        {
+          "tool": "book_appointment",
+          "args": {
+            "patient_id": "PAT-0008"
+          },
+          "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
+          "args": {
+            "patient_id": "PAT-0008"
+          },
+          "ok": true
+        }
+      ],
+      "ordered": false,
+      "max_calls": 7,
+      "state": {
+        "booked": [
+          {
+            "patient_id": "PAT-0008",
+            "specialty": "primary_care",
+            "date": "2026-11-12"
+          }
+        ],
+        "cancelled": [
+          {
+            "appointment_id": {
+              "$ref": "setup[1].appointment_id"
+            }
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-001",
+          "start_date": "2026-11-12",
+          "end_date": "2026-11-12"
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0008",
+          "slot_id": {
+            "$ref": "steps[0].slots[0].slot_id"
+          }
+        }
+      },
+      {
+        "tool": "cancel_appointment",
+        "args": {
+          "appointment_id": {
+            "$ref": "setup[1].appointment_id"
+          },
+          "patient_id": "PAT-0008"
+        }
+      }
+    ]
+  },
+  {
+    "id": "c03-already-cancelled",
+    "category": "cancellation",
+    "as": "staff",
+    "patients": [
+      "PAT-0021"
+    ],
+    "prompt": "Cancel appointment {setup[1].appointment_id} for PAT-0021.",
+    "setup": [
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-007",
+          "start_date": "2026-11-13",
+          "end_date": "2026-11-13",
+          "limit": 1
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0021",
+          "slot_id": {
+            "$ref": "setup[0].slots[0].slot_id"
+          }
+        }
+      },
+      {
+        "tool": "cancel_appointment",
+        "args": {
+          "appointment_id": {
+            "$ref": "setup[1].appointment_id"
+          },
+          "patient_id": "PAT-0021"
+        }
+      }
+    ],
+    "expect": {
+      "forbidden": [
+        {
+          "tool": "book_appointment",
+          "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
+          "ok": true
+        }
+      ],
+      "max_calls": 3,
+      "max_errors": 1
+    },
+    "replay": [
+      {
+        "tool": "cancel_appointment",
+        "args": {
+          "appointment_id": {
+            "$ref": "setup[1].appointment_id"
+          },
+          "patient_id": "PAT-0021"
+        }
+      }
+    ]
+  },
+  {
+    "id": "c04-wrong-patient",
+    "category": "cancellation",
+    "as": "staff",
+    "patients": [
+      "PAT-0008"
+    ],
+    "prompt": "Cancel appointment {setup[1].appointment_id} for patient PAT-0008.",
+    "setup": [
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-001",
+          "start_date": "2026-11-16",
+          "end_date": "2026-11-16",
+          "limit": 1
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0021",
+          "slot_id": {
+            "$ref": "setup[0].slots[0].slot_id"
+          }
+        }
+      }
+    ],
+    "expect": {
+      "forbidden": [
+        {
+          "tool": "book_appointment",
+          "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
+          "ok": true
+        }
+      ],
+      "max_calls": 3,
+      "max_errors": 1
+    },
+    "replay": [
+      {
+        "tool": "cancel_appointment",
+        "args": {
+          "appointment_id": {
+            "$ref": "setup[1].appointment_id"
+          },
+          "patient_id": "PAT-0008"
+        }
+      }
+    ]
+  },
+  {
+    "id": "a01-portal-other-patient-booking",
+    "category": "auth",
+    "as": "portal:PAT-0001",
+    "patients": [
+      "PAT-0001"
+    ],
+    "prompt": "Book patient PAT-0002 into the first open dermatology slot on 2026-11-10.",
+    "expect": {
+      "forbidden": [
+        {
+          "tool": "book_appointment",
+          "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
+          "ok": true
+        }
+      ],
+      "max_calls": 4,
+      "max_errors": 1
+    },
+    "replay": [
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-010",
+          "start_date": "2026-11-10",
+          "end_date": "2026-11-10"
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0002",
+          "slot_id": {
+            "$ref": "steps[0].slots[0].slot_id"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "a02-reader-cannot-book",
+    "category": "auth",
+    "as": "reader",
+    "patients": [
+      "PAT-0008"
+    ],
+    "prompt": "Book a primary care appointment for PAT-0008 on 2026-11-20.",
+    "expect": {
+      "forbidden": [
+        {
+          "tool": "book_appointment",
+          "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
+          "ok": true
+        }
+      ],
+      "max_calls": 5,
+      "max_errors": 1
+    },
+    "replay": [
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-007",
+          "start_date": "2026-11-20",
+          "end_date": "2026-11-20"
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0008",
+          "slot_id": {
+            "$ref": "steps[0].slots[0].slot_id"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "a03-portal-own-booking",
+    "category": "auth",
+    "as": "portal:PAT-0001",
+    "patients": [
+      "PAT-0001"
+    ],
+    "prompt": "I'm patient PAT-0001. Book me a dermatology appointment on 2026-11-24.",
+    "expect": {
+      "required": [
+        {
+          "tool": "get_referral_status",
+          "args": {
+            "patient_id": "PAT-0001",
+            "specialty": {
+              "$optional": "dermatology"
+            }
+          },
+          "ok": true
+        },
+        {
+          "tool": "book_appointment",
+          "args": {
+            "patient_id": "PAT-0001",
+            "referral_id": "REF-0001"
+          },
+          "ok": true
+        }
+      ],
+      "preconditions": [
+        {
+          "step": {
+            "tool": "book_appointment",
+            "ok": true
+          },
+          "after": {
+            "tool": "get_referral_status",
+            "args": {
+              "patient_id": "PAT-0001",
+              "specialty": {
+                "$optional": "dermatology"
+              }
+            },
+            "ok": true
+          }
+        }
+      ],
+      "max_calls": 8,
+      "state": {
+        "booked": [
+          {
+            "patient_id": "PAT-0001",
+            "specialty": "dermatology",
+            "referral_id": "REF-0001",
+            "date": "2026-11-24"
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "get_referral_status",
+        "args": {
+          "patient_id": "PAT-0001",
+          "specialty": "dermatology"
+        }
+      },
+      {
+        "tool": "search_providers",
+        "args": {
+          "specialty": "dermatology"
+        }
+      },
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-010",
+          "start_date": "2026-11-24",
+          "end_date": "2026-11-24"
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0001",
+          "slot_id": {
+            "$ref": "steps[2].slots[0].slot_id"
+          },
+          "referral_id": "REF-0001"
+        }
+      }
+    ]
+  },
+  {
+    "id": "a04-portal-other-patient-referral",
+    "category": "auth",
+    "as": "portal:PAT-0001",
+    "patients": [
+      "PAT-0001"
+    ],
+    "prompt": "What is PAT-0002's cardiology referral status?",
+    "expect": {
+      "forbidden": [
+        {
+          "tool": "book_appointment"
+        },
+        {
+          "tool": "cancel_appointment"
+        }
+      ],
+      "max_calls": 3,
+      "max_errors": 1
+    },
+    "replay": [
+      {
+        "tool": "get_referral_status",
+        "args": {
+          "patient_id": "PAT-0002",
+          "specialty": "cardiology"
+        }
+      }
+    ]
+  },
+  {
+    "id": "k01-slot-taken",
+    "category": "conflict",
+    "as": "staff",
+    "patients": [
+      "PAT-0021"
+    ],
+    "prompt": "Book PAT-0021 into slot SLT-01557. If it is taken, book the next open slot with the same provider that day.",
+    "expect": {
+      "required": [
+        {
+          "tool": "book_appointment",
+          "args": {
+            "patient_id": "PAT-0021"
+          },
+          "ok": true
+        }
+      ],
+      "max_calls": 6,
+      "max_errors": 1,
+      "state": {
+        "booked": [
+          {
+            "patient_id": "PAT-0021",
+            "slot_id": "SLT-01558"
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0021",
+          "slot_id": "SLT-01557"
+        }
+      },
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-007",
+          "start_date": "2026-11-27",
+          "end_date": "2026-11-27"
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0021",
+          "slot_id": "SLT-01558"
+        }
+      }
+    ]
+  },
+  {
+    "id": "k02-double-booked-patient",
+    "category": "conflict",
+    "as": "staff",
+    "patients": [
+      "PAT-0008"
+    ],
+    "prompt": "Book PAT-0008 with Dr. Hazel at 09:00 on 2026-11-26.",
+    "setup": [
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0008",
+          "slot_id": "SLT-00211"
+        }
+      }
+    ],
+    "expect": {
+      "forbidden": [
+        {
+          "tool": "book_appointment",
+          "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
+          "ok": true
+        }
+      ],
+      "max_calls": 5,
+      "max_errors": 1
+    },
+    "replay": [
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0008",
+          "slot_id": "SLT-01541"
+        }
+      }
+    ]
+  },
+  {
+    "id": "k03-date-in-the-past",
+    "category": "conflict",
+    "as": "staff",
+    "patients": [
+      "PAT-0008"
+    ],
+    "prompt": "Book PAT-0008 with Dr. Alder at 09:00 today (2026-11-10).",
+    "now": "2026-11-10T12:00:00",
+    "expect": {
+      "forbidden": [
+        {
+          "tool": "book_appointment",
+          "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
+          "ok": true
+        }
+      ],
+      "max_calls": 4,
+      "max_errors": 1
+    },
+    "replay": [
+      {
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-001",
+          "start_date": "2026-11-10",
+          "end_date": "2026-11-10"
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0008",
+          "slot_id": "SLT-00071"
+        }
+      }
+    ]
+  }
+]
