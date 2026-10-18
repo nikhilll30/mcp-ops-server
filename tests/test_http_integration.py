@@ -6,19 +6,29 @@ that do not survive serialization to a real client.
 """
 
 import asyncio
+import json
 import os
 import socket
 import subprocess
 import sys
 import time
-from collections.abc import Iterator
+import urllib.error
+import urllib.request
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from pathlib import Path
 
+import httpx2
 import pytest
 from conftest import DERM_PATIENT, DERM_REFERRAL, WEEK_ONE, seeded_busy_starts
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from mcp_ops_server import __version__
+from mcp_ops_server.auth import ALL_SCOPES, issue
+
+MAX_BODY_BYTES = 16 * 1024
 
 
 def _free_port() -> int:
@@ -40,10 +50,34 @@ def _wait_for_port(port: int, proc: subprocess.Popen, timeout: float = 15.0) -> 
     raise TimeoutError(f"server did not open port {port} within {timeout}s")
 
 
-@pytest.fixture
-def server_port() -> Iterator[int]:
+@dataclass
+class Running:
+    port: int
+    staff: str  # all scopes, any patient
+    reader: str  # read:schedule only
+    portal: str  # all scopes, bound to DERM_PATIENT
+
+    @property
+    def url(self) -> str:
+        return f"http://127.0.0.1:{self.port}/mcp"
+
+
+@pytest.fixture(scope="module")
+def server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Running]:
+    tokens_file = str(tmp_path_factory.mktemp("auth") / "tokens.json")
+    staff = issue(tokens_file, "front-desk", list(ALL_SCOPES), None)
+    reader = issue(tokens_file, "kiosk", ["read:schedule"], None)
+    portal = issue(tokens_file, "portal", list(ALL_SCOPES), DERM_PATIENT)
+    assert staff not in Path(tokens_file).read_text(), "raw tokens must never be stored"
+
     port = _free_port()
-    env = {**os.environ, "MCP_OPS_HOST": "127.0.0.1", "MCP_OPS_PORT": str(port)}
+    env = {
+        **os.environ,
+        "MCP_OPS_HOST": "127.0.0.1",
+        "MCP_OPS_PORT": str(port),
+        "MCP_OPS_TOKENS_FILE": tokens_file,
+        "MCP_OPS_MAX_BODY_BYTES": str(MAX_BODY_BYTES),
+    }
     proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
         [sys.executable, "-m", "mcp_ops_server"],
         env=env,
@@ -52,7 +86,7 @@ def server_port() -> Iterator[int]:
     )
     try:
         _wait_for_port(port, proc)
-        yield port
+        yield Running(port, staff, reader, portal)
     finally:
         proc.terminate()
         try:
@@ -61,89 +95,171 @@ def server_port() -> Iterator[int]:
             proc.kill()
 
 
-async def _call_health(port: int) -> dict:
-    async with streamable_http_client(f"http://127.0.0.1:{port}/mcp") as streams:
-        read, write = streams[0], streams[1]
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            tools = await session.list_tools()
-            assert "health" in {t.name for t in tools.tools}
-            result = await session.call_tool("health", {})
-            assert result.is_error is False
-            assert result.structured_content is not None
-            return result.structured_content
+@asynccontextmanager
+async def _session(url: str, token: str) -> AsyncIterator[ClientSession]:
+    headers = {"Authorization": f"Bearer {token}"}
+    async with httpx2.AsyncClient(headers=headers, timeout=httpx2.Timeout(30, read=300)) as http:
+        async with streamable_http_client(url, http_client=http) as streams:
+            async with ClientSession(streams[0], streams[1]) as session:
+                await session.initialize()
+                yield session
 
 
-def test_health_over_streamable_http(server_port: int) -> None:
-    content = asyncio.run(_call_health(server_port))
-    assert content == {"status": "ok", "version": __version__}
+def _raw_post(url: str, body: bytes, token: str | None) -> int:
+    headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")  # noqa: S310
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 - local test server
+            return resp.status
+    except urllib.error.HTTPError as exc:
+        return exc.code
 
 
-async def _booking_flow(port: int) -> list[str]:
+INIT = json.dumps(
+    {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "raw", "version": "0"},
+        },
+    }
+).encode()
+
+
+def test_missing_or_wrong_token_is_rejected_at_http_layer(server: Running) -> None:
+    assert _raw_post(server.url, INIT, None) == 401
+    assert _raw_post(server.url, INIT, "not-a-real-token") == 401
+
+
+def test_oversized_body_is_rejected(server: Running) -> None:
+    padded = json.loads(INIT)
+    padded["params"]["clientInfo"]["name"] = "x" * (MAX_BODY_BYTES + 1)
+    assert _raw_post(server.url, json.dumps(padded).encode(), server.staff) == 413
+
+
+def test_server_refuses_to_start_without_tokens_file() -> None:
+    env = {k: v for k, v in os.environ.items() if k != "MCP_OPS_TOKENS_FILE"}
+    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        [sys.executable, "-m", "mcp_ops_server"],
+        env={**env, "MCP_OPS_PORT": str(_free_port())},
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    assert proc.returncode != 0
+    assert b"MCP_OPS_TOKENS_FILE is not set" in proc.stderr
+
+
+async def _health(server: Running) -> dict:
+    async with _session(server.url, server.staff) as session:
+        tools = await session.list_tools()
+        assert "health" in {t.name for t in tools.tools}
+        result = await session.call_tool("health", {})
+        assert result.is_error is False
+        assert result.structured_content is not None
+        return result.structured_content
+
+
+def test_health_over_streamable_http(server: Running) -> None:
+    assert asyncio.run(_health(server)) == {"status": "ok", "version": __version__}
+
+
+async def _scope_and_patient_checks(server: Running) -> dict[str, str]:
+    out = {}
+    async with _session(server.url, server.reader) as session:
+        ok = await session.call_tool("search_providers", {"specialty": "cardiology"})
+        out["reader_search"] = "ok" if not ok.is_error else ok.content[0].text
+        denied = await session.call_tool(
+            "book_appointment", {"patient_id": "PAT-0008", "slot_id": "SLT-00002"}
+        )
+        out["reader_book"] = denied.content[0].text
+        refs = await session.call_tool("get_referral_status", {"patient_id": DERM_PATIENT})
+        out["reader_referrals"] = refs.content[0].text
+    async with _session(server.url, server.portal) as session:
+        own = await session.call_tool("get_referral_status", {"patient_id": DERM_PATIENT})
+        out["portal_own"] = "ok" if not own.is_error else own.content[0].text
+        other = await session.call_tool("get_referral_status", {"patient_id": "PAT-0002"})
+        out["portal_other"] = other.content[0].text
+    return out
+
+
+def test_scopes_and_patient_binding_over_http(server: Running) -> None:
+    out = asyncio.run(_scope_and_patient_checks(server))
+    assert out["reader_search"] == "ok"
+    assert "lacks the write:schedule scope" in out["reader_book"]
+    assert "lacks the read:referrals scope" in out["reader_referrals"]
+    assert out["portal_own"] == "ok"
+    assert f"may only act for patient {DERM_PATIENT}" in out["portal_other"]
+
+
+async def _booking_flow(server: Running) -> list[str]:
     """The task an agent will be evaluated on: find slot, check referral, book, cancel."""
     steps = []
-    async with streamable_http_client(f"http://127.0.0.1:{port}/mcp") as streams:
-        async with ClientSession(streams[0], streams[1]) as session:
-            await session.initialize()
+    async with _session(server.url, server.staff) as session:
 
-            async def ok(tool: str, **args: object) -> dict:
-                result = await session.call_tool(tool, args)
-                assert result.is_error is False, result.content
-                assert result.structured_content is not None
-                steps.append(tool)
-                return result.structured_content
+        async def ok(tool: str, **args: object) -> dict:
+            result = await session.call_tool(tool, args)
+            assert result.is_error is False, result.content
+            assert result.structured_content is not None
+            steps.append(tool)
+            return result.structured_content
 
-            providers = await ok("search_providers", specialty="dermatology")
-            provider = providers["providers"][0]
-            assert provider["requires_referral"] is True
+        providers = await ok("search_providers", specialty="dermatology")
+        provider = providers["providers"][0]
+        assert provider["requires_referral"] is True
 
-            open_slots = await ok(
-                "list_open_slots", provider_id=provider["provider_id"], start_date=WEEK_ONE
-            )
-            busy = seeded_busy_starts(DERM_PATIENT)
-            slot = next(s for s in open_slots["slots"] if s["start"] not in busy)
+        open_slots = await ok(
+            "list_open_slots", provider_id=provider["provider_id"], start_date=WEEK_ONE
+        )
+        busy = seeded_busy_starts(DERM_PATIENT)
+        slot = next(s for s in open_slots["slots"] if s["start"] not in busy)
 
-            # Booking without the referral is refused, and the error reaches the client.
-            refused = await session.call_tool(
-                "book_appointment", {"patient_id": DERM_PATIENT, "slot_id": slot["slot_id"]}
-            )
-            assert refused.is_error is True
-            assert "requires an approved referral" in refused.content[0].text
-            steps.append("book_appointment:refused")
+        # Booking without the referral is refused, and the error reaches the client.
+        refused = await session.call_tool(
+            "book_appointment", {"patient_id": DERM_PATIENT, "slot_id": slot["slot_id"]}
+        )
+        assert refused.is_error is True
+        assert "requires an approved referral" in refused.content[0].text
+        steps.append("book_appointment:refused")
 
-            referrals = await ok(
-                "get_referral_status", patient_id=DERM_PATIENT, specialty="dermatology"
-            )
-            approved = [r for r in referrals["referrals"] if r["status"] == "approved"]
-            assert [r["referral_id"] for r in approved] == [DERM_REFERRAL]
+        referrals = await ok(
+            "get_referral_status", patient_id=DERM_PATIENT, specialty="dermatology"
+        )
+        approved = [r for r in referrals["referrals"] if r["status"] == "approved"]
+        assert [r["referral_id"] for r in approved] == [DERM_REFERRAL]
 
-            appt = await ok(
-                "book_appointment",
-                patient_id=DERM_PATIENT,
-                slot_id=slot["slot_id"],
-                referral_id=DERM_REFERRAL,
-            )
-            assert appt["status"] == "booked" and appt["start"] == slot["start"]
+        appt = await ok(
+            "book_appointment",
+            patient_id=DERM_PATIENT,
+            slot_id=slot["slot_id"],
+            referral_id=DERM_REFERRAL,
+        )
+        assert appt["status"] == "booked" and appt["start"] == slot["start"]
 
-            after = await ok(
-                "list_open_slots", provider_id=provider["provider_id"], start_date=WEEK_ONE
-            )
-            assert slot["slot_id"] not in {s["slot_id"] for s in after["slots"]}
+        after = await ok(
+            "list_open_slots", provider_id=provider["provider_id"], start_date=WEEK_ONE
+        )
+        assert slot["slot_id"] not in {s["slot_id"] for s in after["slots"]}
 
-            cancelled = await ok(
-                "cancel_appointment", appointment_id=appt["appointment_id"], patient_id=DERM_PATIENT
-            )
-            assert cancelled["status"] == "cancelled"
+        cancelled = await ok(
+            "cancel_appointment", appointment_id=appt["appointment_id"], patient_id=DERM_PATIENT
+        )
+        assert cancelled["status"] == "cancelled"
 
-            reopened = await ok(
-                "list_open_slots", provider_id=provider["provider_id"], start_date=WEEK_ONE
-            )
-            assert slot["slot_id"] in {s["slot_id"] for s in reopened["slots"]}
+        reopened = await ok(
+            "list_open_slots", provider_id=provider["provider_id"], start_date=WEEK_ONE
+        )
+        assert slot["slot_id"] in {s["slot_id"] for s in reopened["slots"]}
     return steps
 
 
-def test_booking_flow_over_streamable_http(server_port: int) -> None:
-    steps = asyncio.run(_booking_flow(server_port))
+def test_booking_flow_over_streamable_http(server: Running) -> None:
+    steps = asyncio.run(_booking_flow(server))
     assert steps == [
         "search_providers",
         "list_open_slots",

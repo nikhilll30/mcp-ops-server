@@ -52,7 +52,7 @@ def test_failed_write_rolls_back(store: Store) -> None:
 def test_failed_commit_rolls_back_and_store_stays_writable(tmp_path: Path) -> None:
     """COMMIT fails while another connection holds a read lock; the store must recover."""
     path = str(tmp_path / "clinic.db")
-    store = Store(path, busy_timeout=0.2)
+    store = Store(path, timeout_s=0.2)
     slot_id = _open_slot(store)
     reader = sqlite3.connect(path, isolation_level=None)
     reader.execute("BEGIN")

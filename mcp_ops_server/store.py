@@ -7,7 +7,8 @@ double booking is impossible even if two calls race past the application-level c
 
 import sqlite3
 import threading
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 
@@ -82,7 +83,11 @@ class ReferralError(StoreError):
 
 
 class BusyError(StoreError):
-    """Another connection held the database lock past the busy timeout."""
+    """Another caller held the database lock past the timeout."""
+
+
+class CallTimeoutError(StoreError):
+    """A statement ran past the per-call deadline and was interrupted."""
 
 
 def _appointment_id(n: int) -> str:
@@ -104,19 +109,58 @@ class Store:
 
     The SDK runs sync tools in worker threads, so every statement goes through ``_lock``.
     Writes additionally use ``BEGIN IMMEDIATE`` so a check-then-insert is one transaction.
+
+    Every call is bounded by ``timeout_s`` three ways: waiting for the in-process lock,
+    waiting for another connection's database lock (SQLite busy timeout), and statement
+    execution (a progress handler interrupts SQLite past the deadline). Interrupting inside
+    SQLite, rather than abandoning a worker thread, means a timed-out write is rolled back
+    and never lands after the caller has been told it failed.
+
+    ``now`` returns the current clinic-local time; slots at or before it are in the past.
     """
 
     def __init__(
-        self, path: str = ":memory:", seed_value: int = seed.SEED, busy_timeout: float = 5.0
+        self,
+        path: str = ":memory:",
+        seed_value: int = seed.SEED,
+        timeout_s: float = 5.0,
+        now: Callable[[], datetime] = lambda: seed.CLINIC_NOW,
     ) -> None:
         self._conn = sqlite3.connect(
-            path, timeout=busy_timeout, check_same_thread=False, isolation_level=None
+            path, timeout=timeout_s, check_same_thread=False, isolation_level=None
         )
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._lock = threading.Lock()
+        self._timeout_s = timeout_s
+        self._deadline = float("inf")
+        self._conn.set_progress_handler(self._past_deadline, 1000)
+        self._now = now
         self._seed_value = seed_value
         self._initialize()
+
+    def _past_deadline(self) -> int:
+        return 1 if time.monotonic() > self._deadline else 0
+
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        if not self._lock.acquire(timeout=self._timeout_s):
+            raise BusyError("The clinic database is busy. Retry the call.")
+        self._deadline = time.monotonic() + self._timeout_s
+        try:
+            yield
+        except sqlite3.OperationalError as exc:
+            if "interrupted" in str(exc):
+                raise CallTimeoutError("The call took too long and was cancelled.") from exc
+            if "locked" in str(exc):
+                raise BusyError("The clinic database is busy. Retry the call.") from exc
+            raise
+        finally:
+            self._deadline = float("inf")
+            self._lock.release()
+
+    def _now_iso(self) -> str:
+        return self._now().isoformat()
 
     def close(self) -> None:
         self._conn.close()
@@ -128,25 +172,25 @@ class Store:
         COMMIT itself can fail (e.g. "database is locked" while another connection holds a
         read lock on a file database), so it sits inside the rollback path too.
         """
-        with self._lock:
+        with self._locked():
             try:
                 self._conn.execute("BEGIN IMMEDIATE")
                 yield self._conn
                 self._conn.execute("COMMIT")
-            except BaseException as exc:
+            except BaseException:
                 if self._conn.in_transaction:
+                    self._deadline = float("inf")  # never let the rollback itself be interrupted
                     self._conn.execute("ROLLBACK")
-                if isinstance(exc, sqlite3.OperationalError) and "locked" in str(exc):
-                    raise BusyError("The clinic database is busy. Retry the call.") from exc
                 raise
 
     def _read(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
-        with self._lock:
+        with self._locked():
             return self._conn.execute(sql, params).fetchall()
 
     def _initialize(self) -> None:
         """Create and seed the schema once, even if several processes start together."""
         with self._write() as c:
+            self._deadline = float("inf")  # one-off seeding is not a per-call operation
             # Checked inside BEGIN IMMEDIATE: a second process waits here, then sees the tables.
             if c.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'providers'"
@@ -246,11 +290,11 @@ class Store:
         hi = datetime.combine(end_date + timedelta(days=1), datetime.min.time()).isoformat()
         rows = self._read(
             "SELECT s.id, s.start, s.end FROM slots s "
-            "WHERE s.provider_id = ? AND s.start >= ? AND s.start < ? "
+            "WHERE s.provider_id = ? AND s.start >= ? AND s.start < ? AND s.start > ? "
             "AND NOT EXISTS (SELECT 1 FROM appointments a "
             "                WHERE a.slot_id = s.id AND a.status = 'booked') "
             "ORDER BY s.start LIMIT ?",
-            (provider_id, lo, hi, limit + 1),
+            (provider_id, lo, hi, self._now_iso(), limit + 1),
         )
         slots = [SlotInfo(slot_id=r["id"], start=r["start"], end=r["end"]) for r in rows]
         return {
@@ -303,6 +347,11 @@ class Store:
             if slot is None:
                 raise NotFoundError(
                     f"Slot {slot_id} not found. Call list_open_slots to find open slots."
+                )
+            if slot["start"] <= self._now_iso():
+                raise ConflictError(
+                    f"Slot {slot_id} starts at {slot['start']}, which is in the past. "
+                    "Call list_open_slots for an upcoming slot."
                 )
             if c.execute(
                 "SELECT 1 FROM appointments WHERE slot_id = ? AND status = 'booked'", (slot_id,)
@@ -372,6 +421,11 @@ class Store:
                 )
             if row["status"] == "cancelled":
                 raise ConflictError(f"Appointment {appointment_id} is already cancelled.")
+            if row["start"] <= self._now_iso():
+                raise ConflictError(
+                    f"Appointment {appointment_id} started at {row['start']}; "
+                    "it can no longer be cancelled."
+                )
             c.execute("UPDATE appointments SET status = 'cancelled' WHERE id = ?", (n,))
             row = c.execute(_APPOINTMENT_SQL, (n,)).fetchone()
         return _appointment(row)

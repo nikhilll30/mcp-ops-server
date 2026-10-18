@@ -16,3 +16,6 @@ htmlcov/
 evals/results/*.json
 !evals/results/.gitkeep
 .DS_Store
+
+# Local auth tokens file (holds hashes, but keep it out of git anyway)
+tokens.json

@@ -10,6 +10,9 @@ from datetime import date, datetime, time, timedelta
 SEED = 20261102
 SCHEDULE_START = date(2026, 11, 2)  # a Monday; slots cover 4 weeks of weekdays from here
 SCHEDULE_WEEKS = 4
+# The clinic runs on simulated time so the dataset never goes stale: "now" is the Monday
+# morning the schedule starts. Override with MCP_OPS_NOW (see config.py).
+CLINIC_NOW = datetime(2026, 11, 2, 8, 0)
 SLOT_MINUTES = 30
 # Clinic-local wall-clock time. 09:00-12:00 and 13:00-17:00, lunch break in between.
 SESSIONS = ((time(9, 0), time(12, 0)), (time(13, 0), time(17, 0)))

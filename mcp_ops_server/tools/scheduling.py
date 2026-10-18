@@ -7,6 +7,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
+from mcp_ops_server.auth import Guard
 from mcp_ops_server.models import (
     AppointmentResult,
     Location,
@@ -26,7 +27,7 @@ from mcp_ops_server.tools import (
 )
 
 
-def register(server: MCPServer, store: Store) -> None:
+def register(server: MCPServer, store: Store, guard: Guard) -> None:
     @server.tool(annotations=READ_ONLY)
     def search_providers(
         specialty: Specialty | None = None,
@@ -41,7 +42,9 @@ def register(server: MCPServer, store: Store) -> None:
 
         Each result says whether the specialty requires an approved referral before booking.
         """
-        return store.search_providers(specialty, location, name, limit)
+        guard.check("read:schedule")
+        with store_errors():
+            return store.search_providers(specialty, location, name, limit)
 
     @server.tool(annotations=READ_ONLY)
     def list_open_slots(
@@ -61,6 +64,7 @@ def register(server: MCPServer, store: Store) -> None:
         Times are clinic-local ISO 8601 without offset. ``truncated`` is true when more slots
         exist than ``limit``; narrow the dates or raise the limit to see them.
         """
+        guard.check("read:schedule")
         with store_errors():
             return store.list_open_slots(provider_id, start_date, end_date, limit)
 
@@ -79,6 +83,7 @@ def register(server: MCPServer, store: Store) -> None:
         specialty requires a referral and ``referral_id`` is missing, not approved, belongs to
         another patient, or is for a different specialty.
         """
+        guard.check("write:schedule", patient_id)
         with store_errors():
             return store.book_appointment(patient_id, slot_id, referral_id)
 
@@ -90,5 +95,6 @@ def register(server: MCPServer, store: Store) -> None:
         ],
     ) -> AppointmentResult:
         """Cancel a booked appointment. The slot becomes open again."""
+        guard.check("write:schedule", patient_id)
         with store_errors():
             return store.cancel_appointment(appointment_id, patient_id)
