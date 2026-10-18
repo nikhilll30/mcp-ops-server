@@ -23,7 +23,7 @@ ReferralId = Annotated[
     str, Field(pattern=r"^REF-[0-9]{4}$", description="Referral ID from get_referral_status.")
 ]
 AppointmentId = Annotated[
-    str, Field(pattern=r"^APT-[0-9]{5}$", description="Appointment ID from book_appointment.")
+    str, Field(pattern=r"^APT-[0-9]{5,18}$", description="Appointment ID from book_appointment.")
 ]
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHint=False)

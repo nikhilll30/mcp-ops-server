@@ -23,6 +23,9 @@ from mcp_ops_server.models import (
 )
 
 MAX_SLOT_RANGE_DAYS = 31
+# Far wider than the 4-week schedule; keeps date arithmetic away from date.max.
+EARLIEST_DATE = date(2000, 1, 1)
+LATEST_DATE = date(2100, 12, 31)
 
 SCHEMA = """
 CREATE TABLE specialties (
@@ -78,13 +81,18 @@ class ReferralError(StoreError):
     pass
 
 
+class BusyError(StoreError):
+    """Another connection held the database lock past the busy timeout."""
+
+
 def _appointment_id(n: int) -> str:
     return f"APT-{n:05d}"
 
 
 def _parse_appointment_id(appointment_id: str) -> int | None:
     prefix, _, digits = appointment_id.partition("-")
-    return int(digits) if prefix == "APT" and digits.isdigit() else None
+    ok = prefix == "APT" and digits.isascii() and digits.isdigit() and len(digits) <= 18
+    return int(digits) if ok else None
 
 
 def _escape_like(text: str) -> str:
@@ -98,63 +106,82 @@ class Store:
     Writes additionally use ``BEGIN IMMEDIATE`` so a check-then-insert is one transaction.
     """
 
-    def __init__(self, path: str = ":memory:", seed_value: int = seed.SEED) -> None:
-        self._conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
+    def __init__(
+        self, path: str = ":memory:", seed_value: int = seed.SEED, busy_timeout: float = 5.0
+    ) -> None:
+        self._conn = sqlite3.connect(
+            path, timeout=busy_timeout, check_same_thread=False, isolation_level=None
+        )
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._lock = threading.Lock()
-        exists = self._conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'providers'"
-        ).fetchone()
-        if not exists:
-            self._load(seed.generate(seed_value))
+        self._seed_value = seed_value
+        self._initialize()
 
     def close(self) -> None:
         self._conn.close()
 
     @contextmanager
     def _write(self) -> Iterator[sqlite3.Connection]:
+        """One write transaction. Always leaves the connection outside a transaction.
+
+        COMMIT itself can fail (e.g. "database is locked" while another connection holds a
+        read lock on a file database), so it sits inside the rollback path too.
+        """
         with self._lock:
-            self._conn.execute("BEGIN IMMEDIATE")
             try:
+                self._conn.execute("BEGIN IMMEDIATE")
                 yield self._conn
-            except BaseException:
-                self._conn.execute("ROLLBACK")
+                self._conn.execute("COMMIT")
+            except BaseException as exc:
+                if self._conn.in_transaction:
+                    self._conn.execute("ROLLBACK")
+                if isinstance(exc, sqlite3.OperationalError) and "locked" in str(exc):
+                    raise BusyError("The clinic database is busy. Retry the call.") from exc
                 raise
-            self._conn.execute("COMMIT")
 
     def _read(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
         with self._lock:
             return self._conn.execute(sql, params).fetchall()
 
-    def _load(self, data: seed.SeedData) -> None:
+    def _initialize(self) -> None:
+        """Create and seed the schema once, even if several processes start together."""
         with self._write() as c:
-            # Not executescript(): it would COMMIT in the middle of this transaction.
-            for stmt in SCHEMA.split(";"):
-                if stmt.strip():
-                    c.execute(stmt)
-            c.executemany("INSERT INTO specialties VALUES (?, ?)", seed.SPECIALTIES.items())
-            c.executemany(
-                "INSERT INTO providers VALUES (?, ?, ?, ?)",
-                [(p.id, p.name, p.specialty, p.location) for p in data.providers],
-            )
-            c.executemany("INSERT INTO patients VALUES (?)", [(p,) for p in data.patient_ids])
-            c.executemany(
-                "INSERT INTO slots VALUES (?, ?, ?, ?)",
-                [(s.id, s.provider_id, s.start.isoformat(), s.end.isoformat()) for s in data.slots],
-            )
-            c.executemany(
-                "INSERT INTO referrals VALUES (?, ?, ?, ?, ?)",
-                [
-                    (r.id, r.patient_id, r.specialty, r.status, r.issued_on.isoformat())
-                    for r in data.referrals
-                ],
-            )
-            c.executemany(
-                "INSERT INTO appointments (slot_id, patient_id, referral_id, status) "
-                "VALUES (?, ?, ?, 'booked')",
-                [(a.slot_id, a.patient_id, a.referral_id) for a in data.appointments],
-            )
+            # Checked inside BEGIN IMMEDIATE: a second process waits here, then sees the tables.
+            if c.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'providers'"
+            ).fetchone():
+                return
+            self._load(c, seed.generate(self._seed_value))
+
+    @staticmethod
+    def _load(c: sqlite3.Connection, data: seed.SeedData) -> None:
+        # Not executescript(): it would COMMIT in the middle of this transaction.
+        for stmt in SCHEMA.split(";"):
+            if stmt.strip():
+                c.execute(stmt)
+        c.executemany("INSERT INTO specialties VALUES (?, ?)", seed.SPECIALTIES.items())
+        c.executemany(
+            "INSERT INTO providers VALUES (?, ?, ?, ?)",
+            [(p.id, p.name, p.specialty, p.location) for p in data.providers],
+        )
+        c.executemany("INSERT INTO patients VALUES (?)", [(p,) for p in data.patient_ids])
+        c.executemany(
+            "INSERT INTO slots VALUES (?, ?, ?, ?)",
+            [(s.id, s.provider_id, s.start.isoformat(), s.end.isoformat()) for s in data.slots],
+        )
+        c.executemany(
+            "INSERT INTO referrals VALUES (?, ?, ?, ?, ?)",
+            [
+                (r.id, r.patient_id, r.specialty, r.status, r.issued_on.isoformat())
+                for r in data.referrals
+            ],
+        )
+        c.executemany(
+            "INSERT INTO appointments (slot_id, patient_id, referral_id, status) "
+            "VALUES (?, ?, ?, 'booked')",
+            [(a.slot_id, a.patient_id, a.referral_id) for a in data.appointments],
+        )
 
     # ---- reads -------------------------------------------------------------------------
 
@@ -200,6 +227,12 @@ class Store:
         end_date: date | None = None,
         limit: int = 20,
     ) -> OpenSlotsResult:
+        for d in (start_date, end_date):
+            if d is not None and not EARLIEST_DATE <= d <= LATEST_DATE:
+                raise StoreError(
+                    f"Dates must be between {EARLIEST_DATE.isoformat()} and "
+                    f"{LATEST_DATE.isoformat()}."
+                )
         end_date = end_date or start_date + timedelta(days=6)
         if end_date < start_date:
             raise StoreError("end_date must be on or after start_date.")

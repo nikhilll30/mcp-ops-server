@@ -201,7 +201,7 @@ def part2() -> list:
     return [
         Paragraph("Part 2 Brief · Core server", title),
         Paragraph(
-            "mcp-ops-server · 18 Oct 2026 · PR #3 · Status: CI green on push and PR (56 tests), awaiting Codex review",
+            "mcp-ops-server · 18 Oct 2026 · PR #3 · Status: Codex review fixed (2x P1, 3x P2), 66 tests, ready to merge",
             sub,
         ),
         Spacer(1, 4),
@@ -216,8 +216,8 @@ def part2() -> list:
             f"{cf}book_appointment</font>, {cf}cancel_appointment</font>, {cf}get_referral_status</font>."
         ),
         bl(
-            "<b>56 tests</b> (up from 3), including a 20-thread race for one slot and a real HTTP client "
-            "running the full find, check, book, cancel flow."
+            "<b>66 tests</b> (up from 3), including races between separate database connections and a real "
+            "HTTP client running the full find, check, book, cancel flow."
         ),
         section("How it works"),
         table(
@@ -264,29 +264,32 @@ def part2() -> list:
             f"Arabic-Indic digits passed validation. Switched to {cf}[0-9]</font> and added a test."
         ),
         bl(
-            "<b>Fixtures.</b> 5 tests first failed because the test patient already had a seeded booking at "
-            "that time. Now the tests use patients with clean calendars, pinned by a seed test."
+            "<b>Codex review: 2x P1, 3x P2, all reproduced, then fixed.</b> A failed COMMIT left the store unable to "
+            "write; my race test shared one connection, so it never exercised BEGIN IMMEDIATE; two processes "
+            "starting together both tried to create the schema; APT-100000 could be booked but not cancelled; "
+            "year-9999 dates crashed. Each fix has a test that fails with the bug put back."
         ),
         section("Verify it yourself"),
         codebox(
             [
                 'pip install -e ".[dev]"',
-                "ruff check . && python -m pytest -q   # 56 passed",
+                "ruff check . && python -m pytest -q   # 66 passed",
                 "python -m mcp_ops_server              # then call tools at http://127.0.0.1:8000/mcp",
             ]
         ),
         section("Interview talking point"),
         Paragraph(
-            '"Double booking is prevented twice: once in application code so the agent gets an actionable '
-            "error, and once as a partial unique index so the database refuses it even under a race. I proved "
-            'the race test catches a broken implementation by deleting the protection and watching it fail."',
+            '"Double booking is prevented twice: in application code so the agent gets an actionable error, and '
+            "as a partial unique index so the database refuses it. The review caught that my race test only "
+            "proved the Python lock, so I rewrote it across separate connections and showed each test fails "
+            'when its protection is removed."',
             body,
         ),
         section("Next: Part 3, hardening"),
         Paragraph(
             "Bearer auth and scopes enforced in the server, rate limits, payload size and timeouts, and a "
-            '"schema drift" snapshot test that flags any change to a tool schema. <b>Your action:</b> paste '
-            'the Codex prompt, merge PR #3 once review fixes are in, then reply "go".',
+            '"schema drift" snapshot test that flags any change to a tool schema. <b>Your action:</b> merge PR #3, '
+            'then reply "go".',
             body,
         ),
     ]
