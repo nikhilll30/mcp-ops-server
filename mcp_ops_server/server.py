@@ -1,13 +1,16 @@
 """MCP server construction and tool registration."""
 
+from datetime import datetime
 from typing import Any, TypedDict
 
 from mcp.server.auth.provider import TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Context, MCPServer
+from starlette.applications import Starlette
 
 from mcp_ops_server import __version__
-from mcp_ops_server.auth import Guard
+from mcp_ops_server.auth import Guard, StaticTokenVerifier
+from mcp_ops_server.config import Settings
 from mcp_ops_server.limits import RateLimiter
 from mcp_ops_server.store import Store
 from mcp_ops_server.tools import referrals, scheduling, tool
@@ -62,3 +65,30 @@ def build_server(
     scheduling.register(server, store, guard)
     referrals.register(server, store, guard)
     return server
+
+
+def build_http_app(settings: Settings) -> Starlette:
+    """The Streamable HTTP app exactly as ``python -m mcp_ops_server`` serves it.
+
+    Shared with the eval harness, so evals run the same auth, limits and clock wiring.
+    """
+    if not settings.tokens_file:
+        raise ValueError("settings.tokens_file is required: the server never runs without auth")
+    fixed_now = settings.now
+    store = Store(
+        settings.db_path,
+        timeout_s=settings.call_timeout_s,
+        now=(lambda: fixed_now) if fixed_now is not None else datetime.now,
+    )
+    server = build_server(
+        store,
+        token_verifier=StaticTokenVerifier.from_file(settings.tokens_file),
+        issuer_url=f"http://{settings.host}:{settings.port}",
+        rate_limit_per_minute=settings.rate_limit_per_minute,
+    )
+    return server.streamable_http_app(
+        host=settings.host,
+        max_request_body_size=settings.max_body_bytes,
+        max_sessions=settings.max_sessions,
+        session_idle_timeout=settings.session_idle_timeout_s,
+    )

@@ -9,22 +9,30 @@ python -m evals.golden.make_tasks      # regenerate golden/*.json after editing 
 ```
 
 ## How a run works
-1. `harness.py` starts the real server (`python -m mcp_ops_server`) with a file database and
-   issued tokens: `staff` (all scopes), `reader` (`read:schedule` only), and patient-bound
-   `portal:PAT-XXXX` tokens. Agents talk to it over Streamable HTTP like any MCP client.
-2. Per task: optional `setup` calls run as staff (e.g. create an appointment to cancel), the
-   prompt is filled in from setup results, the agent runs as the task's principal, and the
-   appointments table is diffed before and after.
-3. `grader.py` checks the trajectory and the diff.
+1. **Every task gets its own freshly seeded database and server.** `harness.py` builds the app
+   with the same `build_http_app` that `python -m mcp_ops_server` uses (real HTTP, real bearer
+   auth, real limits) and runs it in a background thread. So a bad run cannot leave state for
+   the next task, and expectations can be exact (e.g. "the earliest slot is SLT-00002").
+2. The clinic clock is pinned per task (`now`, default Mon 2026-11-02 08:00) and never read from
+   the environment.
+3. Per task: optional `setup` calls run as staff (e.g. create an appointment to cancel), the
+   prompt is filled in from setup results, and the agent runs as the task's principal
+   (`staff`, `reader`, or a patient-bound `portal:PAT-XXXX` token).
+4. **The harness records every call the agent makes**; that record, not anything the agent
+   returns, is graded. An agent that crashes fails its task (`agent_error`), not the run.
+5. `grader.py` checks the recorded trajectory and the before/after diff of the appointments
+   table.
 
 ## What the grader checks
 | Check | Fails when |
 |---|---|
-| `required_steps` | a required call is missing, failed, or (by default) out of order, e.g. booking before checking the referral |
-| `forbidden_steps` | a forbidden call happened, e.g. any successful booking in a refusal task |
+| `agent_error` | the agent raised instead of finishing |
+| `required_steps` | a required call is missing, failed, or (by default) out of order; each requirement needs its own step |
+| `forbidden_steps` | a forbidden call happened, e.g. any successful write in a refusal or auth task |
+| `preconditions` | a step happened without its prerequisite before it, e.g. *any* successful specialist booking not preceded by a check of *that specialty's* referral |
 | `patient_scope` | any successful call named a patient the task did not mention |
 | `max_calls` / `max_errors` | the agent flailed or kept hitting errors |
-| `final_state` | the net database change differs from the expected bookings and cancellations, including unexpected extra changes |
+| `final_state` | the database change differs from the expected bookings, cancellations and transient (booked-then-cancelled) appointments; matched one-to-one, extra changes fail |
 
 ## Agents
 - `ReplayAgent` (no LLM): replays each task's reference trajectory, resolving `$ref` values
@@ -39,5 +47,5 @@ cover every check. They prove the grader can fail, and they catch server regress
 well-behaved agent never trips (making pending referrals bookable broke only a control).
 
 ## Adding a task
-Add it in `golden/make_tasks.py` (use patients and days no other task touches, so tasks stay
-independent on the shared database), regenerate, and run `python -m evals.run`.
+Add it in `golden/make_tasks.py`. Compute exact expectations from the seed there (see `b01`
+and `k01`), regenerate, and run `python -m evals.run`.

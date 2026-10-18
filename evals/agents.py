@@ -1,4 +1,8 @@
-"""Agents under evaluation. An agent gets a task and a ``call`` function, and returns steps.
+"""Agents under evaluation. An agent gets a task, its prompt, setup results and a ``call``
+function, and acts only through ``call``.
+
+The harness records every call made through ``call``; that record, not anything the agent
+returns or claims, is what gets graded.
 
 ``ReplayAgent`` needs no LLM: it replays a scripted trajectory, resolving ``$ref`` values
 against earlier results (``steps[1].slots[0].slot_id``) and setup results. It runs free and
@@ -19,20 +23,17 @@ class Agent(Protocol):
 
     async def run(
         self, task: dict[str, Any], prompt: str, setup: list[Any], call: CallTool
-    ) -> list[Step]: ...
+    ) -> None: ...
 
 
 class ReplayAgent:
     name = "replay"
 
-    def __init__(self, key: str = "replay") -> None:
-        self._key = key  # which script to replay; negative controls use their own
-
     async def run(
         self, task: dict[str, Any], prompt: str, setup: list[Any], call: CallTool
-    ) -> list[Step]:
-        steps: list[Step] = []
-        for scripted in task[self._key]:
-            context = {"setup": setup, "steps": [s.result for s in steps]}
-            steps.append(await call(scripted["tool"], resolve_refs(scripted["args"], context)))
-        return steps
+    ) -> None:
+        results: list[Any] = []
+        for scripted in task["replay"]:
+            context = {"setup": setup, "steps": results}
+            step = await call(scripted["tool"], resolve_refs(scripted["args"], context))
+            results.append(step.result)

@@ -18,8 +18,9 @@ from pathlib import Path
 from typing import Any
 
 from evals.agents import Agent, ReplayAgent
-from evals.grader import Check, Grade, grade, render, resolve_refs
-from evals.harness import Harness, Sessions, diff
+from evals.grader import Check, Grade, Step, grade, render, resolve_refs
+from evals.harness import Harness, TaskServer, diff
+from mcp_ops_server import seed
 
 GOLDEN = Path(__file__).parent / "golden"
 
@@ -42,28 +43,48 @@ def _record(task: dict[str, Any], prompt: str, steps: list, change: dict, result
     }
 
 
-async def _run_task(
-    h: Harness, sessions: Sessions, task: dict[str, Any], agent: Agent
-) -> dict[str, Any]:
+async def _run_task(srv: TaskServer, task: dict[str, Any], agent: Agent) -> dict[str, Any]:
     setup: list[Any] = []
     if task.get("setup"):
-        staff = await sessions.get("staff")
-        for s in task["setup"]:
-            step = await h.call(staff, s["tool"], resolve_refs(s["args"], {"setup": setup}))
-            if not step.ok:  # a broken fixture fails this task, not the whole run
-                failed = Grade(task["id"], False, [Check("setup", False, step.error or "")])
-                return _record(task, task["prompt"], [], {}, failed)
-            setup.append(step.result)
+        async with srv.session("staff") as staff:
+            for s in task["setup"]:
+                step = await srv.call(staff, s["tool"], resolve_refs(s["args"], {"setup": setup}))
+                if not step.ok:  # a broken fixture fails this task, not the whole run
+                    failed = Grade(task["id"], False, [Check("setup", False, step.error or "")])
+                    return _record(task, task["prompt"], [], {}, failed)
+                setup.append(step.result)
     prompt = render(task["prompt"], {"setup": setup})
-    session = await sessions.get(task["as"])
-    before = h.snapshot()
+    recorded: list[Step] = []  # the authoritative trajectory: what actually reached the server
+    agent_error = None
+    before = srv.snapshot()
+    async with srv.session(task["as"]) as session:
 
-    async def call(tool: str, args: dict[str, Any]):  # noqa: ANN202
-        return await h.call(session, tool, args)
+        async def call(tool: str, args: dict[str, Any]) -> Step:
+            step = await srv.call(session, tool, args)
+            recorded.append(step)
+            return step
 
-    steps = await agent.run(task, prompt, setup, call)
-    change = diff(before, h.snapshot())
-    return _record(task, prompt, steps, change, grade(task, steps, change, {"setup": setup}))
+        try:
+            await agent.run(task, prompt, setup, call)
+        except Exception as exc:  # noqa: BLE001 - an agent crash fails its task, not the run
+            agent_error = f"{type(exc).__name__}: {exc}"
+    change = diff(before, srv.snapshot())
+    context = {"setup": setup, "steps": [s.result for s in recorded]}
+    result = grade(task, recorded, change, context, agent_error=agent_error)
+    return _record(task, prompt, recorded, change, result)
+
+
+def _task_now(task: dict[str, Any]) -> datetime:
+    return datetime.fromisoformat(task["now"]) if "now" in task else seed.CLINIC_NOW
+
+
+def run_tasks(h: Harness, tasks: list[dict], agent: Agent) -> list[dict]:
+    """Each task on its own freshly seeded server, so tasks cannot affect each other."""
+    results = []
+    for task in tasks:
+        with h.task_server(_task_now(task)) as srv:
+            results.append(asyncio.run(_run_task(srv, task, agent)))
+    return results
 
 
 def run_suite(
@@ -76,33 +97,16 @@ def run_suite(
     neg_tasks = [
         {**by_id[n["task"]], "id": n["id"], "replay": n["replay"], "_neg": n} for n in negatives
     ]
-    principals = {t["as"] for t in tasks}
-
-    async def run_golden(h: Harness) -> list[dict]:
-        async with h.sessions() as sessions:
-            return [await _run_task(h, sessions, t, agent) for t in tasks]
-
-    async def run_controls(h: Harness) -> list[dict]:
-        controls = []
-        async with h.sessions() as sessions:
-            for t in neg_tasks:  # always replayed: they check the grader, not the agent
-                controls.append(await _run_control(h, sessions, t))
-        return controls
-
-    async def _run_control(h: Harness, sessions: Sessions, t: dict) -> dict:
-        r = await _run_task(h, sessions, t, ReplayAgent())
+    with Harness({t["as"] for t in tasks}) as h:
+        golden = run_tasks(h, tasks, agent)
+        # Controls always use the replay agent: they check the grader, not the agent.
+        controls = run_tasks(h, neg_tasks, ReplayAgent())
+    for r, t in zip(controls, neg_tasks, strict=True):
         want = set(t["_neg"]["expect_failed"])
         r["description"] = t["_neg"]["description"]
         r["expected_failed_checks"] = sorted(want)
         # Caught = failed for the expected reasons. A setup failure is not "caught".
         r["caught"] = not r["passed"] and want <= set(r["failed_checks"])
-        return r
-
-    # Each suite gets a freshly seeded server, so controls never see golden-run bookings.
-    with Harness(principals) as h:
-        golden = asyncio.run(run_golden(h))
-    with Harness({t["as"] for t in neg_tasks}) as h:
-        controls = asyncio.run(run_controls(h))
     return {
         "agent": agent.name,
         "finished_at": datetime.now(UTC).isoformat(timespec="seconds"),

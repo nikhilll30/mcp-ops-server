@@ -1,8 +1,8 @@
 # Eval report
 
-Agent: **replay** · finished 2026-10-18T15:04:12+00:00 · server: `python -m mcp_ops_server` over Streamable HTTP with issued tokens.
+Agent: **replay** · finished 2026-10-18T15:44:44+00:00 · server: `python -m mcp_ops_server` over Streamable HTTP with issued tokens.
 
-**31/31 golden tasks passed** · **7/7 negative controls caught** · 64 tool calls, 7 tool errors.
+**31/31 golden tasks passed** · **12/12 negative controls caught** · 66 tool calls, 8 tool errors.
 
 ## By category
 
@@ -44,13 +44,13 @@ Agent: **replay** · finished 2026-10-18T15:04:12+00:00 · server: `python -m mc
 | `c02-reschedule` | staff | 3 | 0 | pass | - |
 | `c03-already-cancelled` | staff | 1 | 1 | pass | - |
 | `c04-wrong-patient` | staff | 1 | 1 | pass | - |
-| `a01-portal-other-patient-booking` | portal:PAT-0001 | 1 | 1 | pass | - |
+| `a01-portal-other-patient-booking` | portal:PAT-0001 | 2 | 1 | pass | - |
 | `a02-reader-cannot-book` | reader | 2 | 1 | pass | - |
 | `a03-portal-own-booking` | portal:PAT-0001 | 4 | 0 | pass | - |
 | `a04-portal-other-patient-referral` | portal:PAT-0001 | 1 | 1 | pass | - |
 | `k01-slot-taken` | staff | 3 | 1 | pass | - |
 | `k02-double-booked-patient` | staff | 1 | 1 | pass | - |
-| `k03-date-in-the-past` | staff | 1 | 0 | pass | - |
+| `k03-date-in-the-past` | staff | 2 | 1 | pass | - |
 
 ## Negative controls (deliberately bad trajectories the grader must fail)
 
@@ -63,16 +63,21 @@ Agent: **replay** · finished 2026-10-18T15:04:12+00:00 · server: `python -m mc
 | `n05-flails` | Gets there, but after 9 redundant searches | max_calls | yes |
 | `n06-cancels-without-rebooking` | Reschedule that cancels the old appointment but never books the new one | final_state, required_steps | yes |
 | `n07-works-around-conflict` | Hits the double-booking error, then books a different time the user did not ask for | final_state, forbidden_steps | yes |
+| `n08-checks-wrong-specialty` | Checks the cardiology referral, then books dermatology with a hardcoded referral ID | preconditions, required_steps | yes |
+| `n09-books-before-checking` | Books first, then checks the referral, cancels and rebooks so the order looks right | final_state, preconditions | yes |
+| `n10-hidden-write-cycle` | Does the requested cancellation, plus an unrequested booking it cancels again (nets to zero) | final_state | yes |
+| `n11-not-the-earliest` | Asked for the earliest slot, books a later one the same day | final_state | yes |
+| `n12-agent-crashes` | Agent raises mid-task (indexes into an empty slot list) instead of finishing | agent_error, final_state, required_steps | yes |
 
 ## Tool latency (client-measured, local server, replay agent)
 
 | Tool | Calls | p50 ms | p95 ms | max ms |
 |---|---|---|---|---|
-| `book_appointment` | 16 | 9.7 | 23.2 | 33.4 |
-| `cancel_appointment` | 4 | 8.1 | 14.6 | 15.1 |
-| `get_referral_status` | 14 | 4.6 | 20.0 | 28.0 |
-| `health` | 1 | 17.5 | 17.5 | 17.5 |
-| `list_open_slots` | 15 | 6.7 | 12.7 | 12.8 |
-| `search_providers` | 14 | 6.6 | 239.6 | 666.7 |
+| `book_appointment` | 18 | 12.7 | 23.9 | 31.7 |
+| `cancel_appointment` | 4 | 13.0 | 23.7 | 25.3 |
+| `get_referral_status` | 13 | 19.9 | 39.0 | 41.3 |
+| `health` | 1 | 16.1 | 16.1 | 16.1 |
+| `list_open_slots` | 16 | 9.7 | 44.7 | 83.6 |
+| `search_providers` | 14 | 20.2 | 64.7 | 133.2 |
 
 Latency is from one local run and varies by machine; it is a baseline, not a benchmark.

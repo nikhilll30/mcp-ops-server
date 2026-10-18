@@ -8,6 +8,7 @@ from evals.grader import (
     check_budget,
     check_forbidden,
     check_patient_scope,
+    check_preconditions,
     check_required,
     check_state,
     grade,
@@ -15,6 +16,7 @@ from evals.grader import (
     render,
     resolve_path,
     resolve_refs,
+    step_matches,
 )
 from evals.harness import diff
 
@@ -162,15 +164,77 @@ def _row(i: int, status: str) -> dict:
     return {"id": i, "status": status, "patient_id": "P", "start": "2026-11-02T09:00:00"}
 
 
-def test_diff_reports_net_change_only() -> None:
+def test_diff_reports_net_change_and_transient_writes() -> None:
     before = {1: _row(1, "booked"), 2: _row(2, "booked")}
     after = {
         1: _row(1, "cancelled"),  # cancelled during the task
         2: _row(2, "booked"),  # untouched
         3: _row(3, "booked"),  # new booking
-        4: _row(4, "cancelled"),  # booked and cancelled within the task: no net change
+        4: _row(4, "cancelled"),  # booked and cancelled within the task: reported as transient
     }
     change = diff(before, after)
     assert [r["appointment_id"] for r in change["booked"]] == ["APT-00003"]
     assert [r["appointment_id"] for r in change["cancelled"]] == ["APT-00001"]
+    assert [r["appointment_id"] for r in change["transient"]] == ["APT-00004"]
     assert change["booked"][0]["date"] == "2026-11-02"
+
+
+# ---- Codex review, Part 4: each of these used to pass a bad trajectory ----------------------
+
+
+def test_unordered_requirements_need_distinct_steps() -> None:
+    expect = {"required": [{"tool": "health"}, {"tool": "health"}], "ordered": False}
+    assert not check_required(expect, [_step("health")]).passed
+    assert check_required(expect, [_step("health"), _step("health")]).passed
+
+
+def test_state_uses_one_to_one_assignment_not_greedy() -> None:
+    rows = [{"patient_id": "P", "provider_id": "A"}, {"patient_id": "P", "provider_id": "B"}]
+    broad_then_narrow = {"booked": [{"patient_id": "P"}, {"patient_id": "P", "provider_id": "A"}]}
+    assert check_state({"state": broad_then_narrow}, {"booked": rows}).passed
+
+
+def test_transient_writes_fail_unless_expected() -> None:
+    cycle = {"booked": [], "cancelled": [], "transient": [ROW]}
+    assert not check_state({}, cycle).passed
+    assert check_state({"state": {"transient": [{"patient_id": "PAT-0008"}]}}, cycle).passed
+
+
+def test_optional_matcher_allows_absent_but_checks_present() -> None:
+    pattern = {"tool": "get_referral_status", "args": {"specialty": {"$optional": "dermatology"}}}
+    assert step_matches(pattern, _step("get_referral_status"))
+    assert step_matches(pattern, _step("get_referral_status", specialty="dermatology"))
+    assert not step_matches(pattern, _step("get_referral_status", specialty="cardiology"))
+
+
+DERM_RULE = {
+    "preconditions": [
+        {
+            "step": {"tool": "book_appointment", "ok": True},
+            "after": {
+                "tool": "get_referral_status",
+                "args": {"specialty": {"$optional": "dermatology"}},
+                "ok": True,
+            },
+        }
+    ]
+}
+
+
+def test_preconditions_apply_to_every_matching_step() -> None:
+    check = _step("get_referral_status", specialty="dermatology")
+    book = _step("book_appointment")
+    assert check_preconditions(DERM_RULE, [check, book]).passed
+    # book first, check later, then rebook: the first booking had no prior check
+    assert not check_preconditions(DERM_RULE, [book, check, book]).passed
+    # checking a different specialty does not count
+    wrong = _step("get_referral_status", specialty="cardiology")
+    assert not check_preconditions(DERM_RULE, [wrong, book]).passed
+
+
+def test_agent_error_and_unresolvable_expectations_fail_cleanly() -> None:
+    task = {"id": "t", "patients": [], "expect": {}}
+    crashed = grade(task, [], {}, agent_error="IndexError: list index out of range")
+    assert crashed.failed() == ["agent_error"]
+    bad_ref = {"id": "t", "expect": {"state": {"booked": [{"slot_id": {"$ref": "steps[3].x"}}]}}}
+    assert grade(bad_ref, [], {}, {"steps": []}).failed() == ["expectations"]

@@ -1,33 +1,56 @@
-"""Runs the real server for evals: subprocess, file database, issued tokens, MCP over HTTP.
+"""Runs the real server for evals: one fresh server and database per task.
 
-The database is a file so the harness can diff the appointments table around each task,
-which is how ``final_state`` is graded: by what actually changed, not by what the agent said.
+Each task gets a copy of a freshly seeded database and its own server, built by the same
+``build_http_app`` that ``python -m mcp_ops_server`` uses (real HTTP, real bearer auth,
+real limits). So a misbehaving agent cannot leave state behind for the next task, and every
+task's expectations can be computed from the seed. The server runs in a background thread
+of this process: starting one is ~100 ms, where a subprocess per task costs seconds.
+
+The clinic clock is pinned per task (``task["now"]``, default ``seed.CLINIC_NOW``) and is
+never read from the environment, so ``MCP_OPS_NOW`` in the caller's shell cannot change
+results.
 """
 
-import os
+import logging
+import shutil
 import socket
 import sqlite3
-import subprocess
-import sys
 import tempfile
+import threading
 import time
-from collections.abc import AsyncIterator, Iterable
-from contextlib import AsyncExitStack, asynccontextmanager
+from collections.abc import AsyncIterator, Iterable, Iterator
+from contextlib import asynccontextmanager, contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import httpx2
+import uvicorn
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from evals.grader import Step
+from mcp_ops_server import seed
 from mcp_ops_server.auth import ALL_SCOPES, issue
+from mcp_ops_server.config import Settings
+from mcp_ops_server.server import build_http_app
+from mcp_ops_server.store import Store
 
 # principal name -> (scopes, bound patient). "portal:PAT-XXXX" is created on demand.
 PRINCIPALS: dict[str, tuple[list[str], str | None]] = {
     "staff": (list(ALL_SCOPES), None),
     "reader": (["read:schedule"], None),
 }
+
+# The server runs in this process; keep its per-request INFO logs out of eval output.
+for _name in ("mcp", "httpx2", "httpx", "uvicorn", "uvicorn.error"):
+    logging.getLogger(_name).setLevel(logging.WARNING)
+
+_APPOINTMENTS_SQL = (
+    "SELECT a.id, a.status, a.patient_id, a.referral_id, a.slot_id, s.start, "
+    "p.id AS provider_id, p.specialty, p.location FROM appointments a "
+    "JOIN slots s ON s.id = a.slot_id JOIN providers p ON p.id = s.provider_id"
+)
 
 
 def _principal_spec(name: str) -> tuple[list[str], str | None]:
@@ -42,79 +65,75 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-_APPOINTMENTS_SQL = (
-    "SELECT a.id, a.status, a.patient_id, a.referral_id, a.slot_id, s.start, "
-    "p.id AS provider_id, p.specialty, p.location FROM appointments a "
-    "JOIN slots s ON s.id = a.slot_id JOIN providers p ON p.id = s.provider_id"
-)
-
-
 class Harness:
-    """Start once, run many tasks. Use as a context manager."""
+    """Per-suite resources (tokens, seeded template database). Use as a context manager."""
 
     def __init__(self, principals: Iterable[str]) -> None:
         self._dir = tempfile.TemporaryDirectory(prefix="mcp-ops-evals-")
-        self.db_path = str(Path(self._dir.name) / "clinic.db")
-        tokens_file = str(Path(self._dir.name) / "tokens.json")
-        self.tokens = {}
+        root = Path(self._dir.name)
+        self._tokens_file = str(root / "tokens.json")
+        self.tokens: dict[str, str] = {}
         for name in sorted(set(principals) | {"staff"}):
             scopes, patient = _principal_spec(name)
-            self.tokens[name] = issue(tokens_file, f"evals-{name}", scopes, patient)
-        self.port = _free_port()
-        self.url = f"http://127.0.0.1:{self.port}/mcp"
-        self._env = {
-            **os.environ,
-            "MCP_OPS_HOST": "127.0.0.1",
-            "MCP_OPS_PORT": str(self.port),
-            "MCP_OPS_DB": self.db_path,
-            "MCP_OPS_TOKENS_FILE": tokens_file,
-            # Evals measure agent behaviour, not the limiter.
-            "MCP_OPS_RATE_LIMIT_PER_MIN": "100000",
-        }
-        self._proc: subprocess.Popen | None = None
+            self.tokens[name] = issue(self._tokens_file, f"evals-{name}", scopes, patient)
+        self._template = root / "template.db"
+        Store(str(self._template)).close()  # seed once; each task copies this file
+        self._count = 0
 
     def __enter__(self) -> "Harness":
-        self._proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
-            [sys.executable, "-m", "mcp_ops_server"],
-            env=self._env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-        )
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            if self._proc.poll() is not None:
-                err = self._proc.stderr.read().decode() if self._proc.stderr else ""
-                raise RuntimeError(f"server exited early:\n{err[-2000:]}")
-            with socket.socket() as s:
-                if s.connect_ex(("127.0.0.1", self.port)) == 0:
-                    return self
-            time.sleep(0.1)
-        raise TimeoutError("server did not start")
+        return self
 
     def __exit__(self, *exc: object) -> None:
-        if self._proc:
-            self._proc.terminate()
-            try:
-                self._proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._proc.kill()
         self._dir.cleanup()
+
+    @contextmanager
+    def task_server(self, now: datetime = seed.CLINIC_NOW) -> Iterator["TaskServer"]:
+        self._count += 1
+        db_path = str(Path(self._dir.name) / f"task-{self._count}.db")
+        shutil.copyfile(self._template, db_path)
+        port = _free_port()
+        settings = Settings(
+            host="127.0.0.1",
+            port=port,
+            db_path=db_path,
+            tokens_file=self._tokens_file,
+            rate_limit_per_minute=100_000,  # evals measure agent behaviour, not the limiter
+            now=now,
+        )
+        server = uvicorn.Server(
+            uvicorn.Config(
+                build_http_app(settings), host="127.0.0.1", port=port, log_level="warning"
+            )
+        )
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+        deadline = time.monotonic() + 15
+        while not server.started:
+            if not thread.is_alive() or time.monotonic() > deadline:
+                raise RuntimeError("eval server failed to start")
+            time.sleep(0.01)
+        try:
+            yield TaskServer(f"http://127.0.0.1:{port}/mcp", db_path, self.tokens)
+        finally:
+            server.should_exit = True
+            thread.join(timeout=10)
+
+
+class TaskServer:
+    def __init__(self, url: str, db_path: str, tokens: dict[str, str]) -> None:
+        self.url = url
+        self.db_path = db_path
+        self._tokens = tokens
 
     @asynccontextmanager
     async def session(self, principal: str) -> AsyncIterator[ClientSession]:
-        headers = {"Authorization": f"Bearer {self.tokens[principal]}"}
+        headers = {"Authorization": f"Bearer {self._tokens[principal]}"}
         timeout = httpx2.Timeout(30, read=300)
         async with httpx2.AsyncClient(headers=headers, timeout=timeout) as http:
             async with streamable_http_client(self.url, http_client=http) as streams:
                 async with ClientSession(streams[0], streams[1]) as session:
                     await session.initialize()
                     yield session
-
-    @asynccontextmanager
-    async def sessions(self) -> AsyncIterator["Sessions"]:
-        """One open MCP session per principal for a whole suite (opened on first use)."""
-        async with AsyncExitStack() as stack:
-            yield Sessions(self, stack)
 
     @staticmethod
     async def call(session: ClientSession, tool: str, args: dict[str, Any]) -> Step:
@@ -135,20 +154,6 @@ class Harness:
             conn.close()
 
 
-class Sessions:
-    def __init__(self, harness: Harness, stack: AsyncExitStack) -> None:
-        self._harness = harness
-        self._stack = stack
-        self._open: dict[str, ClientSession] = {}
-
-    async def get(self, principal: str) -> ClientSession:
-        if principal not in self._open:
-            self._open[principal] = await self._stack.enter_async_context(
-                self._harness.session(principal)
-            )
-        return self._open[principal]
-
-
 def _public(row: dict[str, Any]) -> dict[str, Any]:
     out = {k: v for k, v in row.items() if k != "id"}
     out["appointment_id"] = f"APT-{row['id']:05d}"
@@ -157,14 +162,16 @@ def _public(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def diff(before: dict[int, dict], after: dict[int, dict]) -> dict[str, list[dict[str, Any]]]:
-    """Net change: new booked appointments, and existing ones that became cancelled.
-
-    An appointment booked and cancelled within the same task is no net change.
-    """
-    booked = [_public(r) for i, r in after.items() if i not in before and r["status"] == "booked"]
-    cancelled = [
-        _public(r)
-        for i, r in after.items()
-        if i in before and before[i]["status"] == "booked" and r["status"] == "cancelled"
-    ]
-    return {"booked": booked, "cancelled": cancelled}
+    """What changed: new booked appointments, existing ones that became cancelled, and
+    ``transient`` ones booked *and* cancelled within the task (net zero, but still writes
+    the grader must see)."""
+    new = [r for i, r in after.items() if i not in before]
+    return {
+        "booked": [_public(r) for r in new if r["status"] == "booked"],
+        "cancelled": [
+            _public(r)
+            for i, r in after.items()
+            if i in before and before[i]["status"] == "booked" and r["status"] == "cancelled"
+        ],
+        "transient": [_public(r) for r in new if r["status"] == "cancelled"],
+    }

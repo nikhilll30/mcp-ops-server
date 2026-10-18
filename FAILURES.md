@@ -2,6 +2,22 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-18 · Part 4: Codex review found the grader could be fooled 9 ways (5x P1, 5x P2, all fixed)
+I reproduced the grader-level holes directly (all four passed bad trajectories before the fix), then fixed each and added a test or negative control that fails with the hole put back.
+- **P1 · The agent chose what got graded.** The harness graded the step list the agent returned, so an agent could hide a call or invent one. **Fix:** the harness records every call made through `call()` and grades that; the agent's return value is ignored. **Test:** an agent that does an out-of-scope lookup and reports nothing fails `patient_scope`.
+- **P1 · "Earliest" and "next" were checked only by date.** b01 accepted any slot that day. k01's own reference booked the wrong slot (09:00 instead of the next one after 10:00) and still passed. **Fix:** both expectations are exact slot IDs computed from the seed. **Control:** n11 books a later slot.
+- **P1 · The referral check could be the wrong one, or come too late.** A cardiology check satisfied a dermatology booking, and "book, check, cancel, rebook" satisfied the ordered requirement. **Fix:** a new `preconditions` check (every successful booking must follow a check of that specialty's referral) and an `$optional` matcher for the specialty argument. **Controls:** n08 and n09.
+- **P1 · Net-change grading hid write cycles.** An appointment booked and cancelled within a task vanished from the diff. **Fix:** the diff reports `transient` appointments, which fail unless expected, and every refusal and auth task forbids successful writes. **Control:** n10.
+- **P1 · One bad run could poison later tasks.** Tasks shared one database. **Reproduced:** with an agent that books k02's setup slot during b01, k02 then failed `setup`. **Fix:** every task gets its own freshly seeded database and server (in-process, ~100 ms). **Test:** that sabotage now fails only b01.
+- **P2s:**
+  - unordered requirements could reuse one step: now one-to-one assignment;
+  - greedy state matching rejected valid sets of changes: now one-to-one assignment;
+  - a bad `$ref` crashed the suite: now an `agent_error` failure, which caught my own wrong-day a01 script on its first run;
+  - the harness inherited `MCP_OPS_NOW`: the clock is now pinned per task, with a test;
+  - a01 never attempted a cross-patient booking: it does now;
+  - k03 queried a day with no slots: it now uses a real 09:00 slot, made past by a task clock of 12:00.
+- **Lesson:** I claimed the grader checks "every step" but tested it only with well-behaved and obviously bad trajectories. Codex attacked it like an agent trying to pass would. Negative controls should include adversarial ones, not just clumsy ones (now 12, covering every check).
+
 ## 2026-10-18 · Part 4: a loosened server rule was invisible to every golden task
 - **What surprised me:** As a mutation check, I made pending referrals bookable in `store.py`. All 31 golden tasks still passed: the replay agent behaves well, checks the referral, and never tries the forbidden booking, so it never hit the loosened rule. Only negative control `n02` (which tries to book with a pending referral) failed, and that failure is what failed the test suite.
 - **What changed:** Negative controls are now required to cover every grader check (`test_negative_controls_cover_every_check`). They stay in CI next to the golden tasks.

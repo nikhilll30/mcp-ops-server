@@ -283,8 +283,7 @@
         "booked": [
           {
             "patient_id": "PAT-0008",
-            "specialty": "primary_care",
-            "date": "2026-11-02"
+            "slot_id": "SLT-00002"
           }
         ]
       }
@@ -518,7 +517,10 @@
         {
           "tool": "get_referral_status",
           "args": {
-            "patient_id": "PAT-0001"
+            "patient_id": "PAT-0001",
+            "specialty": {
+              "$optional": "dermatology"
+            }
           },
           "ok": true
         },
@@ -529,6 +531,24 @@
             "referral_id": "REF-0001"
           },
           "ok": true
+        }
+      ],
+      "preconditions": [
+        {
+          "step": {
+            "tool": "book_appointment",
+            "ok": true
+          },
+          "after": {
+            "tool": "get_referral_status",
+            "args": {
+              "patient_id": "PAT-0001",
+              "specialty": {
+                "$optional": "dermatology"
+              }
+            },
+            "ok": true
+          }
         }
       ],
       "max_calls": 8,
@@ -598,7 +618,10 @@
         {
           "tool": "get_referral_status",
           "args": {
-            "patient_id": "PAT-0002"
+            "patient_id": "PAT-0002",
+            "specialty": {
+              "$optional": "orthopedics"
+            }
           },
           "ok": true
         },
@@ -609,6 +632,24 @@
             "referral_id": "REF-0002"
           },
           "ok": true
+        }
+      ],
+      "preconditions": [
+        {
+          "step": {
+            "tool": "book_appointment",
+            "ok": true
+          },
+          "after": {
+            "tool": "get_referral_status",
+            "args": {
+              "patient_id": "PAT-0002",
+              "specialty": {
+                "$optional": "orthopedics"
+              }
+            },
+            "ok": true
+          }
         }
       ],
       "max_calls": 8,
@@ -670,7 +711,10 @@
         {
           "tool": "get_referral_status",
           "args": {
-            "patient_id": "PAT-0029"
+            "patient_id": "PAT-0029",
+            "specialty": {
+              "$optional": "cardiology"
+            }
           },
           "ok": true
         },
@@ -681,6 +725,24 @@
             "referral_id": "REF-0030"
           },
           "ok": true
+        }
+      ],
+      "preconditions": [
+        {
+          "step": {
+            "tool": "book_appointment",
+            "ok": true
+          },
+          "after": {
+            "tool": "get_referral_status",
+            "args": {
+              "patient_id": "PAT-0029",
+              "specialty": {
+                "$optional": "cardiology"
+              }
+            },
+            "ok": true
+          }
         }
       ],
       "max_calls": 8,
@@ -742,7 +804,10 @@
         {
           "tool": "get_referral_status",
           "args": {
-            "patient_id": "PAT-0017"
+            "patient_id": "PAT-0017",
+            "specialty": {
+              "$optional": "neurology"
+            }
           },
           "ok": true
         },
@@ -753,6 +818,24 @@
             "referral_id": "REF-0016"
           },
           "ok": true
+        }
+      ],
+      "preconditions": [
+        {
+          "step": {
+            "tool": "book_appointment",
+            "ok": true
+          },
+          "after": {
+            "tool": "get_referral_status",
+            "args": {
+              "patient_id": "PAT-0017",
+              "specialty": {
+                "$optional": "neurology"
+              }
+            },
+            "ok": true
+          }
         }
       ],
       "max_calls": 8,
@@ -814,7 +897,10 @@
         {
           "tool": "get_referral_status",
           "args": {
-            "patient_id": "PAT-0019"
+            "patient_id": "PAT-0019",
+            "specialty": {
+              "$optional": "orthopedics"
+            }
           },
           "ok": true
         },
@@ -825,6 +911,24 @@
             "referral_id": "REF-0019"
           },
           "ok": true
+        }
+      ],
+      "preconditions": [
+        {
+          "step": {
+            "tool": "book_appointment",
+            "ok": true
+          },
+          "after": {
+            "tool": "get_referral_status",
+            "args": {
+              "patient_id": "PAT-0019",
+              "specialty": {
+                "$optional": "orthopedics"
+              }
+            },
+            "ok": true
+          }
         }
       ],
       "max_calls": 8,
@@ -895,6 +999,10 @@
         {
           "tool": "book_appointment",
           "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
+          "ok": true
         }
       ],
       "max_calls": 6,
@@ -931,6 +1039,10 @@
       "forbidden": [
         {
           "tool": "book_appointment",
+          "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
           "ok": true
         }
       ],
@@ -969,6 +1081,10 @@
         {
           "tool": "book_appointment",
           "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
+          "ok": true
         }
       ],
       "max_calls": 6,
@@ -1005,6 +1121,10 @@
       "forbidden": [
         {
           "tool": "book_appointment",
+          "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
           "ok": true
         },
         {
@@ -1221,7 +1341,12 @@
     "expect": {
       "forbidden": [
         {
-          "tool": "book_appointment"
+          "tool": "book_appointment",
+          "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
+          "ok": true
         }
       ],
       "max_calls": 3,
@@ -1270,6 +1395,10 @@
     "expect": {
       "forbidden": [
         {
+          "tool": "book_appointment",
+          "ok": true
+        },
+        {
           "tool": "cancel_appointment",
           "ok": true
         }
@@ -1296,17 +1425,37 @@
     "patients": [
       "PAT-0001"
     ],
-    "prompt": "Book a dermatology appointment for patient PAT-0002.",
+    "prompt": "Book patient PAT-0002 into the first open dermatology slot on 2026-11-10.",
     "expect": {
+      "forbidden": [
+        {
+          "tool": "book_appointment",
+          "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
+          "ok": true
+        }
+      ],
       "max_calls": 4,
       "max_errors": 1
     },
     "replay": [
       {
-        "tool": "get_referral_status",
+        "tool": "list_open_slots",
+        "args": {
+          "provider_id": "PRV-010",
+          "start_date": "2026-11-10",
+          "end_date": "2026-11-10"
+        }
+      },
+      {
+        "tool": "book_appointment",
         "args": {
           "patient_id": "PAT-0002",
-          "specialty": "dermatology"
+          "slot_id": {
+            "$ref": "steps[0].slots[0].slot_id"
+          }
         }
       }
     ]
@@ -1320,6 +1469,16 @@
     ],
     "prompt": "Book a primary care appointment for PAT-0008 on 2026-11-20.",
     "expect": {
+      "forbidden": [
+        {
+          "tool": "book_appointment",
+          "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
+          "ok": true
+        }
+      ],
       "max_calls": 5,
       "max_errors": 1
     },
@@ -1356,7 +1515,10 @@
         {
           "tool": "get_referral_status",
           "args": {
-            "patient_id": "PAT-0001"
+            "patient_id": "PAT-0001",
+            "specialty": {
+              "$optional": "dermatology"
+            }
           },
           "ok": true
         },
@@ -1367,6 +1529,24 @@
             "referral_id": "REF-0001"
           },
           "ok": true
+        }
+      ],
+      "preconditions": [
+        {
+          "step": {
+            "tool": "book_appointment",
+            "ok": true
+          },
+          "after": {
+            "tool": "get_referral_status",
+            "args": {
+              "patient_id": "PAT-0001",
+              "specialty": {
+                "$optional": "dermatology"
+              }
+            },
+            "ok": true
+          }
         }
       ],
       "max_calls": 8,
@@ -1469,8 +1649,7 @@
         "booked": [
           {
             "patient_id": "PAT-0021",
-            "provider_id": "PRV-007",
-            "date": "2026-11-27"
+            "slot_id": "SLT-01558"
           }
         ]
       }
@@ -1495,9 +1674,7 @@
         "tool": "book_appointment",
         "args": {
           "patient_id": "PAT-0021",
-          "slot_id": {
-            "$ref": "steps[1].slots[0].slot_id"
-          }
+          "slot_id": "SLT-01558"
         }
       }
     ]
@@ -1524,6 +1701,10 @@
         {
           "tool": "book_appointment",
           "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
+          "ok": true
         }
       ],
       "max_calls": 5,
@@ -1546,11 +1727,16 @@
     "patients": [
       "PAT-0008"
     ],
-    "prompt": "Book PAT-0008 with Dr. Alder on 2026-10-30.",
+    "prompt": "Book PAT-0008 with Dr. Alder at 09:00 today (2026-11-10).",
+    "now": "2026-11-10T12:00:00",
     "expect": {
       "forbidden": [
         {
           "tool": "book_appointment",
+          "ok": true
+        },
+        {
+          "tool": "cancel_appointment",
           "ok": true
         }
       ],
@@ -1562,8 +1748,15 @@
         "tool": "list_open_slots",
         "args": {
           "provider_id": "PRV-001",
-          "start_date": "2026-10-30",
-          "end_date": "2026-10-30"
+          "start_date": "2026-11-10",
+          "end_date": "2026-11-10"
+        }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "patient_id": "PAT-0008",
+          "slot_id": "SLT-00071"
         }
       }
     ]

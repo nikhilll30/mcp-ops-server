@@ -1,14 +1,11 @@
 """Entry point for ``python -m mcp_ops_server``."""
 
 import sys
-from datetime import datetime
 
 import uvicorn
 
-from mcp_ops_server.auth import StaticTokenVerifier
 from mcp_ops_server.config import Settings
-from mcp_ops_server.server import build_server
-from mcp_ops_server.store import Store
+from mcp_ops_server.server import build_http_app
 
 
 def main() -> None:
@@ -21,24 +18,7 @@ def main() -> None:
             "--scope read:schedule --scope write:schedule --scope read:referrals\n"
             "then run with MCP_OPS_TOKENS_FILE=tokens.json"
         )
-    fixed_now = settings.now
-    store = Store(
-        settings.db_path,
-        timeout_s=settings.call_timeout_s,
-        now=(lambda: fixed_now) if fixed_now is not None else datetime.now,
-    )
-    server = build_server(
-        store,
-        token_verifier=StaticTokenVerifier.from_file(settings.tokens_file),
-        issuer_url=f"http://{settings.host}:{settings.port}",
-        rate_limit_per_minute=settings.rate_limit_per_minute,
-    )
-    app = server.streamable_http_app(
-        host=settings.host,
-        max_request_body_size=settings.max_body_bytes,
-        max_sessions=settings.max_sessions,
-        session_idle_timeout=settings.session_idle_timeout_s,
-    )
+    app = build_http_app(settings)
     uvicorn.run(app, host=settings.host, port=settings.port, log_level="info")
 
 

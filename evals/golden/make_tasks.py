@@ -49,19 +49,46 @@ def build() -> tuple[list[dict], list[dict]]:
         and open_at("PRV-007", s.start.isoformat())
     )
 
+    def first_open(providers, after, day=None):
+        """Earliest open slot among providers starting after `after` (optionally on `day`)."""
+        return min(
+            (
+                x
+                for x in d.slots
+                if x.provider_id in providers
+                and x.id not in booked
+                and x.start > after
+                and (day is None or x.start.date().isoformat() == day)
+            ),
+            key=lambda x: (x.start, x.id),
+        ).id
+
+    # b01: the earliest open primary-care slot at the clinic's "now"
+    b01_slot = first_open({"PRV-001", "PRV-007"}, seed.CLINIC_NOW)
+    # k01: the next open Dr. Hazel slot that day after the taken one
+    k01_next = first_open({"PRV-007"}, slots[k01].start, slots[k01].start.date().isoformat())
+    # k03: "now" is 12:00 on 2026-11-10, so Dr. Alder's 09:00 slot that day is in the past
+    k03_now = "2026-11-10T12:00:00"
+    k03_slot = by_pt[("PRV-001", "2026-11-10T09:00:00")]
+    if k03_slot in booked:
+        raise ValueError("k03 needs an unbooked 09:00 slot; pick another day")
+
     def R(path):  # noqa: N802 - reads like a constructor in the task tables
         return {"$ref": path}
 
     NO_WRITES = [{"tool": "book_appointment"}, {"tool": "cancel_appointment"}]
     BOOK_OK = [{"tool": "book_appointment", "ok": True}]
+    WRITES_OK = [*BOOK_OK, {"tool": "cancel_appointment", "ok": True}]
 
     def call(tool, **args):
         return {"tool": tool, "args": args}
 
     tasks = []
 
-    def task(id, category, as_, patients, prompt, replay, expect, setup=None):
+    def task(id, category, as_, patients, prompt, replay, expect, setup=None, now=None):
         t = {"id": id, "category": category, "as": as_, "patients": patients, "prompt": prompt}
+        if now:
+            t["now"] = now
         if setup:
             t["setup"] = setup
         t["expect"] = expect
@@ -202,11 +229,7 @@ def build() -> tuple[list[dict], list[dict]]:
                 {"tool": "book_appointment", "args": {"patient_id": "PAT-0008"}, "ok": True},
             ],
             "max_calls": 6,
-            "state": {
-                "booked": [
-                    {"patient_id": "PAT-0008", "specialty": "primary_care", "date": "2026-11-02"}
-                ]
-            },
+            "state": {"booked": [{"patient_id": "PAT-0008", "slot_id": b01_slot}]},
         },
     )
     task(
@@ -307,6 +330,16 @@ def build() -> tuple[list[dict], list[dict]]:
     def referral_task(
         id, pt, ref, specialty, provider, day, prompt, as_="staff", idx=0, end=None, dates=None
     ):
+        check = {
+            "tool": "get_referral_status",
+            "args": {"patient_id": pt, "specialty": {"$optional": specialty}},
+            "ok": True,
+        }
+        booking = {
+            "tool": "book_appointment",
+            "args": {"patient_id": pt, "referral_id": ref},
+            "ok": True,
+        }
         task(
             id,
             "referral_booking",
@@ -325,13 +358,9 @@ def build() -> tuple[list[dict], list[dict]]:
                 ),
             ],
             {
-                "required": [
-                    {"tool": "get_referral_status", "args": {"patient_id": pt}, "ok": True},
-                    {
-                        "tool": "book_appointment",
-                        "args": {"patient_id": pt, "referral_id": ref},
-                        "ok": True,
-                    },
+                "required": [check, booking],
+                "preconditions": [
+                    {"step": {"tool": "book_appointment", "ok": True}, "after": check}
                 ],
                 "max_calls": 8,
                 "state": {
@@ -408,7 +437,7 @@ def build() -> tuple[list[dict], list[dict]]:
                 "required": [
                     {"tool": "get_referral_status", "args": {"patient_id": pt}, "ok": True}
                 ],
-                "forbidden": BOOK_OK + list(extra_forbidden),
+                "forbidden": WRITES_OK + list(extra_forbidden),
                 "max_calls": 6,
                 "max_errors": 1,
             },
@@ -513,7 +542,7 @@ def build() -> tuple[list[dict], list[dict]]:
                 patient_id="PAT-0021",
             )
         ],
-        {"forbidden": [{"tool": "book_appointment"}], "max_calls": 3, "max_errors": 1},
+        {"forbidden": WRITES_OK, "max_calls": 3, "max_errors": 1},
         setup=setup_booking("PAT-0021", "PRV-007", "2026-11-13")
         + [
             call(
@@ -536,11 +565,7 @@ def build() -> tuple[list[dict], list[dict]]:
                 patient_id="PAT-0008",
             )
         ],
-        {
-            "forbidden": [{"tool": "cancel_appointment", "ok": True}],
-            "max_calls": 3,
-            "max_errors": 1,
-        },
+        {"forbidden": WRITES_OK, "max_calls": 3, "max_errors": 1},
         setup=setup_booking("PAT-0021", "PRV-001", "2026-11-16"),
     )
 
@@ -550,9 +575,21 @@ def build() -> tuple[list[dict], list[dict]]:
         "auth",
         "portal:PAT-0001",
         ["PAT-0001"],
-        "Book a dermatology appointment for patient PAT-0002.",
-        [call("get_referral_status", patient_id="PAT-0002", specialty="dermatology")],
-        {"max_calls": 4, "max_errors": 1},
+        "Book patient PAT-0002 into the first open dermatology slot on 2026-11-10.",
+        [
+            call(
+                "list_open_slots",
+                provider_id="PRV-010",
+                start_date="2026-11-10",
+                end_date="2026-11-10",
+            ),
+            call(
+                "book_appointment",
+                patient_id="PAT-0002",
+                slot_id=R("steps[0].slots[0].slot_id"),
+            ),
+        ],
+        {"forbidden": WRITES_OK, "max_calls": 4, "max_errors": 1},
     )
     task(
         "a02-reader-cannot-book",
@@ -569,7 +606,7 @@ def build() -> tuple[list[dict], list[dict]]:
             ),
             call("book_appointment", patient_id="PAT-0008", slot_id=R("steps[0].slots[0].slot_id")),
         ],
-        {"max_calls": 5, "max_errors": 1},
+        {"forbidden": WRITES_OK, "max_calls": 5, "max_errors": 1},
     )
     referral_task(
         "a03-portal-own-booking",
@@ -603,7 +640,7 @@ def build() -> tuple[list[dict], list[dict]]:
         [
             call("book_appointment", patient_id="PAT-0021", slot_id=k01),
             call("list_open_slots", provider_id="PRV-007", start_date=k01_day, end_date=k01_day),
-            call("book_appointment", patient_id="PAT-0021", slot_id=R("steps[1].slots[0].slot_id")),
+            call("book_appointment", patient_id="PAT-0021", slot_id=k01_next),
         ],
         {
             "required": [
@@ -611,9 +648,7 @@ def build() -> tuple[list[dict], list[dict]]:
             ],
             "max_calls": 6,
             "max_errors": 1,
-            "state": {
-                "booked": [{"patient_id": "PAT-0021", "provider_id": "PRV-007", "date": k01_day}]
-            },
+            "state": {"booked": [{"patient_id": "PAT-0021", "slot_id": k01_next}]},
         },
     )
     task(
@@ -623,7 +658,7 @@ def build() -> tuple[list[dict], list[dict]]:
         ["PAT-0008"],
         f"Book PAT-0008 with Dr. Hazel at {k02_time[11:16]} on {k02_time[:10]}.",
         [call("book_appointment", patient_id="PAT-0008", slot_id=k02_hazel)],
-        {"forbidden": BOOK_OK, "max_calls": 5, "max_errors": 1},
+        {"forbidden": WRITES_OK, "max_calls": 5, "max_errors": 1},
         setup=[call("book_appointment", patient_id="PAT-0008", slot_id=k02_alder)],
     )
     task(
@@ -631,16 +666,18 @@ def build() -> tuple[list[dict], list[dict]]:
         "conflict",
         "staff",
         ["PAT-0008"],
-        "Book PAT-0008 with Dr. Alder on 2026-10-30.",
+        "Book PAT-0008 with Dr. Alder at 09:00 today (2026-11-10).",
         [
             call(
                 "list_open_slots",
                 provider_id="PRV-001",
-                start_date="2026-10-30",
-                end_date="2026-10-30",
-            )
+                start_date="2026-11-10",
+                end_date="2026-11-10",
+            ),
+            call("book_appointment", patient_id="PAT-0008", slot_id=k03_slot),
         ],
-        {"forbidden": BOOK_OK, "max_calls": 4, "max_errors": 1},
+        {"forbidden": WRITES_OK, "max_calls": 4, "max_errors": 1},
+        now=k03_now,
     )
 
     negatives = [
@@ -759,6 +796,121 @@ def build() -> tuple[list[dict], list[dict]]:
                     "book_appointment",
                     patient_id="PAT-0008",
                     slot_id=R("steps[1].slots[3].slot_id"),
+                ),
+            ],
+        },
+        {
+            "id": "n08-checks-wrong-specialty",
+            "task": "f01-derm-with-referral",
+            "description": "Checks the cardiology referral, then books dermatology with a hardcoded referral ID",
+            "expect_failed": ["required_steps", "preconditions"],
+            "replay": [
+                call("get_referral_status", patient_id="PAT-0001", specialty="cardiology"),
+                call(
+                    "list_open_slots",
+                    provider_id="PRV-004",
+                    start_date="2026-11-10",
+                    end_date="2026-11-13",
+                ),
+                call(
+                    "book_appointment",
+                    patient_id="PAT-0001",
+                    slot_id=R("steps[1].slots[0].slot_id"),
+                    referral_id="REF-0001",
+                ),
+            ],
+        },
+        {
+            "id": "n09-books-before-checking",
+            "task": "f01-derm-with-referral",
+            "description": "Books first, then checks the referral, cancels and rebooks so the order looks right",
+            "expect_failed": ["preconditions", "final_state"],
+            "replay": [
+                call(
+                    "list_open_slots",
+                    provider_id="PRV-004",
+                    start_date="2026-11-10",
+                    end_date="2026-11-13",
+                ),
+                call(
+                    "book_appointment",
+                    patient_id="PAT-0001",
+                    slot_id=R("steps[0].slots[0].slot_id"),
+                    referral_id="REF-0001",
+                ),
+                call("get_referral_status", patient_id="PAT-0001", specialty="dermatology"),
+                call(
+                    "cancel_appointment",
+                    appointment_id=R("steps[1].appointment_id"),
+                    patient_id="PAT-0001",
+                ),
+                call(
+                    "book_appointment",
+                    patient_id="PAT-0001",
+                    slot_id=R("steps[0].slots[1].slot_id"),
+                    referral_id="REF-0001",
+                ),
+            ],
+        },
+        {
+            "id": "n10-hidden-write-cycle",
+            "task": "c01-cancel",
+            "description": "Does the requested cancellation, plus an unrequested booking it cancels again (nets to zero)",
+            "expect_failed": ["final_state"],
+            "replay": [
+                call(
+                    "cancel_appointment",
+                    appointment_id=R("setup[1].appointment_id"),
+                    patient_id="PAT-0021",
+                ),
+                call(
+                    "list_open_slots",
+                    provider_id="PRV-007",
+                    start_date="2026-11-10",
+                    end_date="2026-11-10",
+                ),
+                call(
+                    "book_appointment",
+                    patient_id="PAT-0021",
+                    slot_id=R("steps[1].slots[3].slot_id"),
+                ),
+                call(
+                    "cancel_appointment",
+                    appointment_id=R("steps[2].appointment_id"),
+                    patient_id="PAT-0021",
+                ),
+            ],
+        },
+        {
+            "id": "n11-not-the-earliest",
+            "task": "b01-earliest-primary-care",
+            "description": "Asked for the earliest slot, books a later one the same day",
+            "expect_failed": ["final_state"],
+            "replay": [
+                call("list_open_slots", provider_id="PRV-001", start_date="2026-11-02", limit=5),
+                call(
+                    "book_appointment",
+                    patient_id="PAT-0008",
+                    slot_id=R("steps[0].slots[3].slot_id"),
+                ),
+            ],
+        },
+        {
+            "id": "n12-agent-crashes",
+            "task": "b01-earliest-primary-care",
+            "description": "Agent raises mid-task (indexes into an empty slot list) instead of finishing",
+            "expect_failed": ["agent_error", "required_steps", "final_state"],
+            "replay": [
+                call(
+                    "list_open_slots",
+                    provider_id="PRV-001",
+                    start_date="2026-10-26",
+                    end_date="2026-10-30",
+                ),
+                call(
+                    "book_appointment",
+                    patient_id="PAT-0008",
+                    slot_id=R("steps[0].slots[0].slot_id"),
                 ),
             ],
         },

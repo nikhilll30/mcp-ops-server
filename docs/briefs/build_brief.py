@@ -404,7 +404,7 @@ def part4() -> list:
     return [
         Paragraph("Part 4 Brief · Evals", title),
         Paragraph(
-            "mcp-ops-server · 18 Oct 2026 · PR #5 · Status: 31/31 tasks pass, 7/7 negative controls caught, awaiting Codex review",
+            "mcp-ops-server · 18 Oct 2026 · PR #5 · Status: Codex review fixed (5x P1, 5x P2); 31/31 tasks, 12/12 controls; ready to merge",
             sub,
         ),
         Spacer(1, 4),
@@ -424,8 +424,8 @@ def part4() -> list:
             f"{cf}evals/report.md</font>: per-task results, pass rate by category, tool latency."
         ),
         bl(
-            "<b>7 negative controls:</b> deliberately bad runs (wrong patient, skipped referral check, "
-            "writes during a lookup, flailing) that the grader must fail. Together they cover every check."
+            "<b>12 negative controls:</b> deliberately bad runs, including adversarial ones that try to game "
+            "the grader (checking the wrong referral, booking then cancelling to hide it). Each must fail."
         ),
         section("How it works"),
         table(
@@ -433,13 +433,13 @@ def part4() -> list:
                 ["Piece", "Role"],
                 [
                     "harness.py",
-                    "Starts the real server with issued tokens and a file database; agents talk to it over "
-                    "MCP like any client. Diffs the appointments table before and after each task.",
+                    "A fresh seeded database and real server per task (same app as the CLI, real auth), "
+                    "clock pinned. Records every call the agent makes and diffs the appointments table.",
                 ],
                 [
                     "grader.py",
-                    "Six checks per task. final_state compares the actual database change to the expected "
-                    "bookings and cancellations, so a correct-sounding but wrong run still fails.",
+                    "Eight checks per task, on the recorded calls (not the agent's report) and on the exact "
+                    "database change, so a correct-sounding but wrong run still fails.",
                 ],
                 [
                     "agents.py",
@@ -459,8 +459,8 @@ def part4() -> list:
             "still succeed. Only step-level grading sees that the check was skipped."
         ),
         bl(
-            "<b>Evals use real auth.</b> 7 of the 64 calls are expected refusals (scope, patient binding, "
-            "double booking), so the suite also tests Part 3's rules end to end."
+            "<b>Evals use real auth.</b> 8 of the 66 calls are expected refusals (scope, patient binding, "
+            "double booking, past slot), so the suite also tests Part 3's rules end to end."
         ),
         section("What went wrong or surprised me (logged in FAILURES.md)"),
         bl(
@@ -469,29 +469,30 @@ def part4() -> list:
             "control failed. Now the controls must cover every check."
         ),
         bl(
-            "<b>Controls crashed on a shared database</b> by reusing a slot the golden run had booked. They now "
-            "get a fresh server, and a broken setup fails one task instead of the run."
+            "<b>Codex review: the grader could be fooled 9 ways.</b> Agents reported their own steps; "
+            '"earliest" was checked by date only; any referral check counted; book-then-cancel vanished; '
+            "one bad run poisoned the next. All fixed, each with a test or control that fails without the fix."
         ),
         section("Verify it yourself"),
         codebox(
             [
-                "python -m evals.run       # 31/31 tasks passed; 7/7 negative controls caught",
+                "python -m evals.run       # 31/31 tasks passed; 12/12 negative controls caught",
                 "cat evals/report.md       # per-task results, categories, latency",
-                "ruff check . && python -m pytest -q   # 150 passed (includes the full suite)",
+                "ruff check . && python -m pytest -q   # 159 passed (includes the full suite)",
             ]
         ),
         section("Interview talking point"),
         Paragraph(
-            '"My eval grades what the agent did, step by step, and what changed in the database, not what it '
-            "said. And I test the grader: deliberately bad runs must fail. One caught a server regression that "
-            'every well-behaved task missed."',
+            '"My eval grades what the agent actually did, recorded by the harness, and what changed in the '
+            "database, not what it said. Then I attacked my own grader: an independent review found 9 ways to "
+            'pass a bad run, and each is now a negative control that must fail."',
             body,
         ),
         section("Next: Part 5, CI gate and real numbers"),
         Paragraph(
             "A dedicated eval job that blocks merges, and a live LLM agent on the same 31 tasks to measure pass "
-            "rate, cost and latency. That needs an API key as a secret, your call. <b>Your action:</b> paste "
-            "the Codex prompt, then merge PR #5 once fixes are in.",
+            "rate, cost and latency. That needs an API key as a secret, your call. <b>Your action:</b> merge "
+            'PR #5, then reply "go" with the model, API and run frequency for the live agent.',
             body,
         ),
     ]
