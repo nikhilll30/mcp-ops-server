@@ -1,6 +1,10 @@
 """Rate limiter, per-call time limits, simulated clock, and settings."""
 
+import sqlite3
+import threading
+import time
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 from conftest import NO_REFERRAL_PATIENT, PRIMARY_PROVIDER, seeded_busy_starts
@@ -153,3 +157,73 @@ def _open_slot(store: Store) -> str:
     out = store.list_open_slots(PRIMARY_PROVIDER, seed.SCHEDULE_START, limit=100)
     busy = seeded_busy_starts(NO_REFERRAL_PATIENT)
     return next(s["slot_id"] for s in out["slots"] if s["start"] not in busy)
+
+
+# ---- the deadline covers the whole call, including waits (Codex review, Part 3) ------------
+
+SLACK_S = 0.08  # scheduling noise allowed beyond the deadline
+
+
+def _file_store(tmp_path: Path, timeout_s: float) -> Store:
+    return Store(str(tmp_path / "clinic.db"), timeout_s=timeout_s)
+
+
+def test_lock_wait_and_db_wait_share_one_deadline(tmp_path: Path) -> None:
+    """In-process lock contention, then another connection's write lock: 150 ms + 150 ms of
+    waiting against a 200 ms budget must fail at ~200 ms, not succeed at ~300 ms."""
+    store = _file_store(tmp_path, timeout_s=0.2)
+    slot_id = _open_slot(store)
+    other = sqlite3.connect(
+        str(tmp_path / "clinic.db"), isolation_level=None, check_same_thread=False
+    )
+    holding = threading.Event()
+
+    def contend() -> None:
+        store._lock.acquire()  # noqa: SLF001 - simulate a slow in-process caller
+        holding.set()
+        time.sleep(0.15)
+        other.execute("BEGIN IMMEDIATE")  # then another process holds the write lock
+        store._lock.release()  # noqa: SLF001
+        time.sleep(0.15)
+        other.execute("ROLLBACK")
+
+    t = threading.Thread(target=contend)
+    t.start()
+    holding.wait()
+    start = time.monotonic()
+    with pytest.raises((BusyError, CallTimeoutError)):
+        store.book_appointment(NO_REFERRAL_PATIENT, slot_id)
+    elapsed = time.monotonic() - start
+    t.join()
+    assert elapsed < 0.2 + SLACK_S, f"call took {elapsed * 1000:.0f} ms"
+    assert _open_slot(store) == slot_id
+
+
+def test_write_past_deadline_is_rolled_back_not_committed(tmp_path: Path) -> None:
+    store = _file_store(tmp_path, timeout_s=0.2)
+    slot_id = _open_slot(store)
+    with pytest.raises(CallTimeoutError), store._write() as c:  # noqa: SLF001
+        c.execute(
+            "INSERT INTO appointments (slot_id, patient_id, status) VALUES (?, ?, 'booked')",
+            (slot_id, NO_REFERRAL_PATIENT),
+        )
+        time.sleep(0.25)  # the work itself overran the budget
+    assert _open_slot(store) == slot_id
+
+
+def test_commit_blocked_by_a_reader_gives_up_within_the_deadline(tmp_path: Path) -> None:
+    store = _file_store(tmp_path, timeout_s=0.2)
+    slot_id = _open_slot(store)
+    reader = sqlite3.connect(str(tmp_path / "clinic.db"), isolation_level=None)
+    start = time.monotonic()
+    with pytest.raises(BusyError), store._write() as c:  # noqa: SLF001
+        c.execute(
+            "INSERT INTO appointments (slot_id, patient_id, status) VALUES (?, ?, 'booked')",
+            (slot_id, NO_REFERRAL_PATIENT),
+        )
+        reader.execute("BEGIN")
+        reader.execute("SELECT * FROM slots LIMIT 1").fetchall()  # blocks our COMMIT
+    elapsed = time.monotonic() - start
+    reader.execute("ROLLBACK")
+    assert elapsed < 0.2 + SLACK_S, f"call took {elapsed * 1000:.0f} ms"
+    assert _open_slot(store) == slot_id

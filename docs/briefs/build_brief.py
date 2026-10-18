@@ -301,7 +301,7 @@ def part3() -> list:
     return [
         Paragraph("Part 3 Brief · Hardening", title),
         Paragraph(
-            "mcp-ops-server · 18 Oct 2026 · PR #4 · Status: 112 tests, security review clean, awaiting CI and Codex review",
+            "mcp-ops-server · 18 Oct 2026 · PR #4 · Status: Codex review fixed (2x P1, 1x P2), 119 tests, ready to merge",
             sub,
         ),
         Spacer(1, 4),
@@ -316,8 +316,8 @@ def part3() -> list:
             "bound to one patient can only book, cancel or read referrals for that patient."
         ),
         bl(
-            "<b>Limits:</b> a per-client rate limit, a 64 KiB request cap (SDK default: 4 MiB), a time limit on "
-            "every database call, and 100 sessions with a 10-minute idle timeout."
+            "<b>Limits:</b> a per-client rate limit on every tool call, a 64 KiB request cap (SDK default: 4 MiB), "
+            "one time limit per call covering all waits, and 100 sessions with a 10-minute idle timeout."
         ),
         bl(
             "<b>Simulated clinic clock</b> (default Mon 2 Nov 2026, 08:00): past slots are hidden and can't be "
@@ -333,14 +333,14 @@ def part3() -> list:
                     "the tools can read.",
                 ],
                 [
-                    "Guard.check()",
-                    "Called first in every tool: authenticated? within rate limit? has the scope? right "
-                    "patient? Raises an error the agent can read; nothing touches the database.",
+                    "Guard",
+                    "Every tool call is rate-limited before its arguments are even validated. Then each tool "
+                    "checks: authenticated? has the scope? right patient? Refusals never touch the database.",
                 ],
                 [
                     "Store",
-                    "Each call gets a deadline. A SQLite progress handler interrupts a slow statement and the "
-                    "transaction rolls back. Clinic time comes from an injected clock.",
+                    "One deadline per call, set before any waiting. Lock waits and SQLite busy waits use the "
+                    "time left; a slow statement is interrupted; a late write rolls back instead of committing.",
                 ],
             ],
             [1.2 * inch, w - 1.2 * inch],
@@ -368,9 +368,10 @@ def part3() -> list:
             "write never lands."
         ),
         bl(
-            "<b>All 111 tests passed on the first run,</b> which Part 2 taught me to distrust. I removed each "
-            "protection in turn (guard, patient binding, rate limit, timeout, past filter, schema): each removal "
-            "fails at least one test."
+            "<b>Codex review: 2x P1, 1x P2, all reproduced, then fixed.</b> The time limit ignored lock waits "
+            "(a call took 336 ms against a 200 ms limit). Tokens sharing a client name could delete each "
+            "other's sessions. Invalid calls and health skipped the rate limit. Each fix has a test that "
+            "fails with the bug put back."
         ),
         section("Verify it yourself"),
         codebox(
@@ -378,7 +379,7 @@ def part3() -> list:
                 "python -m mcp_ops_server.auth issue --file tokens.json --client dev \\",
                 "    --scope read:schedule --scope write:schedule --scope read:referrals   # prints token",
                 "MCP_OPS_TOKENS_FILE=tokens.json python -m mcp_ops_server   # 401 without the token",
-                "ruff check . && python -m pytest -q                        # 112 passed",
+                "ruff check . && python -m pytest -q                        # 119 passed",
             ]
         ),
         section("Interview talking point"),
@@ -391,7 +392,7 @@ def part3() -> list:
         section("Next: Part 4, evals"),
         Paragraph(
             "A golden set of about 30 tasks, a step-by-step (trajectory) grader, a replay agent that needs no LLM, "
-            "and a report. <b>Your action:</b> paste the Codex prompt, then merge PR #4 once fixes are in.",
+            'and a report. <b>Your action:</b> merge PR #4, then reply "go".',
             body,
         ),
     ]

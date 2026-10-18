@@ -197,3 +197,31 @@ def test_rate_limit_counts_rejected_calls() -> None:
         for _ in range(2):
             _error(server, "get_referral_status", {"patient_id": "PAT-0008"})
         assert "Rate limit exceeded" in _error(server, "search_providers", {})
+
+
+def test_invalid_arguments_still_spend_the_budget() -> None:
+    """Rate limiting runs before argument validation (Codex review, Part 3)."""
+    server = build_server(Store(), rate_limit_per_minute=2)
+    with as_principal(client_id="fuzzer"):
+        for _ in range(2):
+            assert "validation error" in _error(server, "search_providers", {"limit": 999})
+        assert "Rate limit exceeded" in _error(server, "search_providers", {})
+
+
+def test_health_counts_toward_the_rate_limit() -> None:
+    server = build_server(Store(), rate_limit_per_minute=1)
+    with as_principal(client_id="pinger"):
+        call(server, "health")
+        assert "Rate limit exceeded" in _error(server, "health", {})
+
+
+def test_each_token_has_its_own_subject() -> None:
+    """Distinct subjects keep tokens that share a client_id in separate HTTP sessions."""
+    entries = [
+        TokenEntry(client_id="portal", sha256=hash_token(t), scopes=list(ALL_SCOPES))
+        for t in ("a", "b")
+    ]
+    verifier = StaticTokenVerifier(entries)
+    a = asyncio.run(verifier.verify_token("a"))
+    b = asyncio.run(verifier.verify_token("b"))
+    assert a.client_id == b.client_id and a.subject != b.subject

@@ -340,7 +340,7 @@
   },
   "health": {
     "annotations": null,
-    "description": "Liveness check. Returns server status and version.",
+    "description": "Liveness check. Returns server status and version. Counts toward the rate limit.",
     "input_schema": {
       "properties": {},
       "title": "healthArguments",

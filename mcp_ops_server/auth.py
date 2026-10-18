@@ -65,31 +65,42 @@ class StaticTokenVerifier:
         return AccessToken(
             token=token,
             client_id=entry.client_id,
+            # The SDK ties a Streamable HTTP session to (client_id, issuer, subject). A
+            # per-token subject keeps two tokens that share a client_id (e.g. two patient
+            # portal tokens) from using or deleting each other's sessions.
+            subject=entry.sha256,
             scopes=list(entry.scopes),
             claims={"patient_id": entry.patient_id} if entry.patient_id else None,
         )
 
 
 class Guard:
-    """Per-tool authorization, enforced in server code for every call.
+    """Authorization and rate limiting, enforced in server code.
 
-    Order matters: authenticate, then rate-limit (so failed probes still cost budget),
-    then scope, then patient binding.
+    ``rate_limit`` runs once per tool call before the SDK validates arguments (see
+    ``server.OpsServer``), so every call counts: invalid arguments, refused scopes and
+    ``health`` included. ``check`` runs inside each data tool: authenticated, has the scope,
+    and (for a patient-bound token) acts only for that patient.
     """
 
     def __init__(self, limiter: RateLimiter) -> None:
         self._limiter = limiter
 
-    def check(self, scope: Scope, patient_id: str | None = None) -> AccessToken:
+    def rate_limit(self) -> None:
         token = get_access_token()
         if token is None:
-            raise ToolError("Unauthenticated: this server requires a bearer token.")
+            return  # unauthenticated: never reaches a tool over HTTP; refused by check()
         retry_after = self._limiter.acquire(token.client_id)
         if retry_after is not None:
             raise ToolError(
                 f"Rate limit exceeded for client {token.client_id}; "
                 f"retry in {math.ceil(retry_after)}s."
             )
+
+    def check(self, scope: Scope, patient_id: str | None = None) -> AccessToken:
+        token = get_access_token()
+        if token is None:
+            raise ToolError("Unauthenticated: this server requires a bearer token.")
         if scope not in token.scopes:
             raise ToolError(f"Forbidden: this token lacks the {scope} scope.")
         bound = (token.claims or {}).get("patient_id")

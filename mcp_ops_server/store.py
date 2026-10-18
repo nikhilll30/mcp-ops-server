@@ -110,9 +110,11 @@ class Store:
     The SDK runs sync tools in worker threads, so every statement goes through ``_lock``.
     Writes additionally use ``BEGIN IMMEDIATE`` so a check-then-insert is one transaction.
 
-    Every call is bounded by ``timeout_s`` three ways: waiting for the in-process lock,
-    waiting for another connection's database lock (SQLite busy timeout), and statement
-    execution (a progress handler interrupts SQLite past the deadline). Interrupting inside
+    Every call gets one deadline, ``timeout_s`` from when it starts, covering waiting for the
+    in-process lock, waiting for another connection's database lock (SQLite's busy timeout is
+    set to the time left before BEGIN, reads and COMMIT), and statement execution (a progress
+    handler interrupts SQLite past the deadline). A write that reaches COMMIT after the
+    deadline is rolled back, so success is never reported late. Interrupting inside
     SQLite, rather than abandoning a worker thread, means a timed-out write is rolled back
     and never lands after the caller has been told it failed.
 
@@ -142,12 +144,25 @@ class Store:
     def _past_deadline(self) -> int:
         return 1 if time.monotonic() > self._deadline else 0
 
+    def _check_deadline(self) -> None:
+        if time.monotonic() > self._deadline:
+            raise CallTimeoutError("The call took too long and was cancelled.")
+
+    def _bound_busy_wait(self) -> None:
+        """Let SQLite wait for another connection's lock only as long as the call has left."""
+        self._check_deadline()
+        remaining = min(self._deadline - time.monotonic(), self._timeout_s)
+        self._conn.execute(f"PRAGMA busy_timeout = {max(1, int(remaining * 1000))}")
+
     @contextmanager
     def _locked(self) -> Iterator[None]:
+        # One deadline for the whole call, fixed before waiting for anything.
+        deadline = time.monotonic() + self._timeout_s
         if not self._lock.acquire(timeout=self._timeout_s):
             raise BusyError("The clinic database is busy. Retry the call.")
-        self._deadline = time.monotonic() + self._timeout_s
+        self._deadline = deadline
         try:
+            self._bound_busy_wait()
             yield
         except sqlite3.OperationalError as exc:
             if "interrupted" in str(exc):
@@ -176,6 +191,8 @@ class Store:
             try:
                 self._conn.execute("BEGIN IMMEDIATE")
                 yield self._conn
+                # Never report success late: past the deadline, roll back instead of committing.
+                self._bound_busy_wait()
                 self._conn.execute("COMMIT")
             except BaseException:
                 if self._conn.in_transaction:

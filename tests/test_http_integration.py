@@ -56,6 +56,7 @@ class Running:
     staff: str  # all scopes, any patient
     reader: str  # read:schedule only
     portal: str  # all scopes, bound to DERM_PATIENT
+    twin: str  # same client_id as portal, read:schedule only, bound to another patient
 
     @property
     def url(self) -> str:
@@ -68,6 +69,7 @@ def server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Running]:
     staff = issue(tokens_file, "front-desk", list(ALL_SCOPES), None)
     reader = issue(tokens_file, "kiosk", ["read:schedule"], None)
     portal = issue(tokens_file, "portal", list(ALL_SCOPES), DERM_PATIENT)
+    twin = issue(tokens_file, "portal", ["read:schedule"], "PAT-0008")
     assert staff not in Path(tokens_file).read_text(), "raw tokens must never be stored"
 
     port = _free_port()
@@ -86,7 +88,7 @@ def server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Running]:
     )
     try:
         _wait_for_port(port, proc)
-        yield Running(port, staff, reader, portal)
+        yield Running(port, staff, reader, portal, twin)
     finally:
         proc.terminate()
         try:
@@ -105,16 +107,29 @@ async def _session(url: str, token: str) -> AsyncIterator[ClientSession]:
                 yield session
 
 
-def _raw_post(url: str, body: bytes, token: str | None) -> int:
+def _raw(
+    url: str,
+    body: bytes | None,
+    token: str | None,
+    method: str = "POST",
+    session_id: str | None = None,
+) -> tuple[int, str | None]:
+    """Returns (status, mcp-session-id response header)."""
     headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    req = urllib.request.Request(url, data=body, headers=headers, method="POST")  # noqa: S310
+    if session_id:
+        headers["mcp-session-id"] = session_id
+    req = urllib.request.Request(url, data=body, headers=headers, method=method)  # noqa: S310
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 - local test server
-            return resp.status
+            return resp.status, resp.headers.get("mcp-session-id")
     except urllib.error.HTTPError as exc:
-        return exc.code
+        return exc.code, None
+
+
+def _raw_post(url: str, body: bytes, token: str | None) -> int:
+    return _raw(url, body, token)[0]
 
 
 INIT = json.dumps(
@@ -134,6 +149,17 @@ INIT = json.dumps(
 def test_missing_or_wrong_token_is_rejected_at_http_layer(server: Running) -> None:
     assert _raw_post(server.url, INIT, None) == 401
     assert _raw_post(server.url, INIT, "not-a-real-token") == 401
+
+
+def test_tokens_sharing_a_client_id_cannot_touch_each_others_sessions(server: Running) -> None:
+    """Codex review, Part 3: sessions were keyed by client_id only, so a patient token could
+    DELETE another token's session. Each token now has its own subject."""
+    status, session_id = _raw(server.url, INIT, server.portal)
+    assert status == 200 and session_id
+    ping = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "ping"}).encode()
+    assert _raw(server.url, ping, server.twin, session_id=session_id)[0] == 404
+    assert _raw(server.url, None, server.twin, method="DELETE", session_id=session_id)[0] == 404
+    assert _raw(server.url, ping, server.portal, session_id=session_id)[0] == 200
 
 
 def test_oversized_body_is_rejected(server: Running) -> None:
