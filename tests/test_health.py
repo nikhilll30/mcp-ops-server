@@ -5,10 +5,9 @@ import asyncio
 from mcp_ops_server.server import build_server
 
 
-def test_list_tools_returns_health() -> None:
+def test_list_tools_includes_health() -> None:
     tools = asyncio.run(build_server().list_tools())
-    assert len(tools) == 1
-    assert tools[0].name == "health"
+    assert "health" in {t.name for t in tools}
 
 
 def test_health_tool() -> None:

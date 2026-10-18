@@ -2,8 +2,11 @@
 
 Usage:
     pip install -e ".[docs]"
-    python docs/briefs/build_brief.py
+    python docs/briefs/build_brief.py        # latest part
+    python docs/briefs/build_brief.py 1      # a specific part
 """
+
+import sys
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
@@ -192,8 +195,116 @@ def part1() -> list:
     ]
 
 
+def part2() -> list:
+    w = 7.0 * inch
+    cf = "<font face='Courier'>"
+    return [
+        Paragraph("Part 2 Brief · Core server", title),
+        Paragraph(
+            "mcp-ops-server · 18 Oct 2026 · PR #3 · Status: Codex review fixed (2x P1, 3x P2), 66 tests, ready to merge",
+            sub,
+        ),
+        Spacer(1, 4),
+        section("What was built"),
+        bl(
+            f"<b>Synthetic clinic data</b> ({cf}seed.py</font>, fixed seed): 12 providers across 6 specialties "
+            "(4 need a referral), 40 patients, 2,688 thirty-minute slots over 4 weeks, 42 referrals, 128 "
+            "pre-booked appointments. The same seed always gives the same IDs."
+        ),
+        bl(
+            f"<b>Five tools</b> over a SQLite store: {cf}search_providers</font>, {cf}list_open_slots</font>, "
+            f"{cf}book_appointment</font>, {cf}cancel_appointment</font>, {cf}get_referral_status</font>."
+        ),
+        bl(
+            "<b>66 tests</b> (up from 3), including races between separate database connections and a real "
+            "HTTP client running the full find, check, book, cancel flow."
+        ),
+        section("How it works"),
+        table(
+            [
+                ["Layer", "Role"],
+                [
+                    "tools/",
+                    "Thin wrappers. Typed inputs (enums, ID patterns, bounded limits) and a TypedDict output for "
+                    "each tool. Store errors become ToolErrors whose message names the next tool to call.",
+                ],
+                [
+                    "store.py",
+                    "All business rules. Booking checks: slot open, patient free at that time, approved referral "
+                    "owned by this patient and matching the specialty. One check-then-insert transaction.",
+                ],
+                [
+                    "SQLite schema",
+                    f"Partial unique index {cf}(slot_id) WHERE status='booked'</font>: the database itself refuses "
+                    "a second booking, so a cancelled slot can be rebooked but an open one is never booked twice.",
+                ],
+            ],
+            [1.2 * inch, w - 1.2 * inch],
+        ),
+        section("Why it was done this way"),
+        bl(
+            "<b>Rules in the store, constraint in the schema.</b> The app check gives agents a clear error; the "
+            "index makes double booking impossible even if a future code path forgets the check."
+        ),
+        bl(
+            "<b>Cancelling needs the owner's patient ID</b>, and someone else's appointment gives the same "
+            '"not found" as a fake ID, so the tool can\'t be used to probe which appointments exist.'
+        ),
+        bl(
+            "<b>Deterministic, clock-free data</b>, so Part 4 eval tasks can name exact slots and referrals. "
+            "Trade-off: booking past slots is not blocked yet."
+        ),
+        section("What went wrong (logged in FAILURES.md)"),
+        bl(
+            "<b>Threads.</b> The SDK runs tools in worker threads. A mutation test with the store lock removed "
+            f"crashed with {cf}sqlite3.InterfaceError</font>. Kept the lock and added BEGIN IMMEDIATE."
+        ),
+        bl(
+            f"<b>Regex.</b> pydantic's {cf}\\d</font> matches any Unicode digit, so a patient ID written in "
+            f"Arabic-Indic digits passed validation. Switched to {cf}[0-9]</font> and added a test."
+        ),
+        bl(
+            "<b>Codex review: 2x P1, 3x P2, all reproduced, then fixed.</b> A failed COMMIT left the store unable to "
+            "write; my race test shared one connection, so it never exercised BEGIN IMMEDIATE; two processes "
+            "starting together both tried to create the schema; APT-100000 could be booked but not cancelled; "
+            "year-9999 dates crashed. Each fix has a test that fails with the bug put back."
+        ),
+        section("Verify it yourself"),
+        codebox(
+            [
+                'pip install -e ".[dev]"',
+                "ruff check . && python -m pytest -q   # 66 passed",
+                "python -m mcp_ops_server              # then call tools at http://127.0.0.1:8000/mcp",
+            ]
+        ),
+        section("Interview talking point"),
+        Paragraph(
+            '"Double booking is prevented twice: in application code so the agent gets an actionable error, and '
+            "as a partial unique index so the database refuses it. The review caught that my race test only "
+            "proved the Python lock, so I rewrote it across separate connections and showed each test fails "
+            'when its protection is removed."',
+            body,
+        ),
+        section("Next: Part 3, hardening"),
+        Paragraph(
+            "Bearer auth and scopes enforced in the server, rate limits, payload size and timeouts, and a "
+            '"schema drift" snapshot test that flags any change to a tool schema. <b>Your action:</b> merge PR #3, '
+            'then reply "go".',
+            body,
+        ),
+    ]
+
+
+PARTS = {
+    1: (part1, "part-1-foundation", "Part 1 Brief: Foundation"),
+    2: (part2, "part-2-core-server", "Part 2 Brief: Core server"),
+}
+
+
 if __name__ == "__main__":
-    out = "docs/briefs/part-1-foundation.pdf"
+    n = int(sys.argv[1]) if len(sys.argv) > 1 else max(PARTS)
+    build, slug, doc_title = PARTS[n]
+    out = f"docs/briefs/{slug}.pdf"
     doc = SimpleDocTemplate(
         out,
         pagesize=letter,
@@ -201,8 +312,8 @@ if __name__ == "__main__":
         rightMargin=0.75 * inch,
         topMargin=0.6 * inch,
         bottomMargin=0.55 * inch,
-        title="Part 1 Brief: Foundation",
+        title=doc_title,
         author="Nikhil",
     )
-    doc.build(part1())
+    doc.build(build())
     print(out)
