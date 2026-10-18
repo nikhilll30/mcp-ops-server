@@ -29,6 +29,30 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest -q
 
+  evals:
+    # The eval gate: every golden task replayed against the real server over HTTP, and every
+    # negative control caught by the grader. Free and deterministic (no model, no secrets).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - name: Run eval suite (replay agent)
+        run: python -m evals.run --out eval-results.json --report eval-report.md
+      - name: Publish report to the job summary
+        if: always()
+        run: test -f eval-report.md && cat eval-report.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-results
+          path: |
+            eval-report.md
+            eval-results.json
+          if-no-files-found: ignore
+
   secrets:
     # Runs on push AND pull_request (fork PRs never trigger this repo's push runs).
     # Uses the gitleaks CLI directly: no action-specific PR logic, no tokens, and the

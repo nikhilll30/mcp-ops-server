@@ -1,6 +1,6 @@
 # Eval report
 
-Agent: **replay** · finished 2026-10-18T15:44:44+00:00 · server: `python -m mcp_ops_server` over Streamable HTTP with issued tokens.
+Agent: **replay** · finished 2026-10-18T17:01:02+00:00 · server: `python -m mcp_ops_server` over Streamable HTTP with issued tokens.
 
 **31/31 golden tasks passed** · **12/12 negative controls caught** · 66 tool calls, 8 tool errors.
 
@@ -73,11 +73,11 @@ Agent: **replay** · finished 2026-10-18T15:44:44+00:00 · server: `python -m mc
 
 | Tool | Calls | p50 ms | p95 ms | max ms |
 |---|---|---|---|---|
-| `book_appointment` | 18 | 12.7 | 23.9 | 31.7 |
-| `cancel_appointment` | 4 | 13.0 | 23.7 | 25.3 |
-| `get_referral_status` | 13 | 19.9 | 39.0 | 41.3 |
-| `health` | 1 | 16.1 | 16.1 | 16.1 |
-| `list_open_slots` | 16 | 9.7 | 44.7 | 83.6 |
-| `search_providers` | 14 | 20.2 | 64.7 | 133.2 |
+| `book_appointment` | 18 | 12.4 | 19.8 | 22.2 |
+| `cancel_appointment` | 4 | 7.4 | 15.2 | 16.1 |
+| `get_referral_status` | 13 | 8.6 | 25.3 | 28.2 |
+| `health` | 1 | 8.6 | 8.6 | 8.6 |
+| `list_open_slots` | 16 | 8.5 | 10.8 | 11.3 |
+| `search_providers` | 14 | 9.4 | 43.9 | 89.8 |
 
 Latency is from one local run and varies by machine; it is a baseline, not a benchmark.

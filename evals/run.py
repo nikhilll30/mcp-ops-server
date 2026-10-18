@@ -11,6 +11,7 @@ import asyncio
 import json
 import statistics
 import sys
+import time
 from collections import defaultdict
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -56,22 +57,33 @@ async def _run_task(srv: TaskServer, task: dict[str, Any], agent: Agent) -> dict
     prompt = render(task["prompt"], {"setup": setup})
     recorded: list[Step] = []  # the authoritative trajectory: what actually reached the server
     agent_error = None
+    metrics: dict[str, Any] | None = None
     before = srv.snapshot()
     async with srv.session(task["as"]) as session:
+        listed = await session.list_tools()
+        tools = [
+            {"name": t.name, "description": t.description or "", "input_schema": t.input_schema}
+            for t in listed.tools
+        ]
 
         async def call(tool: str, args: dict[str, Any]) -> Step:
             step = await srv.call(session, tool, args)
             recorded.append(step)
             return step
 
+        start = time.perf_counter()
         try:
-            await agent.run(task, prompt, setup, call)
+            metrics = await agent.run(task, prompt, setup, call, tools)
         except Exception as exc:  # noqa: BLE001 - an agent crash fails its task, not the run
             agent_error = f"{type(exc).__name__}: {exc}"
+        wall_ms = (time.perf_counter() - start) * 1000
     change = diff(before, srv.snapshot())
     context = {"setup": setup, "steps": [s.result for s in recorded]}
     result = grade(task, recorded, change, context, agent_error=agent_error)
-    return _record(task, prompt, recorded, change, result)
+    record = _record(task, prompt, recorded, change, result)
+    record["wall_ms"] = round(wall_ms, 1)
+    record["agent_metrics"] = metrics  # reported, never graded
+    return record
 
 
 def _task_now(task: dict[str, Any]) -> datetime:
@@ -88,8 +100,15 @@ def run_tasks(h: Harness, tasks: list[dict], agent: Agent) -> list[dict]:
 
 
 def run_suite(
-    agent: Agent | None = None, tasks: list[dict] | None = None, negatives: list[dict] | None = None
+    agent: Agent | None = None,
+    tasks: list[dict] | None = None,
+    negatives: list[dict] | None = None,
+    prices: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
+    """Run golden tasks with ``agent`` and negative controls with the replay agent.
+
+    ``prices`` is (USD per 1M input tokens, USD per 1M output tokens) for cost reporting.
+    """
     agent = agent or ReplayAgent()
     tasks = load("tasks.json") if tasks is None else tasks
     negatives = load("negative.json") if negatives is None else negatives
@@ -112,7 +131,7 @@ def run_suite(
         "finished_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "tasks": golden,
         "negative_controls": controls,
-        "summary": summarize(golden, controls),
+        "summary": summarize(golden, controls, prices),
     }
 
 
@@ -122,7 +141,37 @@ def _pct(values: list[float], q: int) -> float:
     return statistics.quantiles(values, n=100, method="inclusive")[q - 1]
 
 
-def summarize(golden: list[dict], controls: list[dict]) -> dict[str, Any]:
+def _live_summary(golden: list[dict], prices: tuple[float, float] | None) -> dict[str, Any] | None:
+    runs = [r["agent_metrics"] for r in golden if r.get("agent_metrics")]
+    if not runs:
+        return None
+    tokens_in = sum(m["input_tokens"] for m in runs)
+    tokens_out = sum(m["output_tokens"] for m in runs)
+    llm = [ms for m in runs for ms in m["llm_latency_ms"]]
+    wall = [r["wall_ms"] for r in golden]
+    out: dict[str, Any] = {
+        "model": runs[0]["model"],
+        "input_tokens": tokens_in,
+        "output_tokens": tokens_out,
+        "llm_calls": sum(m["llm_calls"] for m in runs),
+        "hit_max_turns": sum(m["stop"] == "max_turns" for m in runs),
+        "llm_latency_ms": {"p50": round(_pct(llm, 50), 1), "p99": round(_pct(llm, 99), 1)}
+        if llm
+        else None,
+        "task_latency_ms": {"p50": round(_pct(wall, 50), 1), "p99": round(_pct(wall, 99), 1)},
+        "cost_usd": None,
+    }
+    if prices:
+        cost = tokens_in / 1e6 * prices[0] + tokens_out / 1e6 * prices[1]
+        out["cost_usd"] = round(cost, 4)
+        out["cost_per_task_usd"] = round(cost / len(golden), 4)
+        out["prices_per_million"] = {"input": prices[0], "output": prices[1]}
+    return out
+
+
+def summarize(
+    golden: list[dict], controls: list[dict], prices: tuple[float, float] | None = None
+) -> dict[str, Any]:
     by_cat: dict[str, list[bool]] = defaultdict(list)
     for r in golden:
         by_cat[r["category"]].append(r["passed"])
@@ -148,6 +197,7 @@ def summarize(golden: list[dict], controls: list[dict]) -> dict[str, Any]:
             }
             for tool, v in sorted(lat.items())
         },
+        "live": _live_summary(golden, prices),
     }
 
 
@@ -194,7 +244,7 @@ def report(results: dict[str, Any]) -> str:
         )
     lines += [
         "",
-        "## Tool latency (client-measured, local server, replay agent)",
+        f"## Tool latency (client-measured, local server, {results['agent']} agent)",
         "",
         "| Tool | Calls | p50 ms | p95 ms | max ms |",
         "|---|---|---|---|---|",
@@ -206,24 +256,115 @@ def report(results: dict[str, Any]) -> str:
         "Latency is from one local run and varies by machine; it is a baseline, not a benchmark.",
         "",
     ]
+    if s.get("live"):
+        lines += _live_section(results)
     return "\n".join(lines)
+
+
+def _cell(text: str | None, limit: int = 120) -> str:
+    text = " ".join((text or "").split()).replace("|", "\\|")
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _live_section(results: dict[str, Any]) -> list[str]:
+    live = results["summary"]["live"]
+    cost = (
+        f"${live['cost_usd']:.4f} total, ${live['cost_per_task_usd']:.4f} per task "
+        f"(at ${live['prices_per_million']['input']}/${live['prices_per_million']['output']} "
+        "per 1M input/output tokens)"
+        if live["cost_usd"] is not None
+        else "not computed (pass --price-in and --price-out)"
+    )
+    llm = live["llm_latency_ms"] or {"p50": "-", "p99": "-"}
+    lines = [
+        "## Live agent",
+        "",
+        "| Metric | Value |",
+        "|---|---|",
+        f"| Model | `{live['model']}` |",
+        f"| Tokens | {live['input_tokens']:,} in, {live['output_tokens']:,} out |",
+        f"| Cost | {cost} |",
+        f"| Model calls | {live['llm_calls']} ({live['hit_max_turns']} tasks hit the turn limit) |",
+        f"| Model latency per call | p50 {llm['p50']} ms, p99 {llm['p99']} ms |",
+        f"| Task latency | p50 {live['task_latency_ms']['p50']} ms, "
+        f"p99 {live['task_latency_ms']['p99']} ms |",
+        "",
+        "Final answers are shown for reading, not graded: grading uses the recorded tool calls "
+        "and the database change.",
+        "",
+        "| Task | Result | Final answer |",
+        "|---|---|---|",
+    ]
+    for r in results["tasks"]:
+        m = r.get("agent_metrics") or {}
+        answer = m.get("final_answer") if m.get("stop") == "answered" else "(hit turn limit)"
+        lines.append(f"| `{r['id']}` | {'pass' if r['passed'] else '**FAIL**'} | {_cell(answer)} |")
+    return [*lines, ""]
+
+
+def _build_agent(args: argparse.Namespace) -> Agent:
+    if args.agent == "replay":
+        return ReplayAgent()
+    from evals.agents_openai import OpenAIAgent
+
+    if not args.model:
+        raise SystemExit("--model is required with --agent openai (the exact OpenAI model ID)")
+    return OpenAIAgent(model=args.model, max_turns=args.max_turns)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m evals.run")
+    parser.add_argument("--agent", choices=["replay", "openai"], default="replay")
+    parser.add_argument("--model", help="model ID for --agent openai")
+    parser.add_argument("--max-turns", type=int, default=12)
+    parser.add_argument("--tasks", default="", help="comma-separated task IDs (default: all)")
+    parser.add_argument("--price-in", type=float, help="USD per 1M input tokens, for cost")
+    parser.add_argument("--price-out", type=float, help="USD per 1M output tokens, for cost")
+    parser.add_argument(
+        "--min-pass-rate",
+        type=float,
+        help="fail below this golden pass rate (default 1.0 for replay, 0 for live runs)",
+    )
     parser.add_argument("--out", help="write raw results JSON here")
-    parser.add_argument("--report", default=str(Path(__file__).parent / "report.md"))
+    parser.add_argument("--report", help="Markdown report path")
     args = parser.parse_args(argv)
-    results = run_suite()
+
+    agent = _build_agent(args)
+    tasks = load("tasks.json")
+    if args.tasks:
+        wanted = {t.strip() for t in args.tasks.split(",") if t.strip()}
+        unknown = wanted - {t["id"] for t in tasks}
+        if unknown:
+            raise SystemExit(f"unknown task IDs: {sorted(unknown)}")
+        tasks = [t for t in tasks if t["id"] in wanted]
+    negatives = [n for n in load("negative.json") if n["task"] in {t["id"] for t in tasks}]
+    prices = (args.price_in, args.price_out) if args.price_in is not None else None
+    if (args.price_in is None) != (args.price_out is None):
+        raise SystemExit("pass both --price-in and --price-out, or neither")
+
+    results = run_suite(agent, tasks, negatives, prices)
+    default_report = "report.md" if args.agent == "replay" else "results/live-report.md"
+    report_path = Path(args.report or Path(__file__).parent / default_report)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(report(results))
     if args.out:
         Path(args.out).write_text(json.dumps(results, indent=2) + "\n")
-    Path(args.report).write_text(report(results))
+
     s = results["summary"]
     print(  # noqa: T201 - CLI summary
         f"{s['passed']}/{s['tasks']} tasks passed; "
-        f"{s['negative_caught']}/{s['negative_controls']} negative controls caught"
+        f"{s['negative_caught']}/{s['negative_controls']} negative controls caught; "
+        f"report: {report_path}"
     )
-    ok = s["passed"] == s["tasks"] and s["negative_caught"] == s["negative_controls"]
+    # Negative controls test the grader, so they must always be caught. The golden pass rate
+    # gates replay runs (deterministic); live runs measure a model and do not fail by default.
+    min_rate = (
+        args.min_pass_rate
+        if args.min_pass_rate is not None
+        else (1.0 if args.agent == "replay" else 0.0)
+    )
+    rate = s["passed"] / s["tasks"] if s["tasks"] else 1.0
+    ok = rate >= min_rate and s["negative_caught"] == s["negative_controls"]
     return 0 if ok else 1
 
 

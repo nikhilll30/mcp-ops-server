@@ -15,6 +15,7 @@ dependencies = ["mcp>=2.3,<3"]
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]
 docs = ["reportlab>=4"]
+live = ["openai>=3.35,<4"]  # only for the owner-triggered live eval (evals/agents_openai.py)
 
 [tool.hatch.build.targets.wheel]
 packages = ["mcp_ops_server"]
