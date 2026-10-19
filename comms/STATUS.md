@@ -6,7 +6,7 @@
 | 2 Core server | done (PR #3 merged) | docs/briefs/part-2-core-server.pdf |
 | 3 Hardening | done (PR #4 merged) | docs/briefs/part-3-hardening.pdf |
 | 4 Evals | done (PR #5 merged) | docs/briefs/part-4-evals.pdf |
-| 5 CI gate + numbers | done pending PR #11 (results); gpt-6-luna 30/31 | docs/briefs/part-5-ci-gate.pdf | docs/briefs/part-5-ci-gate.pdf |
+| 5 CI gate + numbers | done pending PR #11 (results); gpt-6-luna 30/31 | docs/briefs/part-5-ci-gate.pdf |
 | 6 Ship | not started | — |
 
 ## Tasks
