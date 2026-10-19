@@ -385,7 +385,7 @@
             }
           ],
           "default": null,
-          "description": "Last day to search, inclusive. Defaults to start_date + 6 days. Range at most 31 days.",
+          "description": "Last day to search, inclusive. Defaults to start_date + 6 days. At most 31 days counting both ends, so end_date is at most start_date + 30 days.",
           "title": "End Date"
         },
         "limit": {

@@ -2,6 +2,16 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-19 · Part 5: a live model found an ambiguous tool contract (off-by-one on "31 days")
+- **What broke:** In live run #3, `gpt-6-luna` failed b01 again on its error budget, and the new "Failed tasks" section showed why. Both errors were `list_open_slots` from 2026-11-02 to 2026-12-03. The description said "Last day to search, inclusive … Range at most 31 days", and the server rejects any span whose end − start is 31 days or more. So the limit is 31 days *counting both ends* (end ≤ start + 30), while the model read it as end ≤ start + 31. The error message ("Date range is limited to 31 days.") did not name the boundary either. The model repeated the mistake for a second provider, which is its own weakness, but the contract was genuinely ambiguous.
+- **What surprised me:** No test covered this limit at all. The replay agent never asks for long ranges, so 31/31 passing said nothing about it.
+- **What changed:**
+  - **Server, not grader:** the description now says "At most 31 days counting both ends, so end_date is at most start_date + 30 days". The error names the latest valid end_date for the given start.
+  - b01's zero-error budget is unchanged.
+  - The schema snapshot was regenerated on purpose; its diff is exactly that description.
+  - **Test:** start + 30 is accepted and start + 31 is rejected with the latest end_date named. It fails against the old message.
+- **What happened next:** a re-run of b01 shows whether the clearer contract is enough. One run proves little either way, because the model is not deterministic.
+
 ## 2026-10-19 · Part 5: the first real failure could not be diagnosed from the report
 - **What happened:** Live run #2 (`gpt-6-luna`, 3 tasks) passed 2 of 3 tasks. `b01-earliest-primary-care` booked exactly the right slot (final state correct), but it hit 2 tool errors along the way. That task allows 0, so it failed `max_errors`. The report gave each task's error count but not the calls or the server's messages. I could not tell whether the model stumbled or a tool description misled it, and those need opposite responses: a misleading description gets a server fix, a stumble keeps its fail.
 - **What changed:** The report gains a "Failed tasks" section. For each failed task it lists the failing checks with their details, and every failed call with its arguments and the server's error. **Test:** a failed call's arguments and error appear in the section.

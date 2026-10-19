@@ -298,7 +298,12 @@ class Store:
         if end_date < start_date:
             raise StoreError("end_date must be on or after start_date.")
         if (end_date - start_date).days >= MAX_SLOT_RANGE_DAYS:
-            raise StoreError(f"Date range is limited to {MAX_SLOT_RANGE_DAYS} days.")
+            latest = start_date + timedelta(days=MAX_SLOT_RANGE_DAYS - 1)
+            raise StoreError(
+                f"Date range is limited to {MAX_SLOT_RANGE_DAYS} days counting both ends: "
+                f"for start_date {start_date.isoformat()} the latest end_date is "
+                f"{latest.isoformat()}."
+            )
         if not self._read("SELECT 1 FROM providers WHERE id = ?", (provider_id,)):
             raise NotFoundError(
                 f"Provider {provider_id} not found. Call search_providers to find provider IDs."

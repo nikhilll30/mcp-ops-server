@@ -55,7 +55,8 @@ def register(server: MCPServer, store: Store, guard: Guard) -> None:
             date | None,
             Field(
                 description=f"Last day to search, inclusive. Defaults to start_date + 6 days. "
-                f"Range at most {MAX_SLOT_RANGE_DAYS} days."
+                f"At most {MAX_SLOT_RANGE_DAYS} days counting both ends, so end_date is at most "
+                f"start_date + {MAX_SLOT_RANGE_DAYS - 1} days."
             ),
         ] = None,
         limit: Annotated[int, Field(ge=1, le=100)] = 20,
