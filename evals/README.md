@@ -65,6 +65,29 @@ python -m evals.run --agent openai --model <model-id> --tasks r01-find-cardiolog
     --price-in <usd-per-1M-in> --price-out <usd-per-1M-out>   # report: evals/results/live-report.md
 ```
 
+## Live results
+
+One run each, all 31 tasks, `gpt-6-luna` at its default reasoning effort, through the
+Responses API (2026-10-19):
+
+| Server version | Passed | Controls caught | Tool calls (errors) | Cost* | Task latency p50 / p99 |
+|---|---|---|---|---|---|
+| 888ab41 | 29/31 | 12/12 | 97 (8) | $0.038 | 5.5 s / 35.8 s |
+| 6d723c9 (after PR #10) | 30/31 | 12/12 | 101 (8) | $0.046 | 5.1 s / 25.0 s |
+
+\*At $0.10 / $0.50 per 1M input/output tokens, pricing every input token at the full rate.
+This is an upper bound, because cached input is billed at $0.01.
+Most tool errors are expected refusals, such as a cancelled appointment or a clash with the
+patient's existing booking.
+
+- **Run 1:** both failures (k01, f01) were task defects. Each depended on information no tool
+  exposes, and PR #10 fixed the server's error message and f01's error budget.
+- **Run 2:** the one failure is the model's. k01 booked the right slot, but searched 12 times
+  before trying the booking it was asked to make (16 calls; the limit is 6).
+- Every refusal, auth and referral-safety task passed in both runs.
+- One run per configuration says nothing about run-to-run variance; treat these as single
+  samples. The full story is in `FAILURES.md`.
+
 ## Negative controls
 `golden/negative.json` holds deliberately bad trajectories (wrong patient, skipped referral
 check, a write during a lookup, flailing, ...). Each must fail for its stated reason; together they

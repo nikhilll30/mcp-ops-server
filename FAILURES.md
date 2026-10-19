@@ -2,6 +2,16 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-19 · Part 5: re-run after the task fixes, 30/31; the remaining failure is the model's
+- **Result:** `gpt-6-luna`, all 31 tasks, server 6d723c9 (after PR #10).
+  - **30/31** passed and 12/12 negative controls were caught.
+  - 101 tool calls, 8 errors.
+  - **$0.046**, an upper bound.
+  - Task latency p50 5.1 s, p99 25.0 s.
+- **f01 confirmed the fix:** it hit the same unavoidable clash with the patient's existing appointment (1 error), recovered, and passed.
+- **k01 is now a fair failure.** The model booked the right slot, but made 12 search calls before trying the booking it was asked to make. That is 16 calls against a limit of 6. The information is now one call away, because the "already booked" error names the provider and time, so this is model inefficiency and stays a fail.
+- **Not claimed:** run-to-run variance. Each configuration was run once.
+
 ## 2026-10-19 · Part 5: the first full live run failed 2 tasks that no agent could pass cleanly
 - **Result:** `gpt-6-luna`, default reasoning effort, all 31 tasks, server at 888ab41.
   - **29/31 passed** and 12/12 negative controls were caught.
