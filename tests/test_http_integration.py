@@ -146,6 +146,15 @@ INIT = json.dumps(
 ).encode()
 
 
+def test_healthz_needs_no_token_and_reveals_no_data(server: Running) -> None:
+    url = f"http://127.0.0.1:{server.port}/healthz"
+    with urllib.request.urlopen(url, timeout=10) as resp:  # noqa: S310 - local test server
+        assert resp.status == 200
+        assert json.loads(resp.read()) == {"status": "ok", "version": __version__}
+    # The probe is not a way around auth: /mcp still refuses an unauthenticated request.
+    assert _raw_post(server.url, INIT, None) == 401
+
+
 def test_missing_or_wrong_token_is_rejected_at_http_layer(server: Running) -> None:
     assert _raw_post(server.url, INIT, None) == 401
     assert _raw_post(server.url, INIT, "not-a-real-token") == 401
@@ -179,6 +188,20 @@ def test_server_refuses_to_start_without_tokens_file() -> None:
     )
     assert proc.returncode != 0
     assert b"MCP_OPS_TOKENS_FILE is not set" in proc.stderr
+
+
+def test_server_refuses_to_start_when_tokens_file_is_missing(tmp_path: Path) -> None:
+    missing = tmp_path / "tokens.json"
+    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        [sys.executable, "-m", "mcp_ops_server"],
+        env={**os.environ, "MCP_OPS_TOKENS_FILE": str(missing), "MCP_OPS_PORT": str(_free_port())},
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    assert proc.returncode != 0
+    assert f"Tokens file {missing} not found".encode() in proc.stderr
+    assert b"Traceback" not in proc.stderr
 
 
 async def _health(server: Running) -> dict:
@@ -296,3 +319,43 @@ def test_booking_flow_over_streamable_http(server: Running) -> None:
         "cancel_appointment",
         "list_open_slots",
     ]
+
+
+def test_container_smoke_script_passes_against_a_real_server(
+    server: Running, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """CI runs scripts/smoke_test.py against the Docker image; keep it working here too."""
+    from scripts import smoke_test
+
+    monkeypatch.setenv("MCP_URL", f"http://127.0.0.1:{server.port}")
+    monkeypatch.setenv("MCP_TOKEN", server.staff)
+    smoke_test.main()
+    out = capsys.readouterr().out
+    assert "FAIL" not in out and out.rstrip().endswith("smoke test passed")
+
+
+def test_smoke_script_catches_writes_that_do_not_persist() -> None:
+    """A server that answers "booked"/"cancelled" but changes nothing must fail the smoke test."""
+    from types import SimpleNamespace
+
+    from scripts import smoke_test
+
+    slots = [{"slot_id": f"SLT-0000{i}", "start": "", "end": ""} for i in (1, 2)]
+    appointment = {"appointment_id": "APT-00999", "patient_id": smoke_test.PATIENT}
+    replies = {
+        "health": {"status": "ok"},
+        "search_providers": {"providers": [{"provider_id": "PRV-003"}]},
+        "list_open_slots": {"slots": slots},  # never changes: the write did not happen
+        "book_appointment": {**appointment, "status": "booked", "slot_id": "SLT-00001"},
+        "cancel_appointment": {**appointment, "status": "cancelled", "slot_id": "SLT-00001"},
+    }
+
+    class NonPersistingSession:
+        async def list_tools(self) -> SimpleNamespace:
+            return SimpleNamespace(tools=[SimpleNamespace(name=n) for n in [*replies, "x"]])
+
+        async def call_tool(self, name: str, args: dict) -> SimpleNamespace:
+            return SimpleNamespace(is_error=False, content=[], structured_content=replies[name])
+
+    with pytest.raises(SystemExit):
+        asyncio.run(smoke_test.exercise(NonPersistingSession()))

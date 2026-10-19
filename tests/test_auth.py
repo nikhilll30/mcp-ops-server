@@ -225,3 +225,20 @@ def test_each_token_has_its_own_subject() -> None:
     a = asyncio.run(verifier.verify_token("a"))
     b = asyncio.run(verifier.verify_token("b"))
     assert a.client_id == b.client_id and a.subject != b.subject
+
+
+def test_issue_cli_explains_an_unwritable_tokens_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    """In Docker the image's non-root user often cannot write the mounted folder; say how
+    to fix it instead of printing a traceback."""
+    import mcp_ops_server.auth as auth
+
+    def denied(*args: object) -> str:
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(auth, "issue", denied)
+    with pytest.raises(SystemExit) as exc:
+        auth.main(
+            ["issue", "--file", "/data/tokens.json", "--client", "x", "--scope", "read:schedule"]
+        )
+    assert "Cannot write /data/tokens.json: Permission denied" in str(exc.value)
+    assert '--user "$(id -u):$(id -g)"' in str(exc.value)

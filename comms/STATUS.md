@@ -7,7 +7,7 @@
 | 3 Hardening | done (PR #4 merged) | docs/briefs/part-3-hardening.pdf |
 | 4 Evals | done (PR #5 merged) | docs/briefs/part-4-evals.pdf |
 | 5 CI gate + numbers | done (PRs #6-#11); Luna 30/31, Sol 30/31 (PR #12) | docs/briefs/part-5-ci-gate.pdf |
-| 6 Ship | not started | — |
+| 6 Ship | in review (PR #13, Codex findings fixed) | docs/briefs/part-6-ship.pdf |
 
 ## Tasks
 | # | Task | Built by | State | PR |
@@ -17,32 +17,60 @@
 | 002 | Core server: seed, store, 5 tools | Claude | merged | #3 |
 | 003 | Hardening: auth, scopes, limits, clock, schema guard | Claude | merged | #4 |
 | 004 | Evals: golden set, trajectory grader, replay agent, report | Claude | merged | #5 |
-| 005 | CI eval gate, OpenAI live agent, manual live-evals workflow | Claude | in review | #6 |
+| 005 | CI eval gate, live agent, live runs and fixes | Claude | merged | #6-#12 |
+| 006 | Ship: container + CI smoke + GHCR, README, demo GIF | Claude | in review | #13 |
 
 ## Workflow
 Claude builds each part in a fresh Claude Code session (rules in `CLAUDE.md`); Codex reviews each
 part via a prompt the owner pastes; the owner reads the brief and merges.
 History: GitHub @-mention delegation to Codex and Cursor did not trigger reliably (see FAILURES.md).
 
-## Owner decisions for Part 5 (2026-10-18)
-- **Free replay evals run on every push and PR and block merges** (dedicated `evals` CI job).
-- **Paid live eval runs only when the owner triggers it** (GitHub Actions "Run workflow", about weekly). No schedule.
-- **Provider: OpenAI.** Key goes in secret `OPENAI_API_KEY` of the `live-evals` environment, deployment branches limited to `main` (owner adds it; never pasted in chat; not a repo-level secret).
-  Model: owner names the exact model ID when the key is ready; it is config, not hard-coded.
+## Owner decisions
+- **Part 5 (2026-10-18):** the free replay eval gates every push and PR. The paid live eval runs
+  only when the owner triggers it, on OpenAI. The key is the `OPENAI_API_KEY` secret of the
+  `live-evals` environment (main only), with a $5 hard limit on the OpenAI project.
+- **Part 6 (2026-10-19):** no AWS deploy. Ship a container image instead: CI builds it and
+  smoke-tests it on every PR, and it is published to GHCR from main. The reasons: no monthly cost
+  and no public write endpoint to operate, and the image runs on any container host unchanged.
+- **Ruleset `main` (2026-10-19):** created by the owner with these settings:
+  - PR required, 0 approvals;
+  - required checks lint, test, evals and secrets;
+  - force pushes blocked and deletions restricted.
 
-## Next action: Part 5 · first live run (PR #7)
-- Done by owner: PR #6 merged; `live-evals` environment (main only) with `OPENAI_API_KEY`; OpenAI project hard limit $5.
-- Live run #1 (`gpt-6-luna`, 3 tasks): every call rejected, 400 "Function tools with reasoning_effort are not supported" on Chat Completions. $0 spent; the run failed red as designed.
-- PR #7 moves the agent to the Responses API, adds an optional reasoning-effort input, and shows agent errors in full. Merged. the 3-task test, then all 31 (Sol for the headline number, Luna for comparison).
-- Live run #2 (`gpt-6-luna`, 3 tasks): 2/3 pass; b01 booked the right slot but hit 2 tool errors (budget 0). PR #8 (merged) added per-call failure details to the report so the cause is visible; then re-run b01, then all 31.
-- Live run #3 (b01 only): same fail; the report showed both errors were `list_open_slots` asking for 32 days. The description "Range at most 31 days" was ambiguous. PR #9 (merged) made the description and error exact (server fix; grader unchanged). Then: re-run b01, then all 31.
-- Live run #4 (b01 only, after PR #9): pass, 4 calls, 0 errors.
-- Live run #5 (all 31, `gpt-6-luna`, default effort): **29/31**, 12/12 controls, $0.038 (upper bound), task p50 5.5 s / p99 35.8 s. Both failures (k01, f01) needed information no tool exposes; PR #10 fixes them (server error names the slot's provider/time; f01 allows its one unavoidable error). PR #10 merged.
-- Live run #6 (all 31, after PR #10): **30/31**, 12/12, $0.046 (upper bound), task p50 5.1 s / p99 25.0 s. k01 is a fair model failure (16 calls, limit 6). Results are in `evals/README.md` (PR #11).
-- PR #11 merged: Part 5 done.
-- Live run #7 (all 31, `gpt-6.1-sol`): **30/31**, 12/12, $0.339 (upper bound), task p50 8.1 s / p99 17.4 s. It failed f01 by stopping after a slot clash; the system prompt's "slot taken → make no booking" rule is ambiguous for flexible requests. Kept as is (same prompt for both models). Rewording needs both models re-run (owner's call). Comparison row added in PR #12.
-- Next: Part 6 (Ship), on the owner's "go".
-- Claude: after the full runs, put pass rate, cost and latency into the README (can ride Part 6).
-- Still open for owner: mark `evals` a required check on `main`.
-- Do not start Part 6 (Ship) without the owner's "go".
-- Known limits carried forward: tokens never expire; rate limit is per process; live runs are single-sample (no repeat runs or variance yet).
+  GitHub Free does not enforce rulesets on private repos, so it takes effect when the repo goes public.
+
+## Part 5 results (details in FAILURES.md and evals/README.md)
+`gpt-6-luna` and `gpt-6.1-sol` both passed **30/31**, and all 12 negative controls were caught.
+Luna cost $0.046 and Sol $0.339 (upper bounds).
+
+The live runs found 4 defects in my eval, all fixed in the server or the tasks (not the grader):
+- the Responses API was needed;
+- the report hid errors;
+- the "31 days" wording was ambiguous;
+- two tasks needed information no tool exposes.
+
+Open: the system prompt's "slot taken → make no booking" rule is ambiguous for flexible
+requests. Sol stopped on f01 because of it. Rewording it means re-running both models (owner's call).
+
+## Next action: Part 6 · PR #13 review, then go public
+- Built:
+  - `Dockerfile` (non-root, pinned base, health check) and `/healthz`;
+  - `scripts/smoke_test.py`;
+  - CI jobs `container` (build and smoke-test the image) and `publish` (GHCR, main only);
+  - the full README with live numbers;
+  - `docs/demo/demo.gif`, rendered from a real run;
+  - the Part 6 brief.
+- Codex review of PR #13: 2x P1, 4x P2, all fixed (see FAILURES.md). The published image is now the
+  exact image CI tested.
+- Owner:
+  1. Merge PR #13.
+  2. Add `container` to the ruleset's required checks.
+  3. Go public: Settings → General → Change visibility → Public.
+  4. After the first `publish` run, make the GHCR package public: Packages → mcp-ops-server →
+     Package settings → Change visibility → Public. Check that `docker pull` works signed out.
+- Known limits, also listed in the README:
+  - tokens never expire;
+  - the rate limit is per process;
+  - the in-memory DB resets on restart;
+  - live runs are single samples;
+  - the container bind turns off the SDK's DNS-rebinding check (bearer auth still required).

@@ -625,12 +625,107 @@ def part5() -> list:
     ]
 
 
+def part6() -> list:
+    w = 7.0 * inch
+    cf = "<font face='Courier'>"
+    return [
+        Paragraph("Part 6 Brief · Ship", title),
+        Paragraph(
+            "mcp-ops-server · 19 Oct 2026 · PR #13 · Status: Codex review fixed (2x P1, 4x P2); ready to merge",
+            sub,
+        ),
+        Spacer(1, 4),
+        section("What was built"),
+        bl(
+            "<b>A production container:</b> pinned Python 3.12 base, non-root user, Docker health check on a new "
+            f"{cf}/healthz</font> (no data, no token); the tokens file is mounted at run time, never baked in."
+        ),
+        bl(
+            "<b>CI runs the image as shipped</b> on every PR: build, issue a token through the image, wait for "
+            "healthy, then a real MCP round trip (401 without a token, 6 tools, search, book, cancel). From main, "
+            "after every check passes, the image is published to GitHub Container Registry."
+        ),
+        bl(
+            "<b>The README a reviewer reads first:</b> live results (Luna and Sol, 30/31 each), run-it-in-30-seconds "
+            "with Docker, architecture, tools and scopes, security model, known limits; plus a demo GIF rendered "
+            "from a real run by a script in the repo."
+        ),
+        section("How it works"),
+        table(
+            [
+                ["Piece", "Role"],
+                [
+                    "Dockerfile",
+                    "Installs only the server package; runs as uid 10001; HEALTHCHECK calls /healthz.",
+                ],
+                [
+                    "scripts/smoke_test.py",
+                    "End-to-end check over HTTP. CI runs it against the container; the test suite runs it against "
+                    "the source server, so it cannot go stale.",
+                ],
+                ["ci.yml: container", "Build + smoke-test the image on every push and PR."],
+                [
+                    "ci.yml: publish",
+                    "Pushes the exact tested image (ID-checked); main only, after all checks; sole packages: write.",
+                ],
+                [
+                    "docs/demo/record_demo.py",
+                    "Runs the real commands and renders their actual output to demo.gif.",
+                ],
+            ],
+            [1.85 * inch, w - 1.85 * inch],
+        ),
+        section("Why it was done this way"),
+        bl(
+            "<b>No AWS (your call).</b> A live URL proves it ran once; CI booting the image on every change proves "
+            "it keeps working, at $0 and with no public write endpoint to operate. Any container host runs it as is."
+        ),
+        bl(
+            "<b>Honest demo.</b> The GIF is generated from real command output, and the token is never shown. "
+            "Every README number links to where it was measured."
+        ),
+        section("What went wrong or surprised me (logged in FAILURES.md)"),
+        bl(
+            "<b>Non-root cut both ways.</b> The container user could not read a tokens file in a 0700 folder, so the "
+            "server exited and my wait loop fell through silently. Now: README uses a plain mkdir (tested as a "
+            "separate host user), the waits fail loudly, and a missing tokens file prints one clear line."
+        ),
+        bl(
+            "<b>Codex: 2x P1, 4x P2, all fixed.</b> Publish rebuilt the image instead of shipping the tested one "
+            "(now it ships the tested image, ID-checked); README revocation needed a restart; stale runs could move "
+            "'latest'; health check ignored the port; smoke test trusted write responses (now reads them back)."
+        ),
+        section("Verify it yourself"),
+        codebox(
+            [
+                "ruff check . && python -m pytest -q   # 179 passed (incl. smoke script vs real server)",
+                "docker build -t mcp-ops-server . && see README 'Run it' (3 commands)",
+                "PR #13 > Checks > container             # the image, built and smoke-tested",
+            ]
+        ),
+        section("Interview talking point"),
+        Paragraph(
+            '"It ships as a container that CI boots and tests end to end on every PR, with auth on, as a non-root '
+            'user. Putting it in the cloud is configuration, not code."',
+            body,
+        ),
+        section("Next (your actions)"),
+        Paragraph(
+            "1) Merge PR #13. 2) Add <b>container</b> to the ruleset's required checks. 3) Settings &gt; "
+            "General &gt; Change visibility &gt; Public (the ruleset then enforces). 4) After the first publish run: "
+            "Packages &gt; mcp-ops-server &gt; Package settings &gt; Public, then check the README's docker command.",
+            body,
+        ),
+    ]
+
+
 PARTS = {
     1: (part1, "part-1-foundation", "Part 1 Brief: Foundation"),
     2: (part2, "part-2-core-server", "Part 2 Brief: Core server"),
     3: (part3, "part-3-hardening", "Part 3 Brief: Hardening"),
     4: (part4, "part-4-evals", "Part 4 Brief: Evals"),
     5: (part5, "part-5-ci-gate", "Part 5 Brief: CI eval gate"),
+    6: (part6, "part-6-ship", "Part 6 Brief: Ship"),
 }
 
 

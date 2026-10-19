@@ -7,6 +7,9 @@ from mcp.server.auth.provider import TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Context, MCPServer
 from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 
 from mcp_ops_server import __version__
 from mcp_ops_server.auth import Guard, StaticTokenVerifier
@@ -86,9 +89,17 @@ def build_http_app(settings: Settings) -> Starlette:
         issuer_url=f"http://{settings.host}:{settings.port}",
         rate_limit_per_minute=settings.rate_limit_per_minute,
     )
-    return server.streamable_http_app(
+    app = server.streamable_http_app(
         host=settings.host,
         max_request_body_size=settings.max_body_bytes,
         max_sessions=settings.max_sessions,
         session_idle_timeout=settings.session_idle_timeout_s,
     )
+    # Unauthenticated liveness probe for container orchestrators. It returns no data;
+    # everything under /mcp still requires a bearer token.
+    app.router.routes.append(Route("/healthz", _healthz, methods=["GET"]))
+    return app
+
+
+async def _healthz(request: Request) -> JSONResponse:
+    return JSONResponse({"status": "ok", "version": __version__})

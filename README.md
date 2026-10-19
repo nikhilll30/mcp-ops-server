@@ -1,7 +1,151 @@
 # mcp-ops-server
 
-> Work in progress. A production-shaped MCP server for a synthetic clinic-operations domain,
-> with trajectory-level agent evals and a CI gate that blocks merges when agent quality drops.
+[![CI](https://github.com/nikhilll30/mcp-ops-server/actions/workflows/ci.yml/badge.svg)](https://github.com/nikhilll30/mcp-ops-server/actions/workflows/ci.yml)
 
-All data in this repo is synthetic. See [`comms/PLAN.md`](comms/PLAN.md) for the build plan.
-The full README, with measured cost, latency, and eval numbers, ships in Part 6.
+A production-shaped [MCP](https://modelcontextprotocol.io) server for a **synthetic** clinic: providers, open
+slots, referrals and appointments. It comes with **trajectory-level agent evals** and a **CI gate**
+that blocks a merge when a known-good agent flow breaks.
+
+All data is synthetic and generated from a fixed seed. No real names, patients or credentials
+appear anywhere.
+
+| | |
+|---|---|
+| **Server** | 6 MCP tools over Streamable HTTP · bearer tokens with scopes and patient binding · rate limit, body limit, per-call deadline |
+| **Evals** | 31 golden tasks graded step by step, and on the exact database change · 12 negative controls the grader must fail |
+| **CI** | lint · 179 tests · eval gate (31/31, 12/12) · secret scan · the Docker image built and smoke-tested on every PR |
+| **Live models** | `gpt-6-luna` **30/31** for **$0.046** · `gpt-6.1-sol` **30/31** for **$0.339** (all 31 tasks, one run each) |
+
+![Demo: issue a token, run the container, a real book and cancel over HTTP, then the eval gate](docs/demo/demo.gif)
+
+<sub>A real run, rendered by [`docs/demo/record_demo.py`](docs/demo/record_demo.py) from the actual command output.</sub>
+
+## Results
+
+Real models, driving the server's own tools through the OpenAI Responses API, graded by the same code as CI:
+
+| Model | Passed | Negative controls | Tool calls | Tokens in / out | Cost* | Task latency p50 / p99 |
+|---|---|---|---|---|---|---|
+| `gpt-6-luna` | 30/31 | 12/12 | 101 | 419k / 8.1k | $0.046 | 5.1 s / 25.0 s |
+| `gpt-6.1-sol` | 30/31 | 12/12 | 84 | 147k / 4.5k | $0.339 | 8.1 s / 17.4 s |
+
+\*This is an upper bound. It prices every input token at the full rate, but cached input is billed at 5–10% of that.
+Both models ran on identical server and eval code, at default reasoning effort, on 2026-10-19.
+
+- Every refusal, auth and referral-safety task passed for both models. These cover a pending or
+  denied referral, the wrong patient, a slot in the past, and a double booking.
+- Luna's one failure was correct but inefficient: it booked the right slot after 16 tool calls,
+  and the limit is 6.
+- Sol's one failure was over-cautious: after one slot clashed, it stopped instead of trying
+  another. My own system prompt is ambiguous on that case, and I documented it rather than
+  quietly tuning the prompt.
+
+**The first live runs mostly found bugs in my eval, not in the models:**
+- Chat Completions rejects tools combined with reasoning, so the agent moved to the Responses API.
+- The report hid the error text, so it now shows failed calls in full.
+- A tool said "Range at most 31 days", which was ambiguous. It now states the exact boundary.
+- Two tasks needed information that no tool exposes. I only had it from reading the seed.
+
+Each was fixed in the server or the task, never by loosening the grader. The rule I took from
+it: a task may not need information no tool provides. All of this is in
+[`FAILURES.md`](FAILURES.md) and [`evals/README.md`](evals/README.md).
+
+## Run it
+
+**Docker.** The image is published to GHCR from `main` and runs as a non-root user.
+
+```bash
+mkdir -p mcp-data
+# 1. Issue a token. This prints it once; only its SHA-256 hash is stored in mcp-data/tokens.json.
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/mcp-data:/data" ghcr.io/nikhilll30/mcp-ops-server \
+  python -m mcp_ops_server.auth issue --file /data/tokens.json --client me \
+  --scope read:schedule --scope write:schedule --scope read:referrals
+# 2. Serve on http://127.0.0.1:8000/mcp (health probe: GET /healthz)
+docker run --rm -p 127.0.0.1:8000:8000 -v "$PWD/mcp-data:/data:ro" ghcr.io/nikhilll30/mcp-ops-server
+# 3. From a checkout (pip install -e .): check it end to end. This tests health, a 401
+#    without a token, then search, book and cancel.
+MCP_TOKEN=<token from step 1> python scripts/smoke_test.py
+```
+
+Point any MCP client at `http://127.0.0.1:8000/mcp` with the header `Authorization: Bearer <token>`.
+The image is not tied to any host. The same container runs on AWS App Runner/ECS, Fly or Cloud Run
+with only configuration (env vars, see [`.env.example`](.env.example)).
+
+**From source.** Requires Python 3.12+.
+
+```bash
+pip install -e ".[dev]"
+ruff check . && ruff format --check . && pytest -q   # 179 tests
+python -m evals.run                                  # 31/31 tasks passed; 12/12 negative controls caught
+python -m mcp_ops_server                             # needs MCP_OPS_TOKENS_FILE; see .env.example
+```
+
+## How it works
+
+```
+ agent (scripted replay in CI, or an OpenAI model in live runs)
+   │  MCP over Streamable HTTP + bearer token
+   ▼
+ mcp_ops_server
+   auth.py     token → scopes (+ optional patient binding); hashes only on disk
+   limits.py   per-client rate limit, applied before argument validation
+   server.py   MCPServer: 6 tools, /mcp (authenticated) and /healthz (no data)
+   tools/      thin wrappers: check scope → call the store → typed result
+   store.py    SQLite seeded from seed.py; one deadline covers lock wait, busy wait and the query
+ evals
+   harness.py  fresh seeded DB + real server per task; records every call the agent makes
+   grader.py   required/forbidden steps, preconditions, patient scope, budgets, exact DB diff
+   run.py      replay or live agent → results JSON + Markdown report
+```
+
+| Tool | Scope | Notes |
+|---|---|---|
+| `health` | (any token) | status and version; counts toward the rate limit |
+| `search_providers` | `read:schedule` | by specialty, location or name |
+| `list_open_slots` | `read:schedule` | up to 31 days counting both ends; earliest first |
+| `book_appointment` | `write:schedule` | approved referral required for referral specialties; no double booking, no past slots, no overlapping appointments |
+| `cancel_appointment` | `write:schedule` | patient must match the appointment |
+| `get_referral_status` | `read:referrals` | by patient, optionally specialty |
+
+**Security is enforced in server code, never in prompts.**
+- Every tool checks its scope.
+- A patient-bound token (a "portal" token) can only act for its own patient.
+- Tokens are stored as SHA-256 hashes.
+- Each token gets its own session identity, so one token cannot touch another's session.
+- The server refuses to start without a tokens file.
+
+**Evals grade what happened, not what the agent said.** The harness records every tool call that
+reaches the server and diffs the appointments table before and after. A grader then checks the
+ordered required steps, the forbidden steps, the preconditions (no specialist booking before the
+referral check for *that* specialty), the patient scope, the call and error budgets, and the exact
+final state. That includes appointments booked and then cancelled within a task.
+
+Twelve deliberately bad trajectories must fail for their stated reason, which proves the grader
+can fail. CI runs the free, deterministic replay agent on every PR. Paid live runs are triggered
+by the owner from `main` only. The API key lives in a GitHub environment that only `main` can use.
+
+## Engineering log
+
+This repo was built in six reviewed parts. Each part was reviewed independently by Codex; every
+finding was reproduced before it was fixed, and each fix has a test that fails without it.
+
+- [`FAILURES.md`](FAILURES.md): what broke, what changed and what happened next, newest first.
+  Every entry is a tested claim.
+- [`docs/briefs/`](docs/briefs/): a one-page PDF brief per part.
+- [`comms/PLAN.md`](comms/PLAN.md) and [`comms/STATUS.md`](comms/STATUS.md): the plan and where it stands.
+
+## Known limits
+
+- Tokens never expire, and the tokens file is read once, at startup. To revoke a token, remove
+  its line **and restart every server process**. A running server keeps accepting the token
+  until it restarts.
+- The rate limit is per process. Several replicas would each allow the full rate.
+- The default database is in-memory and reseeds on every start. `MCP_OPS_DB=<path>` persists it.
+- The container listens on all interfaces, so the SDK's DNS-rebinding check (which is on only
+  for localhost binds) is off. Every `/mcp` request still needs a bearer token. Publish the
+  port on localhost, as above, unless you mean to expose it.
+- The live results are single runs, so they say nothing about run-to-run variance.
+
+## License
+
+MIT, see [`LICENSE`](LICENSE). All data is synthetic.

@@ -14,7 +14,7 @@ dependencies = ["mcp>=2.3,<3"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]
-docs = ["reportlab>=4"]
+docs = ["reportlab>=4", "pillow>=10"]  # briefs (PDF) and the demo GIF
 live = ["openai>=3.35,<4"]  # only for the owner-triggered live eval (evals/agents_openai.py)
 
 [tool.hatch.build.targets.wheel]

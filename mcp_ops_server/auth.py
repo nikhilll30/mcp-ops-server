@@ -14,6 +14,7 @@ import hashlib
 import json
 import math
 import secrets
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -134,7 +135,13 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--scope", action="append", choices=ALL_SCOPES, required=True)
     p.add_argument("--patient", default=None)
     args = parser.parse_args(argv)
-    token = issue(args.file, args.client, args.scope, args.patient)
+    try:
+        token = issue(args.file, args.client, args.scope, args.patient)
+    except PermissionError as exc:
+        sys.exit(
+            f"Cannot write {args.file}: {exc.strerror}. In Docker, run this command with "
+            '--user "$(id -u):$(id -g)" so the file is written as you.'
+        )
     print(token)  # noqa: T201 - the CLI's output is the token itself
 
 

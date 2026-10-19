@@ -54,6 +54,110 @@ jobs:
             eval-results.json
           if-no-files-found: ignore
 
+  container:
+    # Builds the production image and tests it as shipped: the container must turn healthy,
+    # refuse /mcp without a token, and complete a real tool round trip (search, book,
+    # cancel, each write read back) over HTTP. On main, this exact tested image is handed
+    # to the publish job; nothing is rebuilt between testing and publishing.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"  # the smoke test's MCP client
+      - name: Build image
+        run: |
+          docker build \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            -t mcp-ops-server:ci .
+      - name: Issue a throwaway token and start the container
+        run: |
+          mkdir -p ctdata
+          TOKEN=$(docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/ctdata:/data" \
+            mcp-ops-server:ci python -m mcp_ops_server.auth issue --file /data/tokens.json \
+            --client ci-smoke --scope read:schedule --scope write:schedule --scope read:referrals)
+          echo "::add-mask::$TOKEN"
+          echo "MCP_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          docker run -d --name mcpops -p 8000:8000 -v "$PWD/ctdata:/data:ro" mcp-ops-server:ci
+          for i in $(seq 1 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' mcpops)" = healthy ] && exit 0
+            sleep 1
+          done
+          echo "::error::container did not become healthy"
+          exit 1
+      - name: Smoke test against the container
+        env:
+          MCP_URL: http://127.0.0.1:8000
+        run: python scripts/smoke_test.py
+      - name: Health check follows MCP_OPS_PORT
+        run: |
+          docker run -d --name mcpops9000 -e MCP_OPS_PORT=9000 -v "$PWD/ctdata:/data:ro" \
+            mcp-ops-server:ci
+          for i in $(seq 1 40); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' mcpops9000)
+            [ "$status" = healthy ] && exit 0
+            [ "$status" = unhealthy ] && break
+            sleep 1
+          done
+          echo "::error::container on port 9000 did not become healthy ($status)"
+          exit 1
+      - name: Container logs
+        if: always()
+        run: docker logs mcpops || true
+      - name: Save the tested image for publishing
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker image inspect -f '{{.Id}}' mcp-ops-server:ci > image-id.txt
+          docker save mcp-ops-server:ci | gzip > image.tar.gz
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: tested-image
+          path: |
+            image.tar.gz
+            image-id.txt
+          retention-days: 1
+
+  publish:
+    # Pushes the image that the container job tested (loaded from its artifact, ID checked)
+    # to GitHub Container Registry. Only from main, only after every check passed, and the
+    # only job with write access to packages; PRs never reach it. Runs one at a time, and
+    # only the run for the current head of main moves `latest`.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, test, evals, container, secrets]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-ghcr
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: tested-image
+      - name: Load the tested image and check it is the same one
+        run: |
+          gunzip -c image.tar.gz | docker load
+          test "$(docker image inspect -f '{{.Id}}' mcp-ops-server:ci)" = "$(cat image-id.txt)"
+      - name: Push sha tag, and latest if this commit is still the head of main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag mcp-ops-server:ci "$IMAGE:sha-${GITHUB_SHA::7}"
+          docker push "$IMAGE:sha-${GITHUB_SHA::7}"
+          HEAD_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)
+          if [ "$HEAD_SHA" = "$GITHUB_SHA" ]; then
+            docker tag mcp-ops-server:ci "$IMAGE:latest"
+            docker push "$IMAGE:latest"
+          else
+            echo "::notice::main moved on to ${HEAD_SHA::7}; not moving latest to this older commit"
+          fi
+
   secrets:
     # Runs on push AND pull_request (fork PRs never trigger this repo's push runs).
     # Uses the gitleaks CLI directly: no action-specific PR logic, no tokens, and the
