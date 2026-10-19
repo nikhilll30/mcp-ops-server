@@ -6,7 +6,7 @@
 | 2 Core server | done (PR #3 merged) | docs/briefs/part-2-core-server.pdf |
 | 3 Hardening | done (PR #4 merged) | docs/briefs/part-3-hardening.pdf |
 | 4 Evals | done (PR #5 merged) | docs/briefs/part-4-evals.pdf |
-| 5 CI gate + numbers | in review (PR #6, Codex findings fixed); live numbers pending owner's key | docs/briefs/part-5-ci-gate.pdf |
+| 5 CI gate + numbers | merged (PR #6); fix for first live run in review (PR #7); live numbers pending | docs/briefs/part-5-ci-gate.pdf |
 | 6 Ship | not started | — |
 
 ## Tasks
@@ -30,10 +30,11 @@ History: GitHub @-mention delegation to Codex and Cursor did not trigger reliabl
 - **Provider: OpenAI.** Key goes in secret `OPENAI_API_KEY` of the `live-evals` environment, deployment branches limited to `main` (owner adds it; never pasted in chat; not a repo-level secret).
   Model: owner names the exact model ID when the key is ready; it is config, not hard-coded.
 
-## Next action: Part 5 · PR #6 review, then the first live run
-- Built: `evals` CI job (gate on every push/PR), `evals/agents_openai.py` (tested with a fake client), `.github/workflows/live-evals.yml` (manual only).
-- Codex review of PR #6: 4x P1, 2x P2, all fixed (see FAILURES.md).
-- Owner: merge PR #6; mark `evals` a required check on `main`; create environment `live-evals` (deployment branches: `main` only) and add `OPENAI_API_KEY` there (+ OpenAI spending limit); trigger *Live evals* on `main` with the model ID.
-- Claude: fix review findings; after the first live run, put its pass rate, cost and latency into the README (can ride Part 6 if PR #6 is merged first).
+## Next action: Part 5 · first live run (PR #7)
+- Done by owner: PR #6 merged; `live-evals` environment (main only) with `OPENAI_API_KEY`; OpenAI project hard limit $5.
+- Live run #1 (`gpt-6-luna`, 3 tasks): every call rejected, 400 "Function tools with reasoning_effort are not supported" on Chat Completions. $0 spent; the run failed red as designed.
+- PR #7 moves the agent to the Responses API, adds an optional reasoning-effort input, and shows agent errors in full. Owner: merge, then re-run the 3-task test, then all 31 (Sol for the headline number, Luna for comparison).
+- Claude: after the full runs, put pass rate, cost and latency into the README (can ride Part 6).
+- Still open for owner: mark `evals` a required check on `main`.
 - Do not start Part 6 (Ship) without the owner's "go".
 - Known limits carried forward: tokens never expire; rate limit is per process; live runs are single-sample (no repeat runs or variance yet).

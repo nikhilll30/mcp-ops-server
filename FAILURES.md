@@ -2,6 +2,20 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-19 · Part 5: the first live run was rejected by the API on every call
+- **What broke:** Live run #1 (`gpt-6-luna`, 3 tasks) failed all 3 tasks before any tool call, with `400 BadRequestError: "Function tools with reasoning_effort are not su…"`. The agent sent no reasoning setting, so the model's own default triggered it. The same error is reported publicly for other current reasoning models on `/v1/chat/completions`, with two workarounds: set reasoning to `none`, or use `/v1/responses`.
+- **What worked:** the safety net. The report shows 0 tokens used, the run went red instead of reporting "0/3" as a measurement, and nothing leaked. The key, the environment and the model ID all checked out (a bad key gives 401, an unknown model 404).
+- **What surprised me:**
+  - My fake client and local stand-in accepted any request, so no test could know what a real model rejects.
+  - The report cut the error message at 120 characters, which hid the part that names the fix.
+  - This session's network blocked downloading the artifact. I found the full message by searching for its first half.
+- **What changed:**
+  - The agent uses the Responses API, chaining turns with `previous_response_id` so reasoning carries across tool calls. Turning reasoning off was rejected, because it would understate the model.
+  - Reasoning effort is an optional input and is shown in the report.
+  - Agent errors are printed in full in their own report section and in the job log, where they can be read without the UI.
+  - **Tests:** the local stand-in now speaks the Responses format and does a real tool round trip through the real SDK. Mutation checks pass: dropping the response chaining, the re-sent instructions, the non-strict schema, the effort parameter, or the call ID each fails a test.
+- **Not yet verified:** that `gpt-6-luna` accepts this request. Only a paid run can show that; it is the next step.
+
 ## 2026-10-18 · Part 5: Codex review found the live eval broken or misleading 6 ways (4x P1, 2x P2, all fixed)
 I reproduced the event-loop bug with the real SDK before fixing it. Each fix has a test that fails with the bug put back.
 - **P1 · The live agent failed from the second task on.** Every task ran in its own `asyncio.run()`, but one `AsyncOpenAI` client served them all, and its connection pool is bound to the first loop. **Reproduced:** the real SDK against a local stand-in endpoint; task 2 failed with `RuntimeError: Event loop is closed`. My fake client had no pool, so my tests could not see it. **Fix:** the whole suite runs in one event loop, and the agent's client is closed after the last task. **Tests:**

@@ -6,6 +6,7 @@ token accounting) and the live report. The real model is only exercised by the
 owner-triggered live-evals workflow."""
 
 import asyncio
+import itertools
 import json
 import socket
 import threading
@@ -25,15 +26,19 @@ def _task(task_id: str) -> dict[str, Any]:
 
 
 def _call(call_id: str, name: str, arguments: str) -> SimpleNamespace:
-    return SimpleNamespace(
-        id=call_id, type="function", function=SimpleNamespace(name=name, arguments=arguments)
-    )
+    return SimpleNamespace(type="function_call", call_id=call_id, name=name, arguments=arguments)
+
+
+_ids = itertools.count(1)
 
 
 def _response(content: str | None = None, tool_calls: list | None = None) -> SimpleNamespace:
-    message = SimpleNamespace(content=content, tool_calls=tool_calls)
-    usage = SimpleNamespace(prompt_tokens=100, completion_tokens=10)
-    return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=usage)
+    """A Responses API result: function calls, or a final message."""
+    output = tool_calls or [SimpleNamespace(type="message")]
+    usage = SimpleNamespace(input_tokens=100, output_tokens=10)
+    return SimpleNamespace(
+        id=f"resp_{next(_ids)}", output=output, output_text=content or "", usage=usage
+    )
 
 
 class FakeClient:
@@ -45,7 +50,8 @@ class FakeClient:
     def __init__(self, responses: list[Any]) -> None:
         self._responses = list(responses)
         self.requests: list[dict[str, Any]] = []
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+        self.responses = SimpleNamespace(create=self._create)
+        self.returned: list[Any] = []
         self._loop: asyncio.AbstractEventLoop | None = None
         self.closed = False
 
@@ -57,10 +63,11 @@ class FakeClient:
         if self._loop is not None and loop is not self._loop:
             raise RuntimeError("Event loop is closed")
         self._loop = loop
-        self.requests.append(json.loads(json.dumps(kwargs)))  # snapshot, messages mutate
+        self.requests.append(json.loads(json.dumps(kwargs)))
         item = self._responses.pop(0) if self._responses else _response("done")
         if isinstance(item, Exception):
             raise item
+        self.returned.append(item)
         return item
 
 
@@ -81,20 +88,23 @@ def test_correct_run_passes_and_is_accounted() -> None:
     assert r["passed"], r["failed_checks"]
     assert [s["tool"] for s in r["steps"]] == ["search_providers"]
 
-    first = client.requests[0]
-    assert first["model"] == "test-model"
-    assert (
-        first["messages"][0]["role"] == "system" and "2026-11-02" in first["messages"][0]["content"]
-    )
-    names = {t["function"]["name"] for t in first["tools"]}
-    assert "book_appointment" in names
-    book = next(t for t in first["tools"] if t["function"]["name"] == "book_appointment")
-    assert "patient_id" in book["function"]["parameters"]["properties"]
+    first, second = client.requests
+    assert first["model"] == "test-model" and "2026-11-02" in first["instructions"]
+    assert first["input"] == [
+        {"role": "user", "content": _task("r01-find-cardiologists")["prompt"]}
+    ]
+    assert first["previous_response_id"] is None and "reasoning" not in first
+    book = next(t for t in first["tools"] if t["name"] == "book_appointment")
+    assert book["type"] == "function" and book["strict"] is False
+    assert "patient_id" in book["parameters"]["properties"]
 
-    # The tool result went back to the model under the right call id.
-    tool_msg = client.requests[1]["messages"][-1]
-    assert tool_msg["role"] == "tool" and tool_msg["tool_call_id"] == "c1"
-    assert "PRV-" in tool_msg["content"]
+    # The next turn continues the same response chain and carries the tool result back
+    # under the right call id; the instructions are sent again (they are not inherited).
+    assert second["previous_response_id"] == client.returned[0].id
+    assert second["instructions"] == first["instructions"]
+    (out,) = second["input"]
+    assert out["type"] == "function_call_output" and out["call_id"] == "c1"
+    assert "PRV-" in out["output"]
 
     live = results["summary"]["live"]
     assert live["model"] == "test-model"
@@ -121,7 +131,7 @@ def test_invalid_arguments_are_recorded_and_graded_but_not_sent() -> None:
     assert not r["passed"] and "max_errors" in r["failed_checks"]
     # ...the model is told why, and the server never saw the malformed calls.
     for i in (1, 2):
-        assert client.requests[i]["messages"][-1]["content"].startswith("Error: invalid arguments")
+        assert client.requests[i]["input"][0]["output"].startswith("Error: invalid arguments")
     assert all(s["latency_ms"] == 0 for s in r["steps"][:2])
 
 
@@ -133,7 +143,7 @@ def test_server_errors_are_fed_back_and_graded() -> None:
         ]
     )
     (r,) = _run(client, "r01-find-cardiologists")["tasks"]
-    assert client.requests[1]["messages"][-1]["content"].startswith("Error: ")
+    assert client.requests[1]["input"][0]["output"].startswith("Error: ")
     assert not r["passed"] and "max_errors" in r["failed_checks"]
 
 
@@ -229,40 +239,80 @@ def test_cli_task_filter_runs_only_selected_tasks_and_their_controls(tmp_path) -
     )
 
 
+def test_reasoning_effort_is_sent_only_when_set() -> None:
+    client = FakeClient([_response("ok")])
+    results = _run(client, "r01-find-cardiologists", reasoning_effort="high")
+    assert client.requests[0]["reasoning"] == {"effort": "high"}
+    assert "reasoning effort: high" in report(results)
+
+
+def test_report_shows_agent_errors_in_full() -> None:
+    long = "Function tools with reasoning_effort are not supported " + "x" * 300 + " END"
+    md = report(_run(FakeClient([RuntimeError(long)]), "r01-find-cardiologists"))
+    assert "## Agent errors" in md and long in md
+
+
+def _response_json(rid: str, output: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "id": rid,
+        "object": "response",
+        "created_at": 0,
+        "status": "completed",
+        "model": "local-model",
+        "output": output,
+        "parallel_tool_calls": True,
+        "tool_choice": "auto",
+        "tools": [],
+        "usage": {
+            "input_tokens": 5,
+            "output_tokens": 1,
+            "total_tokens": 6,
+            "input_tokens_details": {"cached_tokens": 0},
+            "output_tokens_details": {"reasoning_tokens": 0},
+        },
+    }
+
+
 def test_real_sdk_against_a_local_endpoint() -> None:
-    """The real AsyncOpenAI client (connection pool, retries) across several tasks, against a
-    local stand-in for the API. Catches what a fake client cannot, e.g. a pool bound to a
-    closed event loop. No key, no network beyond localhost."""
+    """The real AsyncOpenAI client (connection pool, request building, response parsing)
+    across several tasks, against a local stand-in for the Responses API that asks for one
+    tool call per task. Catches what a fake client cannot, e.g. a pool bound to a closed event
+    loop or a request shape the SDK rejects. No key, no network beyond localhost."""
     openai = pytest.importorskip("openai")
     import uvicorn
     from starlette.applications import Starlette
     from starlette.responses import JSONResponse
     from starlette.routing import Route
 
-    async def chat(request: Any) -> JSONResponse:
+    seen: list[dict[str, Any]] = []
+
+    async def responses(request: Any) -> JSONResponse:
         body = await request.json()
-        assert body["model"] == "local-model" and body["tools"]
-        return JSONResponse(
-            {
-                "id": "x",
-                "object": "chat.completion",
-                "created": 0,
-                "model": "local-model",
-                "choices": [
-                    {
-                        "index": 0,
-                        "finish_reason": "stop",
-                        "message": {"role": "assistant", "content": "ok"},
-                    }
-                ],
-                "usage": {"prompt_tokens": 5, "completion_tokens": 1, "total_tokens": 6},
+        seen.append(body)
+        assert body["model"] == "local-model" and body["tools"] and body["instructions"]
+        if body.get("previous_response_id") is None:  # first turn: call a tool
+            call = {
+                "type": "function_call",
+                "id": "fc_1",
+                "call_id": "call_1",
+                "name": "health",
+                "arguments": "{}",
+                "status": "completed",
             }
-        )
+            return JSONResponse(_response_json(f"resp_{len(seen)}", [call]))
+        message = {
+            "type": "message",
+            "id": "msg_1",
+            "role": "assistant",
+            "status": "completed",
+            "content": [{"type": "output_text", "text": "all good", "annotations": []}],
+        }
+        return JSONResponse(_response_json(f"resp_{len(seen)}", [message]))
 
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
-    app = Starlette(routes=[Route("/v1/chat/completions", chat, methods=["POST"])])
+    app = Starlette(routes=[Route("/v1/responses", responses, methods=["POST"])])
     server = uvicorn.Server(uvicorn.Config(app, port=port, log_level="warning"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
@@ -278,4 +328,14 @@ def test_real_sdk_against_a_local_endpoint() -> None:
         server.should_exit = True
         thread.join(timeout=10)
     assert [r["agent_error"] for r in results["tasks"]] == [None, None]
-    assert results["summary"]["live"]["input_tokens"] == 10
+    assert [[s["tool"] for s in r["steps"]] for r in results["tasks"]] == [["health"], ["health"]]
+    assert [r["agent_metrics"]["final_answer"] for r in results["tasks"]] == ["all good"] * 2
+    assert results["summary"]["live"]["input_tokens"] == 20
+    # Second turn of each task: chained to the first, carrying the tool's output.
+    follow_up = seen[1]
+    assert follow_up["previous_response_id"] == "resp_1"
+    assert follow_up["input"][0]["type"] == "function_call_output"
+    assert (
+        follow_up["input"][0]["call_id"] == "call_1"
+        and '"status"' in follow_up["input"][0]["output"]
+    )
