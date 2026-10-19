@@ -504,7 +504,7 @@ def part5() -> list:
     return [
         Paragraph("Part 5 Brief · CI eval gate and live evals", title),
         Paragraph(
-            "mcp-ops-server · 18 Oct 2026 · PR #6 · Status: Codex review fixed (4x P1, 2x P2); live run waits on your key",
+            "mcp-ops-server · 19 Oct 2026 · PRs #6-#11 · Status: done; gpt-6-luna 30/31 for $0.046; Sol run optional",
             sub,
         ),
         Spacer(1, 4),
@@ -557,39 +557,63 @@ def part5() -> list:
             "<b>Optional dependency.</b> openai is a separate install extra imported lazily; the server and the "
             "CI gate never install it. Tests use a fake client and the real SDK against a local endpoint: no key."
         ),
+        section("Results (gpt-6-luna, default effort, all 31 tasks, one run each)"),
+        table(
+            [
+                ["Run", "Passed", "Cost*", "Task p50 / p99", "Failures"],
+                [
+                    "Before fixes",
+                    "29/31",
+                    "$0.038",
+                    "5.5 s / 35.8 s",
+                    "k01, f01: both needed info no tool gave",
+                ],
+                [
+                    "After fixes",
+                    "30/31",
+                    "$0.046",
+                    "5.1 s / 25.0 s",
+                    "k01: right slot, but 16 calls (limit 6)",
+                ],
+            ],
+            [1.0 * inch, 0.6 * inch, 0.65 * inch, 1.15 * inch, w - 3.4 * inch],
+        ),
+        Paragraph(
+            "*Upper bound: all input priced at $0.10/1M, though cached input bills at $0.01. All 12 negative "
+            "controls caught in both runs; every refusal, auth and referral-safety task passed.",
+            body,
+        ),
         section("What went wrong or surprised me (logged in FAILURES.md)"),
         bl(
-            "<b>Part 4's evals never tested what a model reads.</b> The replay agent ignores tool descriptions, "
-            "so a misleading description passed every eval. The harness now hands each agent the server's own "
-            "tool list; the live agent is scored on it."
+            "<b>Codex review: 4x P1, 2x P2, all fixed with tests.</b> Among them: the real client broke from the "
+            "2nd task on (my fake client had no connection pool), and a run where every API call failed was green."
         ),
         bl(
-            "<b>Codex review: 4x P1, 2x P2, all fixed with tests.</b> The real client broke from the 2nd task on "
-            "(a loop per task; my fake client had no connection pool to break). Malformed tool calls escaped the "
-            "grader. A dispatch on an unreviewed branch could reach the key. A run where every API call failed "
-            "was green. Also: partial token usage lost on error, and a prompt rule that contradicted a task."
+            "<b>The live model found four defects of mine.</b> Chat Completions rejects tools plus reasoning "
+            "(moved to the Responses API); the report hid the errors (now shown in full); 'Range at most 31 "
+            "days' was ambiguous (now exact); two tasks needed information only I had, from reading the seed. "
+            "I fixed the server or the task, never the grader, and wrote the rule down."
         ),
         section("Verify it yourself"),
         codebox(
             [
                 "python -m evals.run       # 31/31 tasks passed; 12/12 negative controls caught",
-                "ruff check . && python -m pytest -q   # 170 passed (11 for the live agent loop)",
-                "PR #6 > Checks > evals > Summary      # the report CI just produced",
+                "ruff check . && python -m pytest -q   # 174 passed (14 for the live agent loop)",
+                "Actions > Live evals > a run > Summary # report, incl. each failed call and its error",
             ]
         ),
         section("Interview talking point"),
         Paragraph(
-            '"Every PR runs a free, deterministic trajectory eval that blocks merges. Real-model runs are a '
-            "separate, owner-triggered measurement of pass rate, cost and latency, graded by the same code, "
-            'and only merged code on main can reach the API key."',
+            '"Every PR runs a free trajectory eval that blocks merges; real-model runs are a separate, paid '
+            "measurement graded by the same code. The first live runs mostly found bugs in my own eval, not "
+            'in the model. The rule I took from it: a task may not need information no tool provides."',
             body,
         ),
         section("Next"),
         Paragraph(
-            "<b>Your actions:</b> mark <b>evals</b> a required check; create environment <b>live-evals</b> limited to "
-            "main and add OPENAI_API_KEY there (not as a repo secret), plus an OpenAI spending limit; trigger Live "
-            "evals with your model ID. I then turn the first live run into the "
-            'README\'s results table. Part 6 waits for your "go".',
+            "<b>Your actions:</b> mark <b>evals</b>, lint and test as required checks on main; optionally run all "
+            "31 on GPT-6.1 Sol for a comparison row. <b>Part 6 (Ship)</b> waits for your 'go': deploy, README "
+            "with these numbers, demo.",
             body,
         ),
     ]
