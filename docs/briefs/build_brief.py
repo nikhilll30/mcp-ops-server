@@ -504,7 +504,7 @@ def part5() -> list:
     return [
         Paragraph("Part 5 Brief · CI eval gate and live evals", title),
         Paragraph(
-            "mcp-ops-server · 19 Oct 2026 · PRs #6-#11 · Status: done; gpt-6-luna 30/31 for $0.046; Sol run optional",
+            "mcp-ops-server · 19 Oct 2026 · PRs #6-#12 · Status: done; Luna 30/31 ($0.046), Sol 30/31 ($0.339)",
             sub,
         ),
         Spacer(1, 4),
@@ -557,30 +557,37 @@ def part5() -> list:
             "<b>Optional dependency.</b> openai is a separate install extra imported lazily; the server and the "
             "CI gate never install it. Tests use a fake client and the real SDK against a local endpoint: no key."
         ),
-        section("Results (gpt-6-luna, default effort, all 31 tasks, one run each)"),
+        section("Results (all 31 tasks, default reasoning effort, one run each)"),
         table(
             [
                 ["Run", "Passed", "Cost*", "Task p50 / p99", "Failures"],
                 [
-                    "Before fixes",
+                    "Luna, before fixes",
                     "29/31",
                     "$0.038",
                     "5.5 s / 35.8 s",
                     "k01, f01: both needed info no tool gave",
                 ],
                 [
-                    "After fixes",
+                    "Luna, after fixes",
                     "30/31",
                     "$0.046",
                     "5.1 s / 25.0 s",
                     "k01: right slot, but 16 calls (limit 6)",
                 ],
+                [
+                    "Sol, same code",
+                    "30/31",
+                    "$0.339",
+                    "8.1 s / 17.4 s",
+                    "f01: stopped after a slot clash (prompt rule ambiguous)",
+                ],
             ],
-            [1.0 * inch, 0.6 * inch, 0.65 * inch, 1.15 * inch, w - 3.4 * inch],
+            [1.2 * inch, 0.55 * inch, 0.6 * inch, 1.05 * inch, w - 3.4 * inch],
         ),
         Paragraph(
-            "*Upper bound: all input priced at $0.10/1M, though cached input bills at $0.01. All 12 negative "
-            "controls caught in both runs; every refusal, auth and referral-safety task passed.",
+            "*Upper bound (all input at full rate). 12/12 controls caught and every refusal, auth and "
+            "referral-safety task passed in every run. Sol: 2.8x fewer tokens; Luna: ~7x cheaper per task.",
             body,
         ),
         section("What went wrong or surprised me (logged in FAILURES.md)"),
@@ -611,9 +618,8 @@ def part5() -> list:
         ),
         section("Next"),
         Paragraph(
-            "<b>Your actions:</b> mark <b>evals</b>, lint and test as required checks on main; optionally run all "
-            "31 on GPT-6.1 Sol for a comparison row. <b>Part 6 (Ship)</b> waits for your 'go': deploy, README "
-            "with these numbers, demo.",
+            "<b>Your actions:</b> mark <b>evals</b>, lint and test as required checks on main. <b>Part 6 (Ship)</b> "
+            "waits for your 'go'.",
             body,
         ),
     ]

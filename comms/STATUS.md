@@ -6,7 +6,7 @@
 | 2 Core server | done (PR #3 merged) | docs/briefs/part-2-core-server.pdf |
 | 3 Hardening | done (PR #4 merged) | docs/briefs/part-3-hardening.pdf |
 | 4 Evals | done (PR #5 merged) | docs/briefs/part-4-evals.pdf |
-| 5 CI gate + numbers | done pending PR #11 (results); gpt-6-luna 30/31 | docs/briefs/part-5-ci-gate.pdf |
+| 5 CI gate + numbers | done (PRs #6-#11); Luna 30/31, Sol 30/31 (PR #12) | docs/briefs/part-5-ci-gate.pdf |
 | 6 Ship | not started | — |
 
 ## Tasks
@@ -39,7 +39,9 @@ History: GitHub @-mention delegation to Codex and Cursor did not trigger reliabl
 - Live run #4 (b01 only, after PR #9): pass, 4 calls, 0 errors.
 - Live run #5 (all 31, `gpt-6-luna`, default effort): **29/31**, 12/12 controls, $0.038 (upper bound), task p50 5.5 s / p99 35.8 s. Both failures (k01, f01) needed information no tool exposes; PR #10 fixes them (server error names the slot's provider/time; f01 allows its one unavoidable error). PR #10 merged.
 - Live run #6 (all 31, after PR #10): **30/31**, 12/12, $0.046 (upper bound), task p50 5.1 s / p99 25.0 s. k01 is a fair model failure (16 calls, limit 6). Results are in `evals/README.md` (PR #11).
-- **Part 5 is done once PR #11 merges.** Optional: one full run on GPT-6.1 Sol adds a comparison row. Next is Part 6 (Ship), on the owner's "go".
+- PR #11 merged: Part 5 done.
+- Live run #7 (all 31, `gpt-6.1-sol`): **30/31**, 12/12, $0.339 (upper bound), task p50 8.1 s / p99 17.4 s. It failed f01 by stopping after a slot clash; the system prompt's "slot taken → make no booking" rule is ambiguous for flexible requests. Kept as is (same prompt for both models). Rewording needs both models re-run (owner's call). Comparison row added in PR #12.
+- Next: Part 6 (Ship), on the owner's "go".
 - Claude: after the full runs, put pass rate, cost and latency into the README (can ride Part 6).
 - Still open for owner: mark `evals` a required check on `main`.
 - Do not start Part 6 (Ship) without the owner's "go".

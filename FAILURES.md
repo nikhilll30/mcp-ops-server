@@ -2,6 +2,17 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-19 · Part 5: Sol vs Luna, 30/31 each, and an ambiguous rule in my system prompt
+- **Result:** `gpt-6.1-sol`, default effort, all 31 tasks, server a314a92. The eval and server code are identical to Luna's 6d723c9 run.
+  - **30/31** passed and 12/12 negative controls were caught.
+  - 84 tool calls, 8 errors.
+  - 147k input and 4.5k output tokens, **$0.339** (upper bound, at $2/$10 per 1M).
+  - Task latency p50 8.1 s, p99 17.4 s.
+  - Compared with Luna: 2.8× fewer tokens and k01 solved in 4 calls instead of 16, but about 7× the cost per task.
+- **What surprised me:** Sol failed f01, which Luna passed. Its chosen slot clashed with the patient's existing appointment, and Sol then stopped without booking. My system prompt says "If a request cannot or must not be done as asked (… slot taken …) … make no booking, and say why". That is right for k02, where the user named one time. f01 asked for any time that week, so one clashing slot does not make the request impossible. The rule does not separate the two cases. The stronger, more literal model applied it.
+- **What I did not do:** reword the prompt and re-run only Sol. Both models were graded under the same prompt, so the comparison stands. A prompt change needs both re-run (about $0.40 at these rates), which is the owner's call. The ambiguity is recorded here and in `evals/README.md`.
+- **Not claimed:** that either model is better overall. They tie on pass rate, the runs are single samples, and each failure is on a different task.
+
 ## 2026-10-19 · Part 5: re-run after the task fixes, 30/31; the remaining failure is the model's
 - **Result:** `gpt-6-luna`, all 31 tasks, server 6d723c9 (after PR #10).
   - **30/31** passed and 12/12 negative controls were caught.
