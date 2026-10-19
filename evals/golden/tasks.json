@@ -552,6 +552,7 @@
         }
       ],
       "max_calls": 8,
+      "max_errors": 1,
       "state": {
         "booked": [
           {
@@ -653,6 +654,7 @@
         }
       ],
       "max_calls": 8,
+      "max_errors": 0,
       "state": {
         "booked": [
           {
@@ -746,6 +748,7 @@
         }
       ],
       "max_calls": 8,
+      "max_errors": 0,
       "state": {
         "booked": [
           {
@@ -839,6 +842,7 @@
         }
       ],
       "max_calls": 8,
+      "max_errors": 0,
       "state": {
         "booked": [
           {
@@ -932,6 +936,7 @@
         }
       ],
       "max_calls": 8,
+      "max_errors": 0,
       "state": {
         "booked": [
           {
@@ -1550,6 +1555,7 @@
         }
       ],
       "max_calls": 8,
+      "max_errors": 0,
       "state": {
         "booked": [
           {

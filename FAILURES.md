@@ -2,6 +2,22 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-19 · Part 5: the first full live run failed 2 tasks that no agent could pass cleanly
+- **Result:** `gpt-6-luna`, default reasoning effort, all 31 tasks, server at 888ab41.
+  - **29/31 passed** and 12/12 negative controls were caught.
+  - 97 tool calls, 8 tool errors (most of them expected refusals), 0 agent errors.
+  - 335,824 input and 9,348 output tokens, **$0.038** at $0.10/$0.50 per 1M. That is an upper bound, because cached input bills at $0.01.
+  - Task latency: p50 5.5 s, p99 35.8 s.
+- **What surprised me:** both failures were defects in my tasks, not in the model. Each depended on information that only the task's author had, from reading the seed. No tool exposes it.
+  - **k01** says "book SLT-01557; if taken, book the next open slot with the same provider that day". The replay script went straight to PRV-007 on 2026-11-27 because I knew that from the seed. No tool looks up a slot by ID, and the "already booked" error did not say whose slot it was or when. Luna spent 15 calls searching, then honestly said it could not verify the slot's date. That is an impossible task, not a model failure.
+  - **f01** has the earliest dermatology slot that week clash with PAT-0001's existing appointment. The replay skips 2026-11-09 for that reason. No tool lists a patient's appointments, so even a perfect agent could hit that clash once. Luna did, then booked a valid slot. The task allowed 0 errors.
+- **Rule adopted:** a task may not depend on information no tool provides. This is a general rule, not a fix for this one run. The b01 off-by-one stays a model-plus-wording issue: the information was there, just ambiguous.
+- **What changed:**
+  - **Server:** "already booked" now names the slot's provider and start time, so "the same provider that day" is findable. It reveals nothing about who booked the slot. **Test:** the error names the provider and time; it fails against the old message.
+  - **Task:** f01 allows 1 error, with the reason written in the generator.
+  - Neither change touches any other task's expectations. The other referral tasks now state `max_errors: 0` explicitly (same as the default), and the replay gate is still 31/31 and 12/12.
+- **Still open:** I fixed the two hidden-knowledge cases a model actually hit. I have not audited every task for more. That audit is a good Codex review item.
+
 ## 2026-10-19 · Part 5: a live model found an ambiguous tool contract (off-by-one on "31 days")
 - **What broke:** In live run #3, `gpt-6-luna` failed b01 again on its error budget, and the new "Failed tasks" section showed why. Both errors were `list_open_slots` from 2026-11-02 to 2026-12-03. The description said "Last day to search, inclusive … Range at most 31 days", and the server rejects any span whose end − start is 31 days or more. So the limit is 31 days *counting both ends* (end ≤ start + 30), while the model read it as end ≤ start + 31. The error message ("Date range is limited to 31 days.") did not name the boundary either. The model repeated the mistake for a second provider, which is its own weakness, but the contract was genuinely ambiguous.
 - **What surprised me:** No test covered this limit at all. The replay agent never asks for long ranges, so 31/31 passing said nothing about it.
