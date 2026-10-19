@@ -284,12 +284,36 @@ def report(results: dict[str, Any]) -> str:
     ]
     if s.get("live"):
         lines += _live_section(results)
+    lines += _failure_details(results["tasks"])
     errors = [r for r in results["tasks"] if r.get("agent_error")]
     if errors:  # in full: the tables cut text short, and this is what you debug from
         lines += ["## Agent errors", ""]
         for r in errors:
             lines += [f"`{r['id']}`:", "", "```", r["agent_error"][:2000], "```", ""]
     return "\n".join(lines)
+
+
+def _failure_details(tasks: list[dict[str, Any]]) -> list[str]:
+    """Why each failed task failed: the failing checks and every failed call, with its
+    arguments and the server's error, so a failure can be judged from the report alone."""
+    failed = [r for r in tasks if not r["passed"]]
+    if not failed:
+        return []
+    lines = ["## Failed tasks", ""]
+    for r in failed:
+        lines.append(f"### `{r['id']}`")
+        lines.append("")
+        for c in r["grade"]["checks"]:
+            if not c["passed"]:
+                lines.append(f"- **{c['name']}**: {c['detail'] or '-'}")
+        for i, st in enumerate(r["steps"]):
+            if not st["ok"]:
+                args = json.dumps(st["args"], sort_keys=True)
+                lines.append(
+                    f"- step {i} `{st['tool']}` {_cell(args, 200)} -> {_cell(st['error'], 400)}"
+                )
+        lines.append("")
+    return lines
 
 
 def _cell(text: str | None, limit: int = 120) -> str:

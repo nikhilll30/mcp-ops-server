@@ -2,6 +2,11 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-19 · Part 5: the first real failure could not be diagnosed from the report
+- **What happened:** Live run #2 (`gpt-6-luna`, 3 tasks) passed 2 of 3 tasks. `b01-earliest-primary-care` booked exactly the right slot (final state correct), but it hit 2 tool errors along the way. That task allows 0, so it failed `max_errors`. The report gave each task's error count but not the calls or the server's messages. I could not tell whether the model stumbled or a tool description misled it, and those need opposite responses: a misleading description gets a server fix, a stumble keeps its fail.
+- **What changed:** The report gains a "Failed tasks" section. For each failed task it lists the failing checks with their details, and every failed call with its arguments and the server's error. **Test:** a failed call's arguments and error appear in the section.
+- **What I did not do:** loosen b01's error budget so the run passes. Changing the grader after seeing a model fail would grade the model on a curve. Any change waits for the actual errors.
+
 ## 2026-10-19 · Part 5: the first live run was rejected by the API on every call
 - **What broke:** Live run #1 (`gpt-6-luna`, 3 tasks) failed all 3 tasks before any tool call, with `400 BadRequestError: "Function tools with reasoning_effort are not su…"`. The agent sent no reasoning setting, so the model's own default triggered it. The same error is reported publicly for other current reasoning models on `/v1/chat/completions`, with two workarounds: set reasoning to `none`, or use `/v1/responses`.
 - **What worked:** the safety net. The report shows 0 tokens used, the run went red instead of reporting "0/3" as a measurement, and nothing leaked. The key, the environment and the model ID all checked out (a bad key gives 401, an unknown model 404).
