@@ -54,6 +54,66 @@ jobs:
             eval-results.json
           if-no-files-found: ignore
 
+  container:
+    # Builds the production image and tests it as shipped: the container must turn healthy,
+    # refuse /mcp without a token, and complete a real tool round trip (search, book,
+    # cancel) over HTTP. A Dockerfile that builds but does not run fails here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"  # the smoke test's MCP client
+      - name: Build image
+        run: docker build -t mcp-ops-server:ci .
+      - name: Issue a throwaway token and start the container
+        run: |
+          mkdir -p ctdata
+          TOKEN=$(docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/ctdata:/data" \
+            mcp-ops-server:ci python -m mcp_ops_server.auth issue --file /data/tokens.json \
+            --client ci-smoke --scope read:schedule --scope write:schedule --scope read:referrals)
+          echo "::add-mask::$TOKEN"
+          echo "MCP_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          docker run -d --name mcpops -p 8000:8000 -v "$PWD/ctdata:/data:ro" mcp-ops-server:ci
+          for i in $(seq 1 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' mcpops)" = healthy ] && exit 0
+            sleep 1
+          done
+          echo "::error::container did not become healthy"
+          exit 1
+      - name: Smoke test against the container
+        env:
+          MCP_URL: http://127.0.0.1:8000
+        run: python scripts/smoke_test.py
+      - name: Container logs
+        if: always()
+        run: docker logs mcpops || true
+
+  publish:
+    # Pushes the image to GitHub Container Registry, only from main and only after every
+    # check passed. The only job with write access to packages; PRs never reach it.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, test, evals, container, secrets]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build, tag and push
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          docker build \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            -t "$IMAGE:latest" -t "$IMAGE:sha-${GITHUB_SHA::7}" .
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "$IMAGE:sha-${GITHUB_SHA::7}"
+          docker push "$IMAGE:latest"
+
   secrets:
     # Runs on push AND pull_request (fork PRs never trigger this repo's push runs).
     # Uses the gitleaks CLI directly: no action-specific PR logic, no tokens, and the

@@ -2,6 +2,27 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-19 · Part 6: a non-root container could not read a tokens file in a 0700 folder
+- **What broke:** the first run of the demo recorder never got a healthy container, and the smoke test failed with "connection refused". The recorder made its data folder with Python's `mkdtemp`, which uses mode 0700. The image runs as an unprivileged user (uid 10001), which could not enter that folder to read `tokens.json`, so the server exited at start. The health-wait loop then fell through silently.
+- **What changed:**
+  - The README's flow uses a plain `mkdir` (0755). It was tested as a separate non-root host user (uid 1234): issue a token, then serve read-only, then the smoke test passes.
+  - The recorder sets 0755 on its folder.
+  - The recorder's health wait now fails loudly.
+  - The CI `container` job errors with "container did not become healthy" instead of moving on.
+- **Also found:** a container started with no tokens file exited with a raw Python traceback. That was the right outcome (fail closed) with the wrong message. It now prints one line naming the missing file. **Test:** a missing tokens file exits non-zero with that message and no traceback.
+- **And the reverse:** issuing a token into a folder the container user cannot write (forgetting `--user "$(id -u):$(id -g)"`) also gave a traceback. My own demo GIF even showed the command without `--user`. Now the CLI prints one line naming the fix, and the GIF shows the flag. **Test:** an unwritable tokens file exits with that message.
+
+## 2026-10-19 · Part 6: a Dockerfile that builds proves little, so CI runs the image
+- **What surprised me:** nothing exercised the image as shipped. Tests ran the server from source, so a wrong `CMD`, a missing file or a bad user would only show up for whoever first ran `docker run`.
+- **What changed:** a CI `container` job on every push and PR does the following:
+  - builds the real Dockerfile;
+  - issues a throwaway token through the image itself;
+  - waits for the Docker health check;
+  - runs `scripts/smoke_test.py`: `/healthz`, 401 without a token, all 6 tools listed, then search, book and cancel.
+
+  The same script also runs against the source server in the test suite, so it cannot go stale. Publishing to GHCR happens only from main, after every check has passed.
+- **Disclosed:** this session's network re-signs TLS. To build the image here, I used a scratch copy of the Dockerfile with one extra line trusting that proxy's certificate. The shipped Dockerfile does not have it. The proof that the real Dockerfile builds and runs is the CI `container` job, on GitHub's own network.
+
 ## 2026-10-19 · Part 5: Sol vs Luna, 30/31 each, and an ambiguous rule in my system prompt
 - **Result:** `gpt-6.1-sol`, default effort, all 31 tasks, server a314a92. The eval and server code are identical to Luna's 6d723c9 run.
   - **30/31** passed and 12/12 negative controls were caught.

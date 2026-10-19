@@ -45,7 +45,9 @@ evals/
    (snapshot test of tool schemas), security review
 4. **Evals** — golden set (~30 tasks), trajectory grader, replay agent, report.md
 5. **CI gate + numbers** — eval gate in GitHub Actions, live run with cost/latency p50/p99
-6. **Ship** — AWS deploy (container), README with numbers, demo GIF, go public
+6. **Ship** — container image (built and smoke-tested in CI, published to GHCR), README with numbers,
+   demo GIF, go public. *AWS deploy dropped by owner decision (2026-10-19): no running cost or
+   public write endpoint to operate; the image runs on any container host unchanged.*
 
 ## Working protocol
 See `AGENTS.md` (Codex reads it automatically) and `comms/STATUS.md` (single source of truth).
