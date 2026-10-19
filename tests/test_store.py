@@ -4,6 +4,7 @@ import asyncio
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,7 @@ from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 
 from mcp_ops_server import seed
 from mcp_ops_server.server import build_server
-from mcp_ops_server.store import BusyError, ConflictError, NotFoundError, Store
+from mcp_ops_server.store import BusyError, ConflictError, NotFoundError, Store, StoreError
 
 
 @pytest.fixture
@@ -206,3 +207,14 @@ def _open_slot(store: Store) -> str:
     out = store.list_open_slots(PRIMARY_PROVIDER, seed.SCHEDULE_START, limit=100)
     busy = seeded_busy_starts(NO_REFERRAL_PATIENT)
     return next(s["slot_id"] for s in out["slots"] if s["start"] not in busy)
+
+
+def test_slot_range_limit_counts_both_ends_and_names_the_latest_end_date(store: Store) -> None:
+    """31 days counting both ends: start + 30 is allowed, start + 31 is not. A live model
+    read the old "Range at most 31 days" as start + 31, so the error names the boundary."""
+    start = seed.SCHEDULE_START
+    store.list_open_slots(PRIMARY_PROVIDER, start, start + timedelta(days=30))
+    with pytest.raises(StoreError) as exc:
+        store.list_open_slots(PRIMARY_PROVIDER, start, start + timedelta(days=31))
+    latest = (start + timedelta(days=30)).isoformat()
+    assert f"the latest end_date is {latest}" in str(exc.value)
