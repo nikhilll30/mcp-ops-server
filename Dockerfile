@@ -23,7 +23,8 @@ ENV MCP_OPS_HOST=0.0.0.0 \
     MCP_OPS_TOKENS_FILE=/data/tokens.json
 EXPOSE 8000
 
+# Probes whatever port the server was configured with (MCP_OPS_PORT), not a fixed 8000.
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"]
+    CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ['MCP_OPS_PORT'] + '/healthz', timeout=2)"]
 
 CMD ["python", "-m", "mcp_ops_server"]

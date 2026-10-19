@@ -7,7 +7,7 @@
 | 3 Hardening | done (PR #4 merged) | docs/briefs/part-3-hardening.pdf |
 | 4 Evals | done (PR #5 merged) | docs/briefs/part-4-evals.pdf |
 | 5 CI gate + numbers | done (PRs #6-#11); Luna 30/31, Sol 30/31 (PR #12) | docs/briefs/part-5-ci-gate.pdf |
-| 6 Ship | in review (PR #13) | docs/briefs/part-6-ship.pdf |
+| 6 Ship | in review (PR #13, Codex findings fixed) | docs/briefs/part-6-ship.pdf |
 
 ## Tasks
 | # | Task | Built by | State | PR |
@@ -60,8 +60,10 @@ requests. Sol stopped on f01 because of it. Rewording it means re-running both m
   - the full README with live numbers;
   - `docs/demo/demo.gif`, rendered from a real run;
   - the Part 6 brief.
+- Codex review of PR #13: 2x P1, 4x P2, all fixed (see FAILURES.md). The published image is now the
+  exact image CI tested.
 - Owner:
-  1. Codex review of PR #13, then merge.
+  1. Merge PR #13.
   2. Add `container` to the ruleset's required checks.
   3. Go public: Settings → General → Change visibility → Public.
   4. After the first `publish` run, make the GHCR package public: Packages → mcp-ops-server →

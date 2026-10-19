@@ -13,7 +13,7 @@ appear anywhere.
 |---|---|
 | **Server** | 6 MCP tools over Streamable HTTP · bearer tokens with scopes and patient binding · rate limit, body limit, per-call deadline |
 | **Evals** | 31 golden tasks graded step by step, and on the exact database change · 12 negative controls the grader must fail |
-| **CI** | lint · 178 tests · eval gate (31/31, 12/12) · secret scan · the Docker image built and smoke-tested on every PR |
+| **CI** | lint · 179 tests · eval gate (31/31, 12/12) · secret scan · the Docker image built and smoke-tested on every PR |
 | **Live models** | `gpt-6-luna` **30/31** for **$0.046** · `gpt-6.1-sol` **30/31** for **$0.339** (all 31 tasks, one run each) |
 
 ![Demo: issue a token, run the container, a real book and cancel over HTTP, then the eval gate](docs/demo/demo.gif)
@@ -75,7 +75,7 @@ with only configuration (env vars, see [`.env.example`](.env.example)).
 
 ```bash
 pip install -e ".[dev]"
-ruff check . && ruff format --check . && pytest -q   # 178 tests
+ruff check . && ruff format --check . && pytest -q   # 179 tests
 python -m evals.run                                  # 31/31 tasks passed; 12/12 negative controls caught
 python -m mcp_ops_server                             # needs MCP_OPS_TOKENS_FILE; see .env.example
 ```
@@ -136,7 +136,9 @@ finding was reproduced before it was fixed, and each fix has a test that fails w
 
 ## Known limits
 
-- Tokens never expire. Revoking one means removing its line from the tokens file.
+- Tokens never expire, and the tokens file is read once, at startup. To revoke a token, remove
+  its line **and restart every server process**. A running server keeps accepting the token
+  until it restarts.
 - The rate limit is per process. Several replicas would each allow the full rate.
 - The default database is in-memory and reseeds on every start. `MCP_OPS_DB=<path>` persists it.
 - The container listens on all interfaces, so the SDK's DNS-rebinding check (which is on only

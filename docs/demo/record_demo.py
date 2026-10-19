@@ -29,8 +29,14 @@ OUT = Path(__file__).with_name("demo.gif")
 def run(cmd: str, env: dict[str, str]) -> str:
     image = env["IMAGE"]
     real = cmd.replace(SHOWN_IMAGE, image)
-    proc = subprocess.run(  # noqa: S602 - fixed demo commands, run on purpose through a shell
-        real, shell=True, env=env, capture_output=True, text=True, timeout=300, check=False
+    # pipefail: a failing command piped into sed/grep must fail the demo, not pass silently.
+    proc = subprocess.run(  # noqa: S603 - fixed demo commands
+        ["bash", "-o", "pipefail", "-c", real],  # noqa: S607
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
     )
     out = proc.stdout + proc.stderr
     if proc.returncode != 0:

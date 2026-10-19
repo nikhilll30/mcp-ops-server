@@ -2,6 +2,16 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-19 · Part 6: Codex review found 2x P1, 4x P2 (all reproduced or confirmed, all fixed)
+- **P1 · The README's revocation advice left the token working.** It said "remove its line from the tokens file", but a running server loads the file once. **Confirmed:** after the line was removed, the running verifier still accepted the token and a freshly loaded one rejected it. **Fix:** the README says to remove the line *and restart every server process*.
+- **P1 · The image published was not the image tested.** `publish` rebuilt from the Dockerfile on another runner, and pip resolves unpinned dependencies again at build time. **Fix:** on main, the `container` job saves the exact image it tested, with its image ID, as a 1-day artifact. `publish` loads that image, checks the ID matches, and pushes it. Nothing is rebuilt. **Verified locally:** save, remove, load, then the ID check passes.
+- **P2s:**
+  - **An older run could overwrite `latest`.** Publish runs are now serialized, and only the run for the current head of main moves `latest`. An older run pushes only its sha tag.
+  - **The health check hard-coded port 8000.** **Reproduced:** with `MCP_OPS_PORT=9000`, the container was still not healthy at 22 s. The probe now reads `MCP_OPS_PORT`, and CI starts a second container on 9000 that must turn healthy.
+  - **The smoke test trusted write responses.** Booking and cancelling are now confirmed by reading the schedule back: the slot must leave the open list and come back, and the IDs must match. **Test:** a fake server that answers "booked" and "cancelled" but changes nothing fails the smoke test. It passed before (checked by removing the read-back).
+  - **The demo hid a failed eval behind `| sed`.** **Reproduced:** the pipeline exited 0 when the eval exited 1. Demo commands now run under `bash -o pipefail`, and the same failing pipeline now stops the recorder.
+- **Lesson:** "built and tested" has to mean the same artifact. A rebuild with unpinned dependencies is a different artifact, and a health check or a test that trusts its own inputs can pass while the thing it checks is broken.
+
 ## 2026-10-19 · Part 6: a non-root container could not read a tokens file in a 0700 folder
 - **What broke:** the first run of the demo recorder never got a healthy container, and the smoke test failed with "connection refused". The recorder made its data folder with Python's `mkdtemp`, which uses mode 0700. The image runs as an unprivileged user (uid 10001), which could not enter that folder to read `tokens.json`, so the server exited at start. The health-wait loop then fell through silently.
 - **What changed:**

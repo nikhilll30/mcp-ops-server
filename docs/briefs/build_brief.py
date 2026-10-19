@@ -631,7 +631,7 @@ def part6() -> list:
     return [
         Paragraph("Part 6 Brief · Ship", title),
         Paragraph(
-            "mcp-ops-server · 19 Oct 2026 · PR #13 · Status: built and verified locally; CI and your review next",
+            "mcp-ops-server · 19 Oct 2026 · PR #13 · Status: Codex review fixed (2x P1, 4x P2); ready to merge",
             sub,
         ),
         Spacer(1, 4),
@@ -666,7 +666,7 @@ def part6() -> list:
                 ["ci.yml: container", "Build + smoke-test the image on every push and PR."],
                 [
                     "ci.yml: publish",
-                    "main only, needs all checks; the only job with packages: write.",
+                    "Pushes the exact tested image (ID-checked); main only, after all checks; sole packages: write.",
                 ],
                 [
                     "docs/demo/record_demo.py",
@@ -691,13 +691,14 @@ def part6() -> list:
             "separate host user), the waits fail loudly, and a missing tokens file prints one clear line."
         ),
         bl(
-            "<b>Disclosed:</b> this session's network re-signs TLS, so my local build used a scratch Dockerfile with "
-            "one extra certificate line. The shipped Dockerfile has none; CI's container job is the proof."
+            "<b>Codex: 2x P1, 4x P2, all fixed.</b> Publish rebuilt the image instead of shipping the tested one "
+            "(now it ships the tested image, ID-checked); README revocation needed a restart; stale runs could move "
+            "'latest'; health check ignored the port; smoke test trusted write responses (now reads them back)."
         ),
         section("Verify it yourself"),
         codebox(
             [
-                "ruff check . && python -m pytest -q   # 178 passed (incl. smoke script vs real server)",
+                "ruff check . && python -m pytest -q   # 179 passed (incl. smoke script vs real server)",
                 "docker build -t mcp-ops-server . && see README 'Run it' (3 commands)",
                 "PR #13 > Checks > container             # the image, built and smoke-tested",
             ]
@@ -710,7 +711,7 @@ def part6() -> list:
         ),
         section("Next (your actions)"),
         Paragraph(
-            "1) Codex review, merge. 2) Add <b>container</b> to the ruleset's required checks. 3) Settings &gt; "
+            "1) Merge PR #13. 2) Add <b>container</b> to the ruleset's required checks. 3) Settings &gt; "
             "General &gt; Change visibility &gt; Public (the ruleset then enforces). 4) After the first publish run: "
             "Packages &gt; mcp-ops-server &gt; Package settings &gt; Public, then check the README's docker command.",
             body,

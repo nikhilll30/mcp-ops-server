@@ -332,3 +332,30 @@ def test_container_smoke_script_passes_against_a_real_server(
     smoke_test.main()
     out = capsys.readouterr().out
     assert "FAIL" not in out and out.rstrip().endswith("smoke test passed")
+
+
+def test_smoke_script_catches_writes_that_do_not_persist() -> None:
+    """A server that answers "booked"/"cancelled" but changes nothing must fail the smoke test."""
+    from types import SimpleNamespace
+
+    from scripts import smoke_test
+
+    slots = [{"slot_id": f"SLT-0000{i}", "start": "", "end": ""} for i in (1, 2)]
+    appointment = {"appointment_id": "APT-00999", "patient_id": smoke_test.PATIENT}
+    replies = {
+        "health": {"status": "ok"},
+        "search_providers": {"providers": [{"provider_id": "PRV-003"}]},
+        "list_open_slots": {"slots": slots},  # never changes: the write did not happen
+        "book_appointment": {**appointment, "status": "booked", "slot_id": "SLT-00001"},
+        "cancel_appointment": {**appointment, "status": "cancelled", "slot_id": "SLT-00001"},
+    }
+
+    class NonPersistingSession:
+        async def list_tools(self) -> SimpleNamespace:
+            return SimpleNamespace(tools=[SimpleNamespace(name=n) for n in [*replies, "x"]])
+
+        async def call_tool(self, name: str, args: dict) -> SimpleNamespace:
+            return SimpleNamespace(is_error=False, content=[], structured_content=replies[name])
+
+    with pytest.raises(SystemExit):
+        asyncio.run(smoke_test.exercise(NonPersistingSession()))
