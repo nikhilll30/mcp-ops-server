@@ -339,3 +339,17 @@ def test_real_sdk_against_a_local_endpoint() -> None:
         follow_up["input"][0]["call_id"] == "call_1"
         and '"status"' in follow_up["input"][0]["output"]
     )
+
+
+def test_report_explains_each_failed_task() -> None:
+    client = FakeClient(
+        [
+            _response(tool_calls=[_call("c1", "search_providers", '{"specialty": 5}')]),
+            _response("Sorry."),
+        ]
+    )
+    md = report(_run(client, "r01-find-cardiologists"))
+    section = md.split("## Failed tasks", 1)[1]
+    assert "`r01-find-cardiologists`" in section
+    assert "**max_errors**: 1 errors, limit 0" in section
+    assert 'step 0 `search_providers` {"specialty": 5} -> ' in section
