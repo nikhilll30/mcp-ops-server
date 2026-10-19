@@ -528,7 +528,7 @@ def part5() -> list:
                 ["Piece", "Role"],
                 [
                     "agents_openai.py",
-                    "Chat Completions tool-calling loop. The model sees exactly the tools the server advertises, "
+                    "Responses API tool-calling loop. The model sees exactly the tools the server advertises, "
                     "and every call goes through the harness's recorded call(), so it cannot grade itself.",
                 ],
                 [

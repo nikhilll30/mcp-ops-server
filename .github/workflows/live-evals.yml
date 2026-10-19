@@ -19,6 +19,11 @@ on:
         required: false
         type: string
         default: ""
+      reasoning_effort:
+        description: "Reasoning effort, e.g. low / medium / high (empty = model default)"
+        required: false
+        type: string
+        default: ""
       price_in:
         description: "USD per 1M input tokens (optional, for the cost line)"
         required: false
@@ -67,11 +72,13 @@ jobs:
           # Inputs go through env, never interpolated into the script.
           MODEL: ${{ inputs.model }}
           TASKS: ${{ inputs.tasks }}
+          EFFORT: ${{ inputs.reasoning_effort }}
           PRICE_IN: ${{ inputs.price_in }}
           PRICE_OUT: ${{ inputs.price_out }}
         run: |
           args=(--agent openai --model "$MODEL" --out live-results.json --report live-report.md)
           if [ -n "$TASKS" ]; then args+=(--tasks "$TASKS"); fi
+          if [ -n "$EFFORT" ]; then args+=(--reasoning-effort "$EFFORT"); fi
           if [ -n "$PRICE_IN" ] || [ -n "$PRICE_OUT" ]; then
             args+=(--price-in "$PRICE_IN" --price-out "$PRICE_OUT")
           fi

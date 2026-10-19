@@ -38,8 +38,9 @@ python -m evals.golden.make_tasks      # regenerate golden/*.json after editing 
 - `ReplayAgent` (no LLM): replays each task's reference trajectory, resolving `$ref` values
   against earlier results. Free and deterministic, so it runs in CI on every push: a server
   change that breaks a known-good flow fails the build.
-- `OpenAIAgent` (`agents_openai.py`): an OpenAI model driving the server through Chat
-  Completions tool calling. It sees exactly the tools the server advertises (names,
+- `OpenAIAgent` (`agents_openai.py`): an OpenAI model driving the server through the
+  Responses API's function calling (Chat Completions rejects tools plus reasoning on current
+  reasoning models). Optional `--reasoning-effort`; the report records which was used. It sees exactly the tools the server advertises (names,
   descriptions, input schemas), so a vague description costs score. Its tool calls go through
   the same recorded `call`, so it is graded exactly like the replay agent. Tokens, cost,
   latency and final answers are reported, never graded.

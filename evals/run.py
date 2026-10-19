@@ -174,6 +174,7 @@ def _live_summary(golden: list[dict], prices: tuple[float, float] | None) -> dic
     wall = [r["wall_ms"] for r in golden]
     out: dict[str, Any] = {
         "model": runs[0]["model"],
+        "reasoning_effort": runs[0].get("reasoning_effort", "default"),
         "input_tokens": tokens_in,
         "output_tokens": tokens_out,
         "llm_calls": sum(m["llm_calls"] for m in runs),
@@ -283,6 +284,11 @@ def report(results: dict[str, Any]) -> str:
     ]
     if s.get("live"):
         lines += _live_section(results)
+    errors = [r for r in results["tasks"] if r.get("agent_error")]
+    if errors:  # in full: the tables cut text short, and this is what you debug from
+        lines += ["## Agent errors", ""]
+        for r in errors:
+            lines += [f"`{r['id']}`:", "", "```", r["agent_error"][:2000], "```", ""]
     return "\n".join(lines)
 
 
@@ -306,7 +312,7 @@ def _live_section(results: dict[str, Any]) -> list[str]:
         "",
         "| Metric | Value |",
         "|---|---|",
-        f"| Model | `{live['model']}` |",
+        f"| Model | `{live['model']}` (reasoning effort: {live['reasoning_effort']}) |",
         f"| Tokens | {live['input_tokens']:,} in, {live['output_tokens']:,} out |",
         f"| Cost | {cost} |",
         f"| Model calls | {live['llm_calls']} ({live['hit_max_turns']} tasks hit the turn limit) |",
@@ -337,7 +343,9 @@ def _build_agent(args: argparse.Namespace) -> Agent:
 
     if not args.model:
         raise SystemExit("--model is required with --agent openai (the exact OpenAI model ID)")
-    return OpenAIAgent(model=args.model, max_turns=args.max_turns)
+    return OpenAIAgent(
+        model=args.model, max_turns=args.max_turns, reasoning_effort=args.reasoning_effort
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -345,6 +353,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--agent", choices=["replay", "openai"], default="replay")
     parser.add_argument("--model", help="model ID for --agent openai")
     parser.add_argument("--max-turns", type=int, default=12)
+    parser.add_argument(
+        "--reasoning-effort", help="e.g. low, medium, high (default: the model's own default)"
+    )
     parser.add_argument("--tasks", default="", help="comma-separated task IDs (default: all)")
     parser.add_argument("--price-in", type=float, help="USD per 1M input tokens, for cost")
     parser.add_argument("--price-out", type=float, help="USD per 1M output tokens, for cost")
@@ -399,8 +410,9 @@ def main(argv: list[str] | None = None) -> int:
         and s["negative_caught"] == s["negative_controls"]
         and s["agent_errors"] == 0
     )
-    if s["agent_errors"]:
-        print(f"{s['agent_errors']} task(s) ended in an agent error; see the report")  # noqa: T201
+    for r in results["tasks"]:  # into the job log too, where they can be read without the UI
+        if r.get("agent_error"):
+            print(f"agent error in {r['id']}: {r['agent_error'][:500]}")  # noqa: T201
     return 0 if ok else 1
 
 
