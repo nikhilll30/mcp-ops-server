@@ -67,24 +67,33 @@ python -m evals.run --agent openai --model <model-id> --tasks r01-find-cardiolog
 
 ## Live results
 
-One run each, all 31 tasks, `gpt-6-luna` at its default reasoning effort, through the
-Responses API (2026-10-19):
+These are single runs over all 31 tasks, through the Responses API, with each model at its
+default reasoning effort (2026-10-19). The server and eval code are identical across rows 2 and 3.
 
-| Server version | Passed | Controls caught | Tool calls (errors) | Cost* | Task latency p50 / p99 |
-|---|---|---|---|---|---|
-| 888ab41 | 29/31 | 12/12 | 97 (8) | $0.038 | 5.5 s / 35.8 s |
-| 6d723c9 (after PR #10) | 30/31 | 12/12 | 101 (8) | $0.046 | 5.1 s / 25.0 s |
+| Model | Server | Passed | Controls caught | Tool calls (errors) | Tokens in / out | Cost* | Task latency p50 / p99 |
+|---|---|---|---|---|---|---|---|
+| `gpt-6-luna` | 888ab41 | 29/31 | 12/12 | 97 (8) | 336k / 9.3k | $0.038 | 5.5 s / 35.8 s |
+| `gpt-6-luna` | 6d723c9 (after PR #10) | 30/31 | 12/12 | 101 (8) | 419k / 8.1k | $0.046 | 5.1 s / 25.0 s |
+| `gpt-6.1-sol` | a314a92 | 30/31 | 12/12 | 84 (8) | 147k / 4.5k | $0.339 | 8.1 s / 17.4 s |
 
-\*At $0.10 / $0.50 per 1M input/output tokens, pricing every input token at the full rate.
-This is an upper bound, because cached input is billed at $0.01.
-Most tool errors are expected refusals, such as a cancelled appointment or a clash with the
-patient's existing booking.
+\*The cost prices every input token at the full rate: $0.10 / $0.50 per 1M input/output tokens
+for Luna, and $2 / $10 for Sol. Cached input bills at 5–10% of that, so these figures are upper
+bounds. Most tool errors are expected refusals, such as a cancelled appointment or a clash with
+the patient's existing booking.
 
-- **Run 1:** both failures (k01, f01) were task defects. Each depended on information no tool
-  exposes, and PR #10 fixed the server's error message and f01's error budget.
-- **Run 2:** the one failure is the model's. k01 booked the right slot, but searched 12 times
-  before trying the booking it was asked to make (16 calls; the limit is 6).
-- Every refusal, auth and referral-safety task passed in both runs.
+- **Luna, run 1:** both failures (k01, f01) were task defects. Each depended on information no
+  tool exposes, and PR #10 fixed the server's error message and f01's error budget.
+- **Luna, run 2:** the one failure is the model's. k01 booked the right slot, but searched 12
+  times before trying the booking it was asked to make (16 calls; the limit is 6).
+- **Sol:** the one failure is f01. Sol picked a slot that clashed with the patient's existing
+  appointment, got the error, and stopped without booking. Luna picked another slot and passed.
+  The system prompt's rule ("slot taken … make no booking, and say why") fits a request for one
+  specific time (k02). f01 asks for any time that week, so the rule is ambiguous there and
+  probably contributed. It is left unchanged: both models ran under the same prompt, and a
+  change means re-running both.
+- **Luna vs Sol:** Sol used 2.8× fewer tokens and 17 fewer tool calls, and solved k01 in 4
+  calls where Luna needed 16. Luna was about 7× cheaper per task.
+- Every refusal, auth and referral-safety task passed in all three runs.
 - One run per configuration says nothing about run-to-run variance; treat these as single
   samples. The full story is in `FAILURES.md`.
 
