@@ -378,8 +378,11 @@ class Store:
             if c.execute(
                 "SELECT 1 FROM appointments WHERE slot_id = ? AND status = 'booked'", (slot_id,)
             ).fetchone():
+                # Name the slot's provider and time: nothing else lets a caller find "the next
+                # slot with the same provider that day" (no tool looks a slot up by ID).
                 raise ConflictError(
-                    f"Slot {slot_id} is already booked. Call list_open_slots for another slot."
+                    f"Slot {slot_id} ({slot['provider_id']}, {slot['start']}) is already booked. "
+                    "Call list_open_slots for another slot."
                 )
             clash = c.execute(
                 "SELECT a.id FROM appointments a JOIN slots s ON s.id = a.slot_id "

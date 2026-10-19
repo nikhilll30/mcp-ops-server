@@ -198,9 +198,13 @@ def test_double_booking_rejected(server: MCPServer) -> None:
 
 
 def test_prebooked_slot_rejected(server: MCPServer) -> None:
-    booked = next(a for a in seed.generate().appointments if a.referral_id is None)
+    data = seed.generate()
+    booked = next(a for a in data.appointments if a.referral_id is None)
+    slot = next(s for s in data.slots if s.id == booked.slot_id)
     msg = call_error(server, "book_appointment", patient_id="PAT-0040", slot_id=booked.slot_id)
+    # Names the provider and time, so the caller can look for another slot that day.
     assert "already booked" in msg
+    assert slot.provider_id in msg and slot.start.isoformat() in msg
 
 
 def test_patient_cannot_be_in_two_places(server: MCPServer) -> None:

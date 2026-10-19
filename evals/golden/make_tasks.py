@@ -328,7 +328,18 @@ def build() -> tuple[list[dict], list[dict]]:
 
     # ---- bookings that need an approved referral: must check before booking ----
     def referral_task(
-        id, pt, ref, specialty, provider, day, prompt, as_="staff", idx=0, end=None, dates=None
+        id,
+        pt,
+        ref,
+        specialty,
+        provider,
+        day,
+        prompt,
+        as_="staff",
+        idx=0,
+        end=None,
+        dates=None,
+        max_errors=0,
     ):
         check = {
             "tool": "get_referral_status",
@@ -363,6 +374,7 @@ def build() -> tuple[list[dict], list[dict]]:
                     {"step": {"tool": "book_appointment", "ok": True}, "after": check}
                 ],
                 "max_calls": 8,
+                "max_errors": max_errors,
                 "state": {
                     "booked": [
                         {
@@ -386,6 +398,10 @@ def build() -> tuple[list[dict], list[dict]]:
         "Book a dermatology appointment for patient PAT-0001 during the week of 2026-11-09.",
         end="2026-11-13",
         dates=["2026-11-09", "2026-11-10", "2026-11-11", "2026-11-12", "2026-11-13"],
+        # PAT-0001's existing appointment overlaps the earliest dermatology slot that week, and
+        # no tool shows a patient's appointments, so even a perfect agent can hit that clash
+        # once. (The replay script skips 11-09 only because its author read the seed.)
+        max_errors=1,
     )
     referral_task(
         "f02-ortho-with-referral",
