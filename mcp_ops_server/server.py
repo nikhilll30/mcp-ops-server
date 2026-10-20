@@ -1,6 +1,5 @@
 """MCP server construction and tool registration."""
 
-from datetime import datetime
 from typing import Any, TypedDict
 
 from mcp.server.auth.provider import TokenVerifier
@@ -13,6 +12,7 @@ from starlette.routing import Route
 
 from mcp_ops_server import __version__
 from mcp_ops_server.auth import Guard, StaticTokenVerifier
+from mcp_ops_server.backends import make_backend
 from mcp_ops_server.backends.base import Backend
 from mcp_ops_server.backends.sqlite import SqliteBackend
 from mcp_ops_server.config import Settings
@@ -71,22 +71,18 @@ def build_server(
     return server
 
 
-def build_http_app(settings: Settings) -> Starlette:
+def build_http_app(settings: Settings, backend: Backend | None = None) -> Starlette:
     """The Streamable HTTP app exactly as ``python -m mcp_ops_server`` serves it.
 
-    Shared with the eval harness, so evals run the same auth, limits and clock wiring.
+    Shared with the eval harness, so evals run the same auth, limits and clock wiring. The
+    harness passes its own ``backend`` (built with ``make_backend``) to snapshot it.
     """
     if not settings.tokens_file:
         raise ValueError("settings.tokens_file is required: the server never runs without auth")
-    fixed_now = settings.now
-    store = SqliteBackend(
-        settings.db_path,
-        timeout_s=settings.call_timeout_s,
-        now=(lambda: fixed_now) if fixed_now is not None else datetime.now,
-    )
+    verifier = StaticTokenVerifier.from_file(settings.tokens_file)
     server = build_server(
-        store,
-        token_verifier=StaticTokenVerifier.from_file(settings.tokens_file),
+        backend or make_backend(settings),
+        token_verifier=verifier,
         issuer_url=f"http://{settings.host}:{settings.port}",
         rate_limit_per_minute=settings.rate_limit_per_minute,
     )

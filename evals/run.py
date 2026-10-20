@@ -129,10 +129,13 @@ def run_suite(
     tasks: list[dict] | None = None,
     negatives: list[dict] | None = None,
     prices: tuple[float, float] | None = None,
+    backend: str = "sqlite",
+    fhir_url: str | None = None,
 ) -> dict[str, Any]:
     """Run golden tasks with ``agent`` and negative controls with the replay agent.
 
     ``prices`` is (USD per 1M input tokens, USD per 1M output tokens) for cost reporting.
+    ``backend``/``fhir_url`` pick the data backend (see ``Harness``).
     """
     agent = agent or ReplayAgent()
     tasks = load("tasks.json") if tasks is None else tasks
@@ -141,7 +144,7 @@ def run_suite(
     neg_tasks = [
         {**by_id[n["task"]], "id": n["id"], "replay": n["replay"], "_neg": n} for n in negatives
     ]
-    with Harness({t["as"] for t in tasks}) as h:
+    with Harness({t["as"] for t in tasks}, backend, fhir_url) as h:
         golden, controls = asyncio.run(_run_all(h, tasks, neg_tasks, agent))
     for r, t in zip(controls, neg_tasks, strict=True):
         want = set(t["_neg"]["expect_failed"])
@@ -151,6 +154,7 @@ def run_suite(
         r["caught"] = not r["passed"] and want <= set(r["failed_checks"])
     return {
         "agent": agent.name,
+        "backend": backend,
         "finished_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "tasks": golden,
         "negative_controls": controls,
@@ -232,6 +236,7 @@ def report(results: dict[str, Any]) -> str:
         "# Eval report",
         "",
         f"Agent: **{results['agent']}** · finished {results['finished_at']} · "
+        f"backend: **{results.get('backend', 'sqlite')}** · "
         f"server: `python -m mcp_ops_server` over Streamable HTTP with issued tokens.",
         "",
         f"**{s['passed']}/{s['tasks']} golden tasks passed** · "
@@ -388,6 +393,10 @@ def main(argv: list[str] | None = None) -> int:
         type=float,
         help="fail below this golden pass rate (default 1.0 for replay, 0 for live runs)",
     )
+    parser.add_argument("--backend", choices=["sqlite", "fhir"], default="sqlite")
+    parser.add_argument(
+        "--fhir-url", help="FHIR R4 base URL for --backend fhir; its data is overwritten"
+    )
     parser.add_argument("--out", help="write raw results JSON here")
     parser.add_argument("--report", help="Markdown report path")
     args = parser.parse_args(argv)
@@ -405,7 +414,9 @@ def main(argv: list[str] | None = None) -> int:
     if (args.price_in is None) != (args.price_out is None):
         raise SystemExit("pass both --price-in and --price-out, or neither")
 
-    results = run_suite(agent, tasks, negatives, prices)
+    if args.backend == "fhir" and not args.fhir_url:
+        raise SystemExit("--backend fhir needs --fhir-url")
+    results = run_suite(agent, tasks, negatives, prices, args.backend, args.fhir_url)
     default_report = "report.md" if args.agent == "replay" else "results/live-report.md"
     report_path = Path(args.report or Path(__file__).parent / default_report)
     report_path.parent.mkdir(parents=True, exist_ok=True)

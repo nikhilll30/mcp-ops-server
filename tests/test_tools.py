@@ -24,7 +24,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from mcp_ops_server import seed
-from mcp_ops_server.backends.base import ConflictError
+from mcp_ops_server.backends.base import Backend, ConflictError
 from mcp_ops_server.backends.sqlite import SqliteBackend
 from mcp_ops_server.server import build_server
 
@@ -268,16 +268,17 @@ def test_book_input_errors(server: MCPServer, args: dict, message: str) -> None:
     assert message in call_error(server, "book_appointment", **args)
 
 
-def test_concurrent_bookings_of_one_slot_yield_one_winner(store: SqliteBackend) -> None:
-    """Many threads race for one slot; the lock + unique index must allow exactly one."""
-    slot_id = store.list_open_slots(PRIMARY_PROVIDER, seed.SCHEDULE_START)["slots"][0]["slot_id"]
+def test_concurrent_bookings_of_one_slot_yield_one_winner(backend: Backend) -> None:
+    """Many threads race for one slot; exactly one may win (SQLite: lock + unique index;
+    FHIR: If-Match on the slot and the appointment sequence)."""
+    slot_id = backend.list_open_slots(PRIMARY_PROVIDER, seed.SCHEDULE_START)["slots"][0]["slot_id"]
     patients = [f"PAT-{i:04d}" for i in range(11, 31)]
     barrier = threading.Barrier(len(patients))
 
     def attempt(patient_id: str) -> str:
         barrier.wait()
         try:
-            store.book_appointment(patient_id, slot_id)
+            backend.book_appointment(patient_id, slot_id)
             return "ok"
         except ConflictError:
             return "conflict"

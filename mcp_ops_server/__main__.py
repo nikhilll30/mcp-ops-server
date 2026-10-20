@@ -5,6 +5,7 @@ from pathlib import Path
 
 import uvicorn
 
+from mcp_ops_server.backends.fhir import BackendUnavailableError
 from mcp_ops_server.config import Settings
 from mcp_ops_server.server import build_http_app
 
@@ -26,7 +27,10 @@ def main() -> None:
             f"Tokens file {settings.tokens_file} not found. Issue a token into it first "
             "(python -m mcp_ops_server.auth issue --file ...) or point MCP_OPS_TOKENS_FILE at it."
         )
-    app = build_http_app(settings)
+    try:
+        app = build_http_app(settings)
+    except BackendUnavailableError as exc:
+        sys.exit(str(exc))  # fail closed with one line, not a traceback
     uvicorn.run(app, host=settings.host, port=settings.port, log_level="info")
 
 
