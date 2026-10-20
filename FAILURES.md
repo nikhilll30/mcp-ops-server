@@ -23,6 +23,7 @@ What broke, what changed, what happened next. Newest first.
   `test_the_kit_never_imports_a_domain` guards the import side, not defaults like these, so I also read the kit for domain words.
 - **A negative control that proved less than it claimed:** the salon's `n10` (a hidden book-then-cancel cycle) also broke `c01`'s call budget. It was "caught", but not only by the state check it exists for. I raised `c01`'s budget to 4 calls, so `n10` now fails on the transient write alone.
 - **Mutations against the salon gate:** removing the late-cancel rule fails `x02`. Removing the visit limit fails `x03`, and its control `n07` goes uncaught. So the salon gate catches server regressions, not only grader ones.
+- **CI `container` failed on the first push:** `"/mcp_ops_kit": not found`. `.dockerignore` lets in only `mcp_ops_server/`, and my local build ran from a scratch folder I had copied by hand, so it never applied the real `.dockerignore`. **Fix:** allow-list `mcp_ops_kit/` and `salon_ops/`. Re-checked by building from a copy of every tracked file, including the real `.dockerignore`; all three packages import in the image. **Lesson:** a local repro has to use the same build context as CI, not a hand-picked one.
 - **Disclosed:** this session's Docker build needed `--network host` and a scratch Dockerfile trusting the proxy's certificate, as in Part 6. The shipped Dockerfile has neither. CI's `container` job is the proof on GitHub's network.
 
 ## 2026-10-20 · Part 7: Codex review found 3x P1, 3x P2 (all reproduced, all fixed)

@@ -1,7 +1,10 @@
-# Only what the image needs: pyproject.toml, README.md, LICENSE, mcp_ops_server/.
+# Only what the image needs: pyproject.toml, README.md, LICENSE and the three packages the wheel
+# is built from (mcp_ops_kit/, mcp_ops_server/, salon_ops/).
 *
 !pyproject.toml
 !README.md
 !LICENSE
+!mcp_ops_kit/
 !mcp_ops_server/
-mcp_ops_server/**/__pycache__
+!salon_ops/
+**/__pycache__
