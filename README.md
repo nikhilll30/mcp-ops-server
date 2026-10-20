@@ -31,7 +31,7 @@ appear anywhere.
 | **Server** | 6 MCP tools over Streamable HTTP · bearer tokens with scopes and patient binding · rate limit, body limit, per-call deadline |
 | **Evals** | 31 golden tasks graded step by step, and on the exact database change · 12 negative controls the grader must fail |
 | **Backends** | SQLite (default) or FHIR R4 (`MCP_OPS_BACKEND=fhir`), behind one protocol; same tool results, byte for byte, on every eval task |
-| **CI** | lint · 206 tests · eval gate (31/31, 12/12) · a `fhir` job: 278 tests with every tool test on both backends against HAPI FHIR, and the eval gate on FHIR · secret scan · the Docker image built and smoke-tested on every PR |
+| **CI** | lint · 217 tests · eval gate (31/31, 12/12) · a `fhir` job: 294 tests with every tool test on both backends against HAPI FHIR, and the eval gate on FHIR · secret scan · the Docker image built and smoke-tested on every PR |
 | **Live models** | `gpt-6-luna` **30/31** for **$0.046** · `gpt-6.1-sol` **30/31** for **$0.339** (all 31 tasks, one run each) |
 
 ![Demo: issue a token, run the container, a real book and cancel over HTTP, then the eval gate](docs/demo/demo.gif)
@@ -97,7 +97,7 @@ docker run -d --name hapi -p 127.0.0.1:8080:8080 hapiproject/hapi:v8.4.0-2   # r
 python -m mcp_ops_server.backends.fhir_seed load --url http://127.0.0.1:8080/fhir
 MCP_OPS_BACKEND=fhir MCP_OPS_FHIR_URL=http://127.0.0.1:8080/fhir MCP_OPS_TOKENS_FILE=tokens.json \
   python -m mcp_ops_server
-MCP_OPS_TEST_BACKENDS=sqlite,fhir pytest -q                  # 278 tests, both backends
+MCP_OPS_TEST_BACKENDS=sqlite,fhir pytest -q                  # 294 tests, both backends
 python -m evals.run --backend fhir --fhir-url http://127.0.0.1:8080/fhir
 ```
 
@@ -108,7 +108,7 @@ unreachable, is not R4, or has no seed loaded.
 
 ```bash
 pip install -e ".[dev]"
-ruff check . && ruff format --check . && pytest -q   # 206 tests (FHIR ones need the server above)
+ruff check . && ruff format --check . && pytest -q   # 217 tests (FHIR ones need the server above)
 python -m evals.run                                  # 31/31 tasks passed; 12/12 negative controls caught
 python -m mcp_ops_server                             # needs MCP_OPS_TOKENS_FILE; see .env.example
 ```
@@ -235,7 +235,10 @@ finding was reproduced before it was fixed, and each fix has a test that fails w
 - **FHIR backend.** The synthetic clinic keeps one fixed UTC offset (UTC-05:00, no daylight
   saving); Slot times are stored as UTC instants and converted. Every booking moves one
   sequence resource, so bookings are serialised (as SQLite's are), which caps write throughput.
-  It assumes it is the only writer of Slot and Appointment status. `fhir_seed load`/`reset` and
+  It assumes it is the only writer of Slot and Appointment status. A write cannot be cancelled
+  once sent: if the FHIR server does not answer in time, the backend reads the result back and
+  reports it, or says the outcome is unknown (with the appointment ID it would have) and that a
+  retry is safe. It never reports "cancelled" for a write that may have landed. `fhir_seed load`/`reset` and
   the FHIR tests **overwrite** data: point them only at a throwaway server.
 
 ## License

@@ -12,8 +12,10 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Callable, Iterator
-from datetime import date, datetime
+from datetime import UTC, date, datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 import httpx2
@@ -23,7 +25,13 @@ from conftest import NO_REFERRAL_PATIENT, PRIMARY_PROVIDER, SECOND_FREE_PATIENT
 from mcp_ops_server import seed
 from mcp_ops_server.auth import ALL_SCOPES, issue
 from mcp_ops_server.backends import fhir_seed
-from mcp_ops_server.backends.base import BusyError, CallTimeoutError, ConflictError, StoreError
+from mcp_ops_server.backends.base import (
+    BusyError,
+    CallTimeoutError,
+    ConflictError,
+    OutcomeUnknownError,
+    StoreError,
+)
 from mcp_ops_server.backends.fhir import (
     SEQUENCE_ID,
     BackendUnavailableError,
@@ -137,8 +145,7 @@ def test_seed_export_cli_writes_the_bundles(tmp_path: Any) -> None:
 
 
 def _fake(handler: Callable[[httpx2.Request], httpx2.Response], **kw: Any) -> FhirBackend:
-    client = httpx2.Client(transport=httpx2.MockTransport(handler))
-    return FhirBackend(BASE, client=client, **kw)
+    return FhirBackend(BASE, transport=httpx2.MockTransport(handler), **kw)
 
 
 def _bundle(resources: list[dict], next_url: str | None = None) -> dict:
@@ -191,16 +198,18 @@ def test_search_refuses_a_next_link_to_another_server() -> None:
         _fake(handler).search_providers()
 
 
-def test_every_request_bypasses_the_search_cache() -> None:
+def test_every_request_bypasses_the_search_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Through the backend's own client (its headers). Proxies from the environment must not
+    apply to an injected transport: Codex's run reached a real proxy here (PR #16)."""
+    for var in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy"):
+        monkeypatch.setenv(var, "http://127.0.0.1:9")  # nothing listens there
     headers = []
 
     def handler(req: httpx2.Request) -> httpx2.Response:
         headers.append(req.headers.get("cache-control"))
         return httpx2.Response(200, json=_bundle(_role(1)))
 
-    backend = FhirBackend(BASE)
-    backend._http._transport = httpx2.MockTransport(handler)  # noqa: SLF001 - keep its headers
-    backend.search_providers()
+    _fake(handler).search_providers()
     assert headers == ["no-cache"]
 
 
@@ -222,14 +231,29 @@ def test_server_error_text_is_not_echoed_to_the_agent() -> None:
     assert "secret" not in str(exc.value) and "HTTP 400" in str(exc.value)
 
 
-def _booking_server(commit_status: int) -> tuple[Callable, list[dict], list[str]]:
-    """A fake FHIR server holding one free slot; every commit answers ``commit_status``."""
+APPT = {
+    "resourceType": "Appointment", "id": "APT-00001", "meta": {"versionId": "2"},
+    "status": "booked", "start": "2026-11-02T15:00:00Z", "end": "2026-11-02T15:30:00Z",
+    "slot": [{"reference": "Slot/SLT-00003"}],
+    "participant": [{"actor": {"reference": "Patient/PAT-0008"}},
+                    {"actor": {"reference": "PractitionerRole/PRV-001"}}],
+}  # fmt: skip
+
+
+def _booking_server(
+    commit: int | Callable[[dict, dict], httpx2.Response],
+) -> tuple[Callable, list[dict], list[str]]:
+    """A fake FHIR server with one free slot (SLT-00002) and one booked appointment
+    (APT-00001 on SLT-00003). ``commit`` is the status every transaction answers, or a
+    function of (bundle, reads) that answers it and may change what later reads return."""
     slot = {"resourceType": "Slot", "id": "SLT-00002", "meta": {"versionId": "3"},
             "schedule": {"reference": "Schedule/PRV-001"}, "status": "free",
             "start": "2026-11-02T14:30:00Z", "end": "2026-11-02T15:00:00Z"}  # fmt: skip
     reads = {
         "Patient/PAT-0008": {"resourceType": "Patient", "id": "PAT-0008"},
         "Slot/SLT-00002": slot,
+        "Slot/SLT-00003": {**slot, "id": "SLT-00003", "status": "busy"},
+        "Appointment/APT-00001": APPT,
         f"Basic/{SEQUENCE_ID}": {**sequence_resource(128), "meta": {"versionId": "9"}},
     }
     commits: list[dict] = []
@@ -239,15 +263,42 @@ def _booking_server(commit_status: int) -> tuple[Callable, list[dict], list[str]
         path = req.url.path.removeprefix("/fhir/").rstrip("/")
         gets.append(path)
         if req.method == "POST":
-            commits.append(json.loads(req.content))
-            return httpx2.Response(commit_status, json={"resourceType": "Bundle"})
+            bundle = json.loads(req.content)
+            commits.append(bundle)
+            if callable(commit):
+                return commit(bundle, reads)
+            return httpx2.Response(commit, json={"resourceType": "Bundle"})
         if path in reads:
             return httpx2.Response(200, json=reads[path])
         if path == "PractitionerRole":
             return httpx2.Response(200, json=_bundle(_role(1)))
+        if "/" in path:
+            return httpx2.Response(404, json={"resourceType": "OperationOutcome"})
         return httpx2.Response(200, json=_bundle([]))  # no clashing appointments
 
     return handler, commits, gets
+
+
+def _lands_then_hangs(seconds: float) -> Callable[[dict, dict], httpx2.Response]:
+    """The server commits the transaction, then the answer never arrives in time."""
+
+    def commit(bundle: dict, reads: dict) -> httpx2.Response:
+        for e in bundle["entry"]:
+            reads[e["request"]["url"]] = e["resource"]
+        time.sleep(seconds)
+        return httpx2.Response(200, json={"resourceType": "Bundle"})
+
+    return commit
+
+
+def _hangs(seconds: float) -> Callable[[dict, dict], httpx2.Response]:
+    """No answer in time, and nothing visible yet (the commit may still be in flight)."""
+
+    def commit(bundle: dict, reads: dict) -> httpx2.Response:
+        time.sleep(seconds)
+        return httpx2.Response(200, json={"resourceType": "Bundle"})
+
+    return commit
 
 
 def test_booking_commits_slot_and_sequence_with_if_match_in_one_transaction() -> None:
@@ -268,13 +319,107 @@ def test_booking_commits_slot_and_sequence_with_if_match_in_one_transaction() ->
     assert bundle["entry"][0]["resource"]["status"] == "busy"
 
 
-def test_lost_races_are_retried_until_the_deadline() -> None:
-    """Every commit answers 412 (someone else always wins): the booking re-checks and
-    retries, then gives up with a timeout when the call's deadline passes."""
-    handler, commits, _ = _booking_server(412)
+@pytest.mark.parametrize("status", [409, 412])
+@pytest.mark.parametrize("op", ["book", "cancel"])
+def test_lost_races_are_retried_until_the_deadline(status: int, op: str) -> None:
+    """Every commit answers 409 or 412 (someone else always wins): the write re-checks and
+    retries, then gives up with a timeout, having written nothing, at the deadline."""
+    handler, commits, _ = _booking_server(status)
+    backend = _fake(handler, timeout_s=0.5)
+    start = time.monotonic()
     with pytest.raises(CallTimeoutError):
-        _fake(handler, timeout_s=0.5).book_appointment("PAT-0008", "SLT-00002")
+        if op == "book":
+            backend.book_appointment("PAT-0008", "SLT-00002")
+        else:
+            backend.cancel_appointment("APT-00001", "PAT-0008")
     assert len(commits) > 1
+    assert time.monotonic() - start < 0.5 + 0.2
+
+
+def test_a_read_stops_at_the_deadline_however_slow_the_server() -> None:
+    def handler(req: httpx2.Request) -> httpx2.Response:
+        time.sleep(1.5)
+        return httpx2.Response(200, json=_bundle(_role(1)))
+
+    start = time.monotonic()
+    with pytest.raises(CallTimeoutError):
+        _fake(handler, timeout_s=0.3).search_providers()
+    assert time.monotonic() - start < 0.3 + 0.2
+
+
+class _Dribbler(BaseHTTPRequestHandler):
+    """Sends a valid response a few bytes at a time: every network wait is short, but the
+    whole answer takes far longer than the call's budget (Codex review, PR #16)."""
+
+    def log_message(self, *args: object) -> None:
+        pass
+
+    def do_GET(self) -> None:  # noqa: N802 - http.server API
+        body = json.dumps(_bundle(_role(1))).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/fhir+json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        for i in range(0, len(body), 40):
+            try:
+                self.wfile.write(body[i : i + 40])
+                self.wfile.flush()
+            except OSError:
+                return
+            time.sleep(0.05)
+
+
+def test_a_dribbled_response_cannot_stretch_the_deadline() -> None:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Dribbler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        backend = FhirBackend(f"http://127.0.0.1:{server.server_port}/fhir", timeout_s=0.3)
+        start = time.monotonic()
+        with pytest.raises(CallTimeoutError):
+            backend.search_providers()
+        assert time.monotonic() - start < 0.3 + 0.2
+    finally:
+        server.shutdown()
+
+
+def test_an_unanswered_booking_that_landed_is_reported_as_booked() -> None:
+    """The commit lands but its answer never comes: never "cancelled" (Codex review, PR #16).
+    The backend reads the appointment back and reports what happened."""
+    handler, _, _ = _booking_server(_lands_then_hangs(1.0))
+    out = _fake(handler, timeout_s=0.3).book_appointment("PAT-0008", "SLT-00002")
+    assert out["appointment_id"] == "APT-00129" and out["status"] == "booked"
+
+
+def test_an_unanswered_booking_not_seen_yet_is_reported_as_unknown() -> None:
+    handler, _, _ = _booking_server(_hangs(1.0))
+    start = time.monotonic()
+    with pytest.raises(OutcomeUnknownError) as exc:
+        _fake(handler, timeout_s=0.3).book_appointment("PAT-0008", "SLT-00002")
+    assert "may or may not" in str(exc.value) and "APT-00129" in str(exc.value)
+    assert "cancelled" not in str(exc.value)
+    assert time.monotonic() - start < 0.3 + 0.3 + 0.3  # budget + one read-back + slack
+
+
+def test_an_unanswered_cancel_is_read_back() -> None:
+    handler, _, _ = _booking_server(_lands_then_hangs(1.0))
+    out = _fake(handler, timeout_s=0.3).cancel_appointment("APT-00001", "PAT-0008")
+    assert out["status"] == "cancelled"
+    handler, _, _ = _booking_server(_hangs(1.0))
+    with pytest.raises(OutcomeUnknownError, match="may or may not be cancelled"):
+        _fake(handler, timeout_s=0.3).cancel_appointment("APT-00001", "PAT-0008")
+
+
+def test_a_write_that_never_connected_is_retryable() -> None:
+    """Connection refused means nothing was sent: a plain "unavailable, retry"."""
+
+    def handler(req: httpx2.Request) -> httpx2.Response:
+        if req.method == "POST":
+            raise httpx2.ConnectError("refused", request=req)
+        return booking(req)
+
+    booking, _, _ = _booking_server(200)
+    with pytest.raises(BusyError, match="unavailable. Retry"):
+        _fake(handler).book_appointment("PAT-0008", "SLT-00002")
 
 
 @pytest.mark.parametrize(
@@ -505,3 +650,91 @@ def test_past_slots_never_crowd_out_upcoming_ones(fhir_url: str, limit: int) -> 
     got = fhir.list_open_slots(*args)
     assert got == sqlite.list_open_slots(*args)
     assert got["count"] == limit and got["truncated"] is True
+
+
+@pytest.mark.fhir
+def test_reset_refuses_a_seed_that_is_not_loaded(fhir: FhirBackend, fhir_url: str) -> None:
+    """Codex review, PR #16: reset toward another seed left 126 wrong bookings."""
+    before = fhir.snapshot_appointments()
+    with pytest.raises(fhir_seed.SeedMismatchError, match="does not hold seed 20261103"):
+        fhir_seed.reset(fhir_url, 20261103)
+    assert fhir.snapshot_appointments() == before  # nothing changed
+    with pytest.raises(SystemExit, match="fhir_seed load"):
+        fhir_seed.main(["reset", "--url", fhir_url, "--seed", "20261103"])
+
+
+@pytest.mark.fhir
+def test_reset_restores_appointment_content_not_only_status(
+    fhir: FhirBackend, fhir_url: str
+) -> None:
+    tampered = fhir._read("Appointment", "APT-00001")  # noqa: SLF001
+    tampered.pop("meta")
+    tampered["slot"] = [{"reference": "Slot/SLT-00002"}]  # still "booked"
+    fhir._transact([put(tampered)])  # noqa: SLF001
+    assert fhir.snapshot_appointments() != SqliteBackend().snapshot_appointments()
+    fhir_seed.reset(fhir_url)
+    assert fhir.snapshot_appointments() == SqliteBackend().snapshot_appointments()
+
+
+@pytest.mark.fhir
+def test_another_seed_loads_and_resets_like_sqlite(fhir_url: str) -> None:
+    other = 20261103
+    try:
+        assert fhir_seed.load(fhir_url, other) is True
+        fhir_seed.reset(fhir_url, other)
+        fhir = FhirBackend(fhir_url)
+        sqlite = SqliteBackend(seed_value=other)
+        assert fhir.snapshot_appointments() == sqlite.snapshot_appointments()
+        args = ("PRV-002", seed.SCHEDULE_START, date(2026, 11, 29), 100)
+        assert fhir.list_open_slots(*args) == sqlite.list_open_slots(*args)
+    finally:
+        fhir_seed.load(fhir_url)  # back to the default seed for every other test
+        fhir_seed.reset(fhir_url)
+
+
+def test_system_clock_is_clinic_time_not_host_time() -> None:
+    """Codex review, PR #16: MCP_OPS_NOW=system gave the host's (UTC) wall time, which the
+    clinic (UTC-05:00) read as five hours later than it was. Both backends get this clock."""
+    from mcp_ops_server.backends import clock, make_backend
+    from mcp_ops_server.config import Settings
+
+    clinic = datetime.now(UTC).astimezone(seed.CLINIC_TZ).replace(tzinfo=None)
+    now = clock(Settings(now=None))
+    assert abs((now() - clinic).total_seconds()) < 60
+    sqlite = make_backend(Settings(now=None))
+    assert abs((sqlite._now() - clinic).total_seconds()) < 60  # noqa: SLF001
+    sqlite.close()
+    pinned = clock(Settings(now=datetime(2026, 11, 2, 8, 0)))
+    assert pinned() == datetime(2026, 11, 2, 8, 0)
+
+
+@pytest.mark.fhir
+def test_same_patient_booked_elsewhere_after_the_checks_is_rejected(fhir: FhirBackend) -> None:
+    """Deterministic version of the same-patient race (Codex review, PR #16): between A's
+    checks and A's commit, the same patient is booked into an overlapping slot with another
+    provider. No slot guard can see that; the sequence If-Match must, and the re-check then
+    reports the overlap."""
+    mine = fhir.list_open_slots("PRV-001", seed.SCHEDULE_START, limit=100)["slots"]
+    theirs = {
+        s["start"]: s["slot_id"]
+        for s in fhir.list_open_slots("PRV-002", seed.SCHEDULE_START, limit=100)["slots"]
+    }
+    slot_a, slot_b = next((s["slot_id"], theirs[s["start"]]) for s in mine if s["start"] in theirs)
+    other = FhirBackend(fhir._base)  # noqa: SLF001
+    real = fhir._transact  # noqa: SLF001
+    raced = threading.Event()
+
+    def transact_after_rival(entries: list[dict]) -> None:
+        if not raced.is_set():
+            raced.set()
+            other.book_appointment(NO_REFERRAL_PATIENT, slot_b)
+        real(entries)
+
+    fhir._transact = transact_after_rival  # type: ignore[method-assign]  # noqa: SLF001
+    with pytest.raises(ConflictError, match="overlapping"):
+        fhir.book_appointment(NO_REFERRAL_PATIENT, slot_a)
+    mine_now = [
+        a["slot_id"] for a in fhir.snapshot_appointments().values()
+        if a["patient_id"] == NO_REFERRAL_PATIENT and a["status"] == "booked"
+    ]  # fmt: skip
+    assert mine_now == [slot_b]

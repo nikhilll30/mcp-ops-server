@@ -13,7 +13,7 @@
 | Part | State | Brief |
 |---|---|---|
 | P2 Planning | done (PR #15 merged) | docs/briefs/phase-2-plan.pdf |
-| 7 Backend protocol + FHIR R4 | **in review** (PR #16, branch `claude/confident-brahmagupta-mz67te`) | docs/briefs/part-7-fhir-backend.pdf |
+| 7 Backend protocol + FHIR R4 | **ready to merge** (PR #16, branch `claude/confident-brahmagupta-mz67te`; Codex fixed) | docs/briefs/part-7-fhir-backend.pdf |
 | 8 Booking example, then extract mcp-ops-kit | planned | |
 | 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation | planned | |
 | 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | planned | |
@@ -88,22 +88,25 @@ requests. Sol stopped on f01 because of it. Rewording it means re-running both m
   - live runs are single samples;
   - the container bind turns off the SDK's DNS-rebinding check (bearer auth is still required).
 
-## Part 7 (in review, PR #16)
+## Part 7 (ready to merge, PR #16)
 Built on branch `claude/confident-brahmagupta-mz67te`, the branch this Claude Code session was
 assigned (not `part-7-fhir-backend`).
 - `Backend` protocol in `backends/base.py`; tools, server and harness depend only on it.
 - `SqliteBackend` = old `store.py`, unchanged: 179 tests + snapshot + eval gate passed before any FHIR code.
 - `FhirBackend` (FHIR R4 REST, `httpx2`), `fhir_seed` (deterministic Bundles, load/reset/export),
   `MCP_OPS_BACKEND` / `MCP_OPS_FHIR_URL`, fail-closed start-up.
-- CI `fhir` job: HAPI `v8.4.0-2` pinned by digest, 278 tests on both backends, eval gate on FHIR.
-- Local results: `pytest -q` 206 passed (10 FHIR tests deselected); with
-  `MCP_OPS_TEST_BACKENDS=sqlite,fhir`, 278 passed; FHIR eval 31/31, 12/12, every trajectory
+- CI `fhir` job: HAPI `v8.4.0-2` pinned by digest, 294 tests on both backends, eval gate on FHIR.
+- Local results: `pytest -q` 217 passed (17 FHIR tests deselected); with
+  `MCP_OPS_TEST_BACKENDS=sqlite,fhir`, 294 passed; FHIR eval 31/31, 12/12, every trajectory
   identical to SQLite.
 - Found and fixed a real double-booking window (sequence read after the slot), via mutation
   tests; see FAILURES.md.
 
+Codex review (of 5a003a6): 3x P1, 3x P2, all reproduced and fixed (FAILURES.md), plus the
+coverage gaps it named. Cursor Bugbot: 1 finding, the same as Codex's first P1, fixed in cc91d98.
+
 ## Next action
-1. Owner: paste this into Codex:
+1. Done. Codex prompt used:
 ```
 Review PR #16 in nikhilll30/mcp-ops-server (branch claude/confident-brahmagupta-mz67te) as a senior
 engineer. Focus: FHIR search paging (missing results past page 1), time zones on Slot start/end,
@@ -113,5 +116,5 @@ concurrency tests prove the If-Match guards or could pass by luck, retry/deadlin
 tests miss. Also check test quality and anything that would embarrass this repo once public.
 List findings as P0/P1/P2 with file and line. Do not change code.
 ```
-2. Claude: fix the findings, update FAILURES.md and the brief.
+2. Done: findings fixed; FAILURES.md and the brief updated.
 3. Owner: merge PR #16, add `fhir` to the ruleset's required checks, and say "go" for Part 8.

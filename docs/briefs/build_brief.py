@@ -726,7 +726,7 @@ def part7() -> list:
     return [
         Paragraph("Part 7 Brief · Backend protocol + FHIR R4", title),
         Paragraph(
-            "mcp-ops-server · 20 Oct 2026 · PR #16 · Status: CI green; Bugbot finding fixed; Codex review pending",
+            "mcp-ops-server · 20 Oct 2026 · PR #16 · Status: Codex review fixed (3x P1, 3x P2) + 1 Bugbot; ready to merge",
             sub,
         ),
         Spacer(1, 4),
@@ -742,7 +742,7 @@ def part7() -> list:
         ),
         bl(
             f"<b>Parity enforced in CI:</b> a new {cf}fhir</font> job runs HAPI (pinned by digest), every tool test "
-            "on both backends (278 tests), and the eval gate on FHIR. A test asserts the whole eval run (every result, "
+            "on both backends (294 tests), and the eval gate on FHIR. A test asserts the whole eval run (every result, "
             "error text, state change and grade) is identical on both."
         ),
         section("How it works"),
@@ -789,16 +789,18 @@ def part7() -> list:
             "(15 runs each): either guard alone 0 double bookings, neither 15/15."
         ),
         bl(
-            "<b>HAPI quirks:</b> without no-cache, 3 tool tests fail on stale searches; a no-op PUT keeps its version "
-            "(my test was wrong). Bugbot: past slots crowded out upcoming ones on FHIR (filter after the limit); "
-            "reproduced on HAPI, fixed in the query, test added."
+            "<b>Codex 3x P1, 3x P2, all reproduced and fixed.</b> A write that timed out was reported "
+            "'cancelled' yet had committed: now it is read back, or reported as 'may or may not' with a safe retry. "
+            "The deadline bounded each socket wait, not the call (a dribbling server ran 3x over): now enforced on "
+            "the wait. Also: past slots crowded out upcoming ones (Bugbot too), reset ignored the seed, "
+            "system clock used host time."
         ),
         section("Verify it yourself"),
         codebox(
             [
                 "docker run -d -p 127.0.0.1:8080:8080 hapiproject/hapi:v8.4.0-2",
                 "python -m mcp_ops_server.backends.fhir_seed load --url http://127.0.0.1:8080/fhir",
-                "MCP_OPS_TEST_BACKENDS=sqlite,fhir python -m pytest -q          # 278 passed",
+                "MCP_OPS_TEST_BACKENDS=sqlite,fhir python -m pytest -q          # 294 passed",
                 "python -m evals.run --backend fhir --fhir-url http://127.0.0.1:8080/fhir  # 31/31, 12/12",
             ]
         ),
@@ -811,8 +813,7 @@ def part7() -> list:
         ),
         section("Next (your actions)"),
         Paragraph(
-            "1) Paste the Codex prompt (STATUS.md). 2) After fixes, merge PR #16 and add <b>fhir</b> to the "
-            "ruleset's required checks. 3) Say <b>go</b> for Part 8.",
+            "1) Merge PR #16. 2) Add <b>fhir</b> to the ruleset's required checks. 3) Say <b>go</b> for Part 8.",
             body,
         ),
     ]

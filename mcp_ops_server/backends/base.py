@@ -43,7 +43,12 @@ class BusyError(StoreError):
 
 
 class CallTimeoutError(StoreError):
-    """A call ran past the per-call deadline and was cancelled."""
+    """A call ran past the per-call deadline and was cancelled. Nothing was written."""
+
+
+class OutcomeUnknownError(StoreError):
+    """A write was sent but not confirmed in time, and a read-back could not settle whether
+    it landed. Never raised for a write known to have failed or succeeded."""
 
 
 class AppointmentRow(TypedDict):

@@ -34,6 +34,8 @@ import re
 import threading
 import time
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -47,6 +49,7 @@ from mcp_ops_server.backends.base import (
     AppointmentRow,
     BusyError,
     CallTimeoutError,
+    OutcomeUnknownError,
     StoreError,
     appointment_id,
     parse_appointment_id,
@@ -77,6 +80,19 @@ class BackendUnavailableError(Exception):
 
 class _VersionConflict(Exception):
     """A transaction lost an ``If-Match`` race; the caller re-checks and retries."""
+
+
+class _NotSent(Exception):
+    """The request never reached the server (connection refused, pool full)."""
+
+
+class _NoAnswer(Exception):
+    """The request may have reached the server, but no complete answer came in time."""
+
+
+# A write that got no answer is read back once, with its own short budget, to learn whether
+# it landed (Codex review, PR #16: never report "cancelled" for a write that committed).
+RECONCILE_S = 2.0
 
 
 # ---- time ------------------------------------------------------------------------------
@@ -226,8 +242,14 @@ class FhirBackend:
     """``Backend`` over a FHIR R4 server. Thread-safe: no state but an ``httpx2.Client``.
 
     Every call gets one deadline, ``timeout_s`` from when it starts, covering every request
-    and retry it makes. ``page_size`` is the ``_count`` sent with each search; results past
-    the first page are always fetched (tests set it small to prove that).
+    and retry it makes, measured as total elapsed time: each request runs on a worker thread
+    and the call stops waiting at the deadline, however slowly the server dribbles bytes.
+    A read past the deadline is a ``CallTimeoutError``. A write cannot be cancelled once
+    sent, so one that gets no answer is read back (``RECONCILE_S``): the caller is told it
+    succeeded if it landed, or ``OutcomeUnknownError`` if that cannot be settled, never
+    "cancelled". ``page_size`` is the ``_count`` sent with each search; results past the
+    first page are always fetched (tests set it small to prove that). ``transport`` replaces
+    the network (tests); given at construction, so environment proxies never take over.
     """
 
     def __init__(
@@ -236,19 +258,25 @@ class FhirBackend:
         timeout_s: float = 5.0,
         now: Callable[[], datetime] = lambda: seed.CLINIC_NOW,
         page_size: int = 200,
-        client: httpx2.Client | None = None,
+        transport: httpx2.BaseTransport | None = None,
     ) -> None:
         self._base = url.rstrip("/")
         self._origin = urlsplit(self._base)[:2]
         self._timeout_s = timeout_s
         self._now = now
         self._page_size = page_size
-        self._http = client or httpx2.Client(
-            headers={"Accept": FHIR_JSON, "Cache-Control": "no-cache"}, follow_redirects=False
+        self._http = httpx2.Client(
+            headers={"Accept": FHIR_JSON, "Cache-Control": "no-cache"},
+            follow_redirects=False,
+            transport=transport,
         )
+        # Requests run here so a call can stop waiting at its deadline. A request abandoned at
+        # the deadline still ends by itself: its own HTTP timeout is the time that was left.
+        self._pool = ThreadPoolExecutor(max_workers=32, thread_name_prefix="fhir-http")
         self._local = threading.local()
 
     def close(self) -> None:
+        self._pool.shutdown(wait=False, cancel_futures=True)
         self._http.close()
 
     # ---- start-up check ----------------------------------------------------------------
@@ -278,13 +306,14 @@ class FhirBackend:
     # ---- HTTP --------------------------------------------------------------------------
 
     @contextmanager
-    def _call(self) -> Iterator[None]:
+    def _call(self, budget_s: float | None = None) -> Iterator[None]:
         """One deadline for a whole tool call, kept per thread (calls run in parallel)."""
-        self._local.deadline = time.monotonic() + self._timeout_s
+        outer = getattr(self._local, "deadline", None)
+        self._local.deadline = time.monotonic() + (budget_s or self._timeout_s)
         try:
             yield
         finally:
-            self._local.deadline = None
+            self._local.deadline = outer
 
     def _remaining(self) -> float:
         deadline = getattr(self._local, "deadline", None)
@@ -296,16 +325,32 @@ class FhirBackend:
         return left
 
     def _request(self, method: str, url: str, **kwargs: Any) -> httpx2.Response:
+        """A read. Bounded by the call's deadline in total elapsed time."""
+        try:
+            return self._send(method, url, **kwargs)
+        except _NotSent as exc:
+            raise BusyError("The clinic record system is unavailable. Retry the call.") from exc
+        except _NoAnswer as exc:
+            raise CallTimeoutError("The call took too long and was cancelled.") from exc
+
+    def _send(self, method: str, url: str, **kwargs: Any) -> httpx2.Response:
         if not url.startswith(("http://", "https://")):
             url = f"{self._base}/{url}"
         elif urlsplit(url)[:2] != self._origin:
             raise StoreError("The clinic record system returned a link to another server.")
+        remaining = self._remaining()
+        future = self._pool.submit(
+            self._http.request, method, url, timeout=remaining, **kwargs
+        )  # request() reads the whole body, so a dribbled response counts against the wait
         try:
-            return self._http.request(method, url, timeout=self._remaining(), **kwargs)
-        except httpx2.TimeoutException as exc:
-            raise CallTimeoutError("The call took too long and was cancelled.") from exc
-        except httpx2.TransportError as exc:
-            raise BusyError("The clinic record system is unavailable. Retry the call.") from exc
+            return future.result(timeout=remaining)
+        except FutureTimeout as exc:
+            future.cancel()
+            raise _NoAnswer() from exc
+        except (httpx2.ConnectError, httpx2.ConnectTimeout, httpx2.PoolTimeout) as exc:
+            raise _NotSent() from exc
+        except httpx2.TransportError as exc:  # timeouts and broken connections after sending
+            raise _NoAnswer() from exc
 
     def _read(self, resource_type: str, resource_id: str) -> dict | None:
         """One resource, or None if it does not exist (or was deleted)."""
@@ -340,9 +385,13 @@ class FhirBackend:
             resp = self._request("GET", nxt)
 
     def _transact(self, entries: list[dict]) -> None:
-        resp = self._request(
-            "POST", "", json=transaction(entries), headers={"Content-Type": FHIR_JSON}
-        )
+        """Commit one transaction. Raises ``_NoAnswer`` if its outcome is not known."""
+        try:
+            resp = self._send(
+                "POST", "", json=transaction(entries), headers={"Content-Type": FHIR_JSON}
+            )
+        except _NotSent as exc:
+            raise BusyError("The clinic record system is unavailable. Retry the call.") from exc
         if resp.status_code in (409, 412):
             raise _VersionConflict(resp.text[:200])
         self._raise_for(resp)
@@ -572,14 +621,37 @@ class FhirBackend:
             slot["end"],
             referral_id,
         )
-        self._transact(
-            [
-                put({**slot, "status": "busy"}, if_match=_version(slot)),
-                put(sequence_resource(n), if_match=_version(seq)),
-                put(appointment),
-            ]
-        )
+        try:
+            self._transact(
+                [
+                    put({**slot, "status": "busy"}, if_match=_version(slot)),
+                    put(sequence_resource(n), if_match=_version(seq)),
+                    put(appointment),
+                ]
+            )
+        except _NoAnswer:
+            landed = self._read_back(appointment["id"])
+            if (
+                landed is not None
+                and landed.get("status") == "booked"
+                and ref_id(landed["slot"][0], "Slot") == slot_id
+                and _participant(landed, "Patient") == patient_id
+            ):
+                return _result(landed, provider, start, end)
+            raise OutcomeUnknownError(
+                f"The clinic record system did not confirm booking slot {slot_id} in time, so "
+                f"it may or may not have been made. If it was, it is {appointment['id']}. "
+                "Retrying is safe: it cannot book the slot twice."
+            ) from None
         return _result(appointment, provider, start, end)
+
+    def _read_back(self, appointment_fhir_id: str) -> dict | None:
+        """After an unanswered write: the Appointment as it is now, or None if unknown."""
+        try:
+            with self._call(min(RECONCILE_S, self._timeout_s)):
+                return self._read("Appointment", appointment_fhir_id)
+        except StoreError:
+            return None
 
     def cancel_appointment(self, appointment_id: str, patient_id: str) -> AppointmentResult:
         with self._call():
@@ -606,12 +678,22 @@ class FhirBackend:
         if slot is None or provider is None:
             raise StoreError(f"Appointment {appointment_id} is incomplete on the FHIR server.")
         cancelled = {**appt, "status": "cancelled"}
-        self._transact(
-            [
-                put(cancelled, if_match=_version(appt)),
-                put({**slot, "status": "free"}, if_match=_version(slot)),
-            ]
-        )
+        try:
+            self._transact(
+                [
+                    put(cancelled, if_match=_version(appt)),
+                    put({**slot, "status": "free"}, if_match=_version(slot)),
+                ]
+            )
+        except _NoAnswer:
+            landed = self._read_back(appt["id"])
+            if landed is not None and landed.get("status") == "cancelled":
+                return _result(landed, provider, start, end)
+            raise OutcomeUnknownError(
+                f"The clinic record system did not confirm cancelling {appointment_id} in "
+                "time, so it may or may not be cancelled. Retrying is safe: if it was "
+                "cancelled, the retry says so."
+            ) from None
         return _result(cancelled, provider, start, end)
 
     # ---- harness -----------------------------------------------------------------------

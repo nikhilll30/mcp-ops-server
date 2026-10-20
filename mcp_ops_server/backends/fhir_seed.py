@@ -201,20 +201,32 @@ def load(url: str, seed_value: int = seed.SEED, timeout_s: float = 300.0) -> boo
 
 
 def reset(url: str, seed_value: int = seed.SEED, timeout_s: float = 60.0) -> None:
-    """Put the bookings back to the seed: drop new appointments, restore seeded ones and the
-    slots they hold, free every other slot, and rewind the appointment sequence."""
+    """Put the bookings back to the seed: drop new appointments, restore seeded ones (all
+    their content, not only status) and the slots they hold, free every other slot, and
+    rewind the appointment sequence.
+
+    Refuses, changing nothing, unless this exact seed is the one loaded: resetting toward
+    another seed would leave its slots, referrals and providers mismatched (Codex review,
+    PR #16). Load that seed first.
+    """
     seeded = {a["id"]: a for a in seeded_appointments(seed_value)}
     held = {a["slot"][0]["reference"].split("/")[1] for a in seeded.values()}
     c = _Client(url, timeout_s)
     try:
+        marker = c.get(f"Basic/{MARKER_ID}")
+        found = marker.json()["extension"][0]["valueString"] if marker.status_code == 200 else None
+        if found != _marker(seed_value):
+            raise SeedMismatchError(
+                f"{url} does not hold seed {seed_value} (found: {found or 'no seed'}). "
+                f"Run: python -m mcp_ops_server.backends.fhir_seed load --url {url} "
+                f"--seed {seed_value}"
+            )
         entries: list[dict] = []
         present = {a["id"]: a for a in c.search_all("Appointment")}
         for i in present:
             if i not in seeded:
                 entries.append({"request": {"method": "DELETE", "url": f"Appointment/{i}"}})
-        entries += [
-            put(a) for i, a in seeded.items() if present.get(i, {}).get("status") != "booked"
-        ]
+        entries += [put(a) for i, a in seeded.items() if _content(present.get(i)) != _content(a)]
         # Busy slots the seed does not hold, then held slots that are free (looked up by ID:
         # fetching every free slot would mean ~2,500 resources per reset).
         wrong = [s for s in c.search_all("Slot", status="busy") if s["id"] not in held]
@@ -226,6 +238,17 @@ def reset(url: str, seed_value: int = seed.SEED, timeout_s: float = 60.0) -> Non
         c.transact(entries)
     finally:
         c.http.close()
+
+
+class SeedMismatchError(RuntimeError):
+    """The FHIR server holds no seed, or a different one, from the one asked for."""
+
+
+def _content(resource: dict | None) -> dict | None:
+    """A resource without its server-managed ``meta``, for comparing with the seed."""
+    if resource is None:
+        return None
+    return {k: v for k, v in resource.items() if k != "meta"}
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -247,7 +270,10 @@ def main(argv: list[str] | None = None) -> None:
         reset(args.url, args.seed)
         print("loaded" if loaded else "already loaded; bookings reset to the seed", file=sys.stderr)
     else:
-        reset(args.url, args.seed)
+        try:
+            reset(args.url, args.seed)
+        except SeedMismatchError as exc:
+            sys.exit(str(exc))
 
 
 if __name__ == "__main__":

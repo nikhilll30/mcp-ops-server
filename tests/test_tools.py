@@ -19,6 +19,7 @@ from conftest import (
     WEEK_ONE,
     call,
     first_open_slot,
+    seeded_busy_starts,
 )
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -287,6 +288,40 @@ def test_concurrent_bookings_of_one_slot_yield_one_winner(backend: Backend) -> N
         results = list(pool.map(attempt, patients))
     assert results.count("ok") == 1
     assert results.count("conflict") == len(patients) - 1
+
+
+def test_one_patient_racing_into_overlapping_slots_gets_one(backend: Backend) -> None:
+    """Different slots (so no per-slot guard helps), same patient, same time: one must win.
+    Codex review, PR #16: this race was tested on SQLite only."""
+    day = seed.SCHEDULE_START
+    starts: dict[str, dict[str, str]] = {}
+    for provider_id in ("PRV-001", "PRV-002", "PRV-007", "PRV-008"):  # no referral needed
+        for s in backend.list_open_slots(provider_id, day, limit=100)["slots"]:
+            starts.setdefault(s["start"], {})[provider_id] = s["slot_id"]
+    busy = seeded_busy_starts(NO_REFERRAL_PATIENT)
+    slots = next(
+        list(v.values()) for k, v in sorted(starts.items()) if len(v) >= 3 and k not in busy
+    )
+    barrier = threading.Barrier(len(slots))
+
+    def attempt(slot_id: str) -> str:
+        barrier.wait()
+        try:
+            backend.book_appointment(NO_REFERRAL_PATIENT, slot_id)
+            return "ok"
+        except ConflictError:
+            return "conflict"
+
+    for _ in range(3):  # a barrier does not force overlap; repeat to make serial runs unlikely
+        with ThreadPoolExecutor(len(slots)) as pool:
+            results = list(pool.map(attempt, slots))
+        assert results.count("ok") <= 1
+    booked = [
+        a for a in backend.snapshot_appointments().values()
+        if a["patient_id"] == NO_REFERRAL_PATIENT and a["status"] == "booked"
+        and a["slot_id"] in slots
+    ]  # fmt: skip
+    assert len(booked) == 1
 
 
 def test_unique_index_blocks_double_booking_even_without_app_check(store: SqliteBackend) -> None:
