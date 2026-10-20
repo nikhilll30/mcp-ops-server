@@ -819,6 +819,98 @@ def part7() -> list:
     ]
 
 
+def part8() -> list:
+    w = 7.0 * inch
+    cf = "<font face='Courier'>"
+    return [
+        Paragraph("Part 8 Brief · Salon example, then mcp-ops-kit", title),
+        Paragraph(
+            "mcp-ops-server · 20 Oct 2026 · PR #18 · Status: CI green expected; awaiting Codex review",
+            sub,
+        ),
+        Spacer(1, 4),
+        section("What was built"),
+        bl(
+            f"<b>A second synthetic domain, a salon</b> ({cf}salon_ops/</font>): stylists, hourly openings, visits, "
+            "customer-bound tokens, its own scopes, and rules the clinic lacks (service offered, 24 h late-cancel, "
+            "3 upcoming visits). Built first by <b>copying</b> the clinic's code. 18 golden tasks, 11 negative controls."
+        ),
+        bl(
+            f"<b>{cf}mcp_ops_kit/</font></b>, extracted from what the two copies shared: auth (scopes + subject as an "
+            f"{cf}AuthConfig</font>), limits, a SQLite per-call deadline base, server wiring with a fail-closed start, "
+            f"the eval harness ({cf}EvalDomain</font>), grader ({cf}SubjectRule</font>), agents, runner, smoke test."
+        ),
+        bl(
+            "<b>Both eval gates run on the kit in CI.</b> The salon shrank from 2,150 lines as a copy to 954; the "
+            "clinic's tool schemas and live-agent prompt are byte-identical."
+        ),
+        section("How it works"),
+        table(
+            [
+                ["A domain writes", "The kit does"],
+                [
+                    "AuthConfig: scopes, subject claim, ID pattern",
+                    "Hashed tokens, CLI, scope and binding checks in code",
+                ],
+                [
+                    "register(server, guard): its tools",
+                    "Rate limit before validation, health, /mcp + /healthz, serve",
+                ],
+                [
+                    "A SqliteStore subclass: schema, seed, rules",
+                    "One deadline over lock wait, busy wait and query",
+                ],
+                [
+                    "EvalDomain + golden tasks + controls",
+                    "Fresh data and real server per task, grading, report, gate",
+                ],
+            ],
+            [3.2 * inch, w - 3.2 * inch],
+        ),
+        section("Why it was done this way"),
+        bl(
+            "<b>Copy, then extract.</b> Diffing each copy against its original gave the kit's whole interface: "
+            "limits.py differed in 0 lines, the grader only in the subject, the harness in data, clock and IDs. "
+            "Nothing is configurable that a second user did not need."
+        ),
+        bl(
+            "<b>Clinic API kept, behaviour pinned</b> by the schema snapshot, the FHIR parity test (363 tests, "
+            "identical trajectories) and a test that the kit never imports a domain."
+        ),
+        section("What went wrong or surprised me (logged in FAILURES.md)"),
+        bl(
+            "<b>A fail-open token loader since Part 3.</b> Unknown keys were ignored, so a mistyped or foreign binding "
+            "key loaded an <i>unbound</i> token (reproduced on the old code). The kit refuses unknown keys; a test "
+            "fails if that is reverted."
+        ),
+        bl(
+            "<b>My own draft leaked the clinic</b> into the kit (APT IDs as a default, a clinic-only report title), and "
+            "one salon control was caught by the wrong check. Both fixed. Mutations: dropping the late-cancel rule or "
+            "the visit limit fails the salon gate."
+        ),
+        section("Verify it yourself"),
+        codebox(
+            [
+                "pytest -q                          # 286 passed",
+                "python -m evals.run                # clinic 31/31, 12/12",
+                "python -m salon_ops.evals.run      # salon 18/18, 11/11",
+            ]
+        ),
+        section("Interview talking point"),
+        Paragraph(
+            '"I refused to design the library first. I built a second domain by copy-paste, diffed the copies, and '
+            "extracted exactly the difference as configuration. The diff also showed a pre-existing fail-open in "
+            'token loading."',
+            body,
+        ),
+        section("Next (your actions)"),
+        Paragraph(
+            "1) Paste the Codex prompt (STATUS.md). 2) Merge PR #18 once green. 3) Say <b>go</b> for Part 9.",
+            body,
+        ),
+    ]
+
+
 def phase2() -> list:
     w = 7.0 * inch
     return [
@@ -933,6 +1025,7 @@ PARTS = {
     5: (part5, "part-5-ci-gate", "Part 5 Brief: CI eval gate"),
     6: (part6, "part-6-ship", "Part 6 Brief: Ship"),
     7: (part7, "part-7-fhir-backend", "Part 7 Brief: Backend protocol + FHIR R4"),
+    8: (part8, "part-8-mcp-ops-kit", "Part 8 Brief: Salon example + mcp-ops-kit"),
 }
 
 

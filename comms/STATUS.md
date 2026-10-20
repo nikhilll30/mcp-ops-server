@@ -14,8 +14,8 @@
 |---|---|---|
 | P2 Planning | done (PR #15 merged) | docs/briefs/phase-2-plan.pdf |
 | 7 Backend protocol + FHIR R4 | done (PR #16 merged) | docs/briefs/part-7-fhir-backend.pdf |
-| 8 Booking example, then extract mcp-ops-kit | **next**, waiting for owner's go | |
-| 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation | planned | |
+| 8 Booking example, then extract mcp-ops-kit | **in review** (PR #18), awaiting Codex review | docs/briefs/part-8-mcp-ops-kit.pdf |
+| 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation | next, after the owner's go | |
 | 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | planned | |
 | 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | planned | |
 | 12 Repeated live runs, pass^k, prompt-injection suite | planned | |
@@ -32,6 +32,7 @@
 | 006 | Ship: container + CI smoke + GHCR, README, demo GIF | Claude | merged | #13 |
 | P2 | Phase 2 planning: PLAN, CLAUDE rules, STATUS, README, brief | Claude | merged | #15 |
 | 007 | Backend protocol, SqliteBackend, FhirBackend, HAPI in CI, parity | Claude | merged | #16 |
+| 008 | Salon example (copy), then mcp-ops-kit extracted from both domains | Claude | in review | #18 |
 
 ## Workflow
 Claude builds each part in a fresh Claude Code session (rules in `CLAUDE.md`); Codex reviews each
@@ -120,5 +121,38 @@ tests miss. Also check test quality and anything that would embarrass this repo 
 List findings as P0/P1/P2 with file and line. Do not change code.
 ```
 
-## Next action: Part 8 (booking example, then extract mcp-ops-kit), after the owner says "go"
-Scope and done-criteria are in `comms/PLAN.md`. Not started.
+## Part 8 (in review, PR #18)
+Built on branch `claude/youthful-hawking-h8wsdc` (the branch this session was assigned).
+- **8a (2b76211):** `salon_ops/`, a synthetic salon built by copying the clinic's code:
+  - its own scopes and customer binding, 6 tools;
+  - rules the clinic lacks: service offered, 24 h late-cancel, 3 upcoming visits;
+  - 18 golden tasks and 11 negative controls, gated in the CI `evals` job.
+- **8b (d2dd783):** `mcp_ops_kit/`, extracted from the diff between the copies:
+  - `AuthConfig`, `SubjectRule`, `EvalDomain`;
+  - limits, the SQLite deadline base, server wiring, harness, grader, agents, runner, smoke test.
+
+  Both domains run on it, and the salon went from 2,150 lines to 954.
+- Local results:
+  - `pytest -q`: 286 passed;
+  - `sqlite,fhir` against HAPI: 363 passed, with identical eval trajectories on both backends;
+  - clinic 31/31, 12/12 on both backends; salon 18/18, 11/11;
+  - Docker image built, and the smoke test passed.
+- **Found:** a fail-open in the clinic's token loader. Unknown keys were ignored, so a foreign or mistyped binding key gave an unbound token. Fixed in the kit, with a test (FAILURES.md).
+- The eval CLI flag is now `--backend-url`; `--fhir-url` is still accepted.
+
+Codex prompt for Part 8:
+```
+Review PR #18 in nikhilll30/mcp-ops-server (branch claude/youthful-hawking-h8wsdc) as a senior
+engineer. Focus: whether mcp_ops_kit is really domain-free (hidden clinic assumptions, defaults,
+naming), whether the clinic's behaviour changed in the extraction (auth, tokens-file format and
+validation, settings/env parsing, error messages, start-up failures, eval results), the
+AuthConfig/TokenEntry design (unknown keys, subject claim, cross-domain token files), the salon's
+integrity rules under concurrency (late-cancel boundary, visit limit, overlap), and whether the
+salon's golden tasks and negative controls really test what they claim. Also check test quality
+and anything that would embarrass this repo once public. List findings as P0/P1/P2 with file and
+line. Do not change code.
+```
+
+## Next action
+Owner: paste the Codex prompt above, then merge PR #18 once CI is green and findings are handled.
+Part 9 starts only after the owner says "go".
