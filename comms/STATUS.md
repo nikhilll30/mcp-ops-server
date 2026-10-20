@@ -199,9 +199,9 @@ the salon both have it with no domain-specific code.
 - One new dependency, `cryptography`: AES-GCM and HKDF, plus the RSA/EC signatures PyJWT
   needs. PyJWT itself was already required by `mcp`.
 - **Local results:**
-  - `pytest -q`: 505 passed. This includes every clinic tool test on encrypted SQLite
+  - `pytest -q`: 511 passed. This includes every clinic tool test on encrypted SQLite
     too, and the salon tool tests in memory and in an encrypted file.
-  - `sqlite,fhir` against HAPI: 583 passed.
+  - `sqlite,fhir` against HAPI: 589 passed.
   - Eval gates: clinic 31/31, 12/12 on SQLite and on FHIR; salon 18/18, 14/14.
   - Each eval task's audit chain is verified.
   - The Docker image was built from the real context, and every CI `container` step was

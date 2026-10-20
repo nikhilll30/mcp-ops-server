@@ -291,7 +291,7 @@ class StaticTokenVerifier:
                 return
             try:
                 by_hash = _index(load_tokens(self.config, self._path, self.audience))
-            except (OSError, ValueError) as exc:  # ConfigError, JSON and validation errors
+            except Exception as exc:  # any failure to load must refuse, not crash
                 by_hash, self.error = {}, f"{type(exc).__name__}: {exc}"
                 logger.error(
                     "Tokens file %s rejected; refusing every token until it is fixed. %s",

@@ -226,3 +226,22 @@ def test_the_tokens_file_is_replaced_atomically(tmp_path: Path) -> None:
     issue(str(path), "b", ["read:schedule"], None)
     assert path.stat().st_ino != inode
     assert [p.name for p in tmp_path.iterdir()] == ["tokens.json"]  # no temp file left
+
+
+def test_any_failure_to_reload_refuses_rather_than_crashes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cursor Bugbot, PR #20 found a TypeError escaping a reload (the JWT revocation file).
+    The reloaders now refuse on *any* exception, not a list of the expected ones."""
+    path = tmp_path / "tokens.json"
+    token = issue(str(path), "desk", ["read:schedule"], None)
+    verifier = StaticTokenVerifier.from_file(str(path))
+
+    def unexpected(*args: object, **kwargs: object) -> None:
+        raise TypeError("a shape nobody anticipated")
+
+    monkeypatch.setattr(kit, "load_tokens", unexpected)
+    issue_later = path.read_text()
+    path.write_text(issue_later + " ")  # changed, so it is re-read
+    assert not _verify(verifier, token)
+    assert verifier.error is not None and "TypeError" in verifier.error

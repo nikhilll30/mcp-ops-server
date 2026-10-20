@@ -985,12 +985,12 @@ def part9() -> list:
         bl(
             "<b>Before pushing:</b> a 0600 tokens file the container could not read (found by replaying CI's container "
             "steps locally), a lock leaked on a refused database, an empty JWKS that raised a 500, and old tests that "
-            "passed for the wrong reason. 14 of 15 deliberate mutations were caught; the survivor is a redundant check."
+            "passed for the wrong reason. Cursor Bugbot added two (a 500 on a malformed revocation file; a save failing after its rename). 14 of 15 mutations were caught."
         ),
         section("Verify it yourself"),
         codebox(
             [
-                "pytest -q                                   # 505 passed",
+                "pytest -q                                   # 511 passed",
                 "python -m evals.run; python -m salon_ops.evals.run   # 31/31 12/12; 18/18 14/14",
                 "python -m mcp_ops_kit.audit verify --file audit.log --key-env MCP_OPS_DATA_KEY",
             ]

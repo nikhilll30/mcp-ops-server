@@ -15,14 +15,16 @@ Encryption at rest (45 CFR 164.312(a)(2)(iv)): given a ``data_key`` and a file p
 database lives in memory and the file on disk holds only AES-256-GCM ciphertext of it.
 It is decrypted once at start-up, and every committed write that changed something
 re-encrypts the whole database and replaces the file atomically before the call returns.
-If that save fails, the in-memory database goes back to the last saved state and the call
-fails, so what a caller is told always matches the file. Nothing plaintext touches the
-disk: no journal, no WAL, temp tables in memory. The cost is a full rewrite per write
-(fine for an ops database of a few MB, not for a large one) and one process per file,
-enforced with an exclusive lock.
+If that save fails before the new file is in place, the in-memory database goes back to the
+last saved state and the call fails; if it fails after (fsyncing the folder), the file
+already holds the new state, so it is kept. Either way, what a caller is told matches the
+file. Nothing plaintext touches the disk: no journal, no WAL, temp tables in memory. The
+cost is a full rewrite per write (fine for an ops database of a few MB, not for a large
+one) and one process per file, enforced with an exclusive lock.
 """
 
 import fcntl
+import logging
 import os
 import sqlite3
 import threading
@@ -34,6 +36,8 @@ from pathlib import Path
 
 from mcp_ops_kit.crypto import DataKey, DecryptionError, atomic_write, seal, unseal
 from mcp_ops_kit.errors import BusyError, CallTimeoutError, ConfigError, StoreError
+
+logger = logging.getLogger(__name__)
 
 ENCRYPTED_MAGIC = b"MCPOPS-ENC-SQLITE-1\n"
 SQLITE_MAGIC = b"SQLite format 3\x00"
@@ -176,10 +180,17 @@ class SqliteStore:
     def _save_encrypted(self) -> None:
         """After a COMMIT: write the new state, or put the old one back and fail the call."""
         image = self._conn.serialize()
+        blob = ENCRYPTED_MAGIC + seal(self._db_key, image, ENCRYPTED_MAGIC)
         try:
-            blob = ENCRYPTED_MAGIC + seal(self._db_key, image, ENCRYPTED_MAGIC)
             atomic_write(self._encrypted_path, blob)  # type: ignore[arg-type]
         except OSError as exc:
+            # atomic_write can fail *after* the rename (fsyncing the directory). Then the
+            # new state is already the file: undoing it in memory would tell the caller
+            # "nothing changed" while the file says otherwise (Cursor Bugbot, PR #20).
+            if self._file_holds(blob):
+                logger.warning("%s saved, but not confirmed durable: %s", self._label, exc)
+                self._saved_image = image
+                return
             if self._saved_image is not None:
                 self._conn.deserialize(self._saved_image)
                 self._conn.execute("PRAGMA foreign_keys = ON")
@@ -189,6 +200,12 @@ class SqliteStore:
                 "Retry later."
             ) from exc
         self._saved_image = image
+
+    def _file_holds(self, blob: bytes) -> bool:
+        try:
+            return Path(self._encrypted_path).read_bytes() == blob  # type: ignore[arg-type]
+        except OSError:
+            return False
 
     @contextmanager
     def _write(self) -> Iterator[sqlite3.Connection]:

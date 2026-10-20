@@ -127,7 +127,7 @@ class JwksSource:
                     self._fetched_at = now
                     try:
                         self._keys = self._load()
-                    except (httpx2.HTTPError, ValueError, jwt.PyJWTError) as exc:
+                    except Exception as exc:  # keep the cached keys on any failure
                         logger.error("JWKS fetch from %s failed: %s", self.location, exc)
                         # keep the cached keys: an outage at the authorization server must not
                         # turn into an outage here before cached keys go stale
@@ -137,7 +137,7 @@ class JwksSource:
                     self._signature = signature
                     try:
                         self._keys = self._load()
-                    except (OSError, ValueError, jwt.PyJWTError) as exc:
+                    except Exception as exc:  # any failure refuses, never a 500
                         self._keys = {}
                         logger.error("JWKS file %s rejected; refusing JWTs: %s", self.location, exc)
             return self._keys.get(kid)
@@ -167,6 +167,8 @@ class RevocationList:
             or set(data) != {"version", "revoked"}
         ):
             raise ValueError(f'{path}: expected {{"version": 1, "revoked": [...]}}')
+        if not isinstance(data["revoked"], list):
+            raise ValueError(f"{path}: revoked must be a list")
         if not all(isinstance(r, dict) and isinstance(r.get("jti"), str) for r in data["revoked"]):
             raise ValueError(f"{path}: every revoked entry needs a jti")
         return data["revoked"]
@@ -180,7 +182,7 @@ class RevocationList:
                 return
             try:
                 self._revoked = frozenset(r["jti"] for r in self.read(self.path))
-            except (OSError, ValueError) as exc:
+            except Exception as exc:  # any failure refuses, never a 500
                 self._revoked = None
                 logger.error("JWT revocation file %s rejected; refusing JWTs: %s", self.path, exc)
             self._signature = signature

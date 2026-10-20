@@ -339,3 +339,25 @@ def test_a_jwks_with_no_usable_key_refuses_tokens_without_crashing(
     path = tmp_path / "jwks.json"
     path.write_text(json.dumps(jwks))
     assert _verify(_verifier(str(path)), signer.token()) is None
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"version": 1, "revoked": None},
+        {"version": 1, "revoked": "jti-1"},
+        {"version": 1, "revoked": [1]},
+        {"version": 1, "revoked": [{"jti": 1}]},
+    ],
+    ids=["null", "string", "not-an-object", "jti-not-a-string"],
+)
+def test_a_malformed_revocation_file_refuses_without_crashing(
+    jwks_file: Path, signer: Signer, tmp_path: Path, body: dict
+) -> None:
+    """Cursor Bugbot, PR #20: ``"revoked": null`` raised TypeError out of verify_token
+    (a 500), where every other malformed file already refused (a 401)."""
+    revoked = tmp_path / "revoked.json"
+    v = _verifier(str(jwks_file), str(revoked))
+    assert _verify(v, signer.token()) is not None
+    revoked.write_text(json.dumps(body))
+    assert _verify(v, signer.token()) is None

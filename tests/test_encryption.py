@@ -172,3 +172,30 @@ def test_servers_refuse_a_database_file_without_a_key(tmp_path: Path) -> None:
         make_store(SalonSettings(db_path=str(tmp_path / "s.db")))
     assert not any(tmp_path.iterdir())
     make_backend(Settings()).close()  # in memory: nothing on disk, no key needed
+
+
+def test_a_save_that_fails_after_the_rename_is_kept(
+    tmp_path: Path, key: DataKey, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cursor Bugbot, PR #20: atomic_write can fail after the rename (fsyncing the folder).
+    The new state is then already the file, so undoing it in memory told the caller
+    "nothing changed" while a restart showed the booking. Now caller, memory and disk agree."""
+    import stat
+
+    path = tmp_path / "clinic.db"
+    b = SqliteBackend(str(path), data_key=key)
+    slot = _first_slot(b)
+    real_fsync = os.fsync
+
+    def fsync(fd: int) -> None:
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            raise OSError(5, "Input/output error")
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    booked = b.book_appointment(NO_REFERRAL_PATIENT, slot)
+    monkeypatch.undo()
+    n = int(booked["appointment_id"].removeprefix("APT-"))
+    assert b.snapshot_appointments()[n]["status"] == "booked"
+    b.close()
+    assert SqliteBackend(str(path), data_key=key).snapshot_appointments()[n]["status"] == "booked"
