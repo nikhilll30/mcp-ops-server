@@ -129,7 +129,7 @@ jobs:
             --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
             --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
             -t mcp-ops-server:ci .
-      - name: Issue a throwaway token and start the container
+      - name: Issue a throwaway token and data key, and start the container
         run: |
           mkdir -p ctdata
           TOKEN=$(docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/ctdata:/data" \
@@ -137,7 +137,16 @@ jobs:
             --client ci-smoke --scope read:schedule --scope write:schedule --scope read:referrals)
           echo "::add-mask::$TOKEN"
           echo "MCP_TOKEN=$TOKEN" >> "$GITHUB_ENV"
-          docker run -d --name mcpops -p 8000:8000 -v "$PWD/ctdata:/data:ro" mcp-ops-server:ci
+          KEY=$(docker run --rm mcp-ops-server:ci python -m mcp_ops_kit.crypto new-key)
+          echo "::add-mask::$KEY"
+          echo "MCP_OPS_DATA_KEY=$KEY" >> "$GITHUB_ENV"
+          # Without a data key the image must refuse to start (fail closed), with one line.
+          if docker run --rm -v "$PWD/ctdata:/data:ro" mcp-ops-server:ci > nokey.log 2>&1; then
+            echo "::error::the container started without MCP_OPS_DATA_KEY"; exit 1
+          fi
+          grep -q "MCP_OPS_DATA_KEY are both required" nokey.log
+          docker run -d --name mcpops -p 8000:8000 -v "$PWD/ctdata:/data:ro" \
+            -v mcpops-audit:/audit -e MCP_OPS_DATA_KEY mcp-ops-server:ci
           for i in $(seq 1 30); do
             [ "$(docker inspect -f '{{.State.Health.Status}}' mcpops)" = healthy ] && exit 0
             sleep 1
@@ -148,10 +157,17 @@ jobs:
         env:
           MCP_URL: http://127.0.0.1:8000
         run: python scripts/smoke_test.py
+      - name: The smoke test's calls are in the container's audit log, chain intact
+        run: |
+          docker exec mcpops python -m mcp_ops_kit.audit verify --file /audit/audit.log \
+            --key-env MCP_OPS_DATA_KEY | tee verify.log
+          # the smoke test makes 7 tool calls: health, search, 3 x list, book, cancel
+          COUNT=$(sed -E 's/^ok: ([0-9]+) records.*/\1/' verify.log)
+          test "$COUNT" -ge 7
       - name: Health check follows MCP_OPS_PORT
         run: |
           docker run -d --name mcpops9000 -e MCP_OPS_PORT=9000 -v "$PWD/ctdata:/data:ro" \
-            mcp-ops-server:ci
+            -e MCP_OPS_DATA_KEY mcp-ops-server:ci
           for i in $(seq 1 40); do
             status=$(docker inspect -f '{{.State.Health.Status}}' mcpops9000)
             [ "$status" = healthy ] && exit 0
