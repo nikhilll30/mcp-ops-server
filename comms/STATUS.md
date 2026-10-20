@@ -12,8 +12,8 @@
 ### Phase 2 (plan in `comms/PLAN.md`; rules in `CLAUDE.md`)
 | Part | State | Brief |
 |---|---|---|
-| P2 Planning | in review (PR #15, branch `plan-phase-2`) | docs/briefs/phase-2-plan.pdf |
-| 7 Backend protocol + FHIR R4 | **next**, waiting for owner's merge + go | docs/briefs/part-7-fhir-backend.pdf |
+| P2 Planning | done (PR #15 merged) | docs/briefs/phase-2-plan.pdf |
+| 7 Backend protocol + FHIR R4 | **ready to merge** (PR #16, branch `claude/confident-brahmagupta-mz67te`; Codex fixed) | docs/briefs/part-7-fhir-backend.pdf |
 | 8 Booking example, then extract mcp-ops-kit | planned | |
 | 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation | planned | |
 | 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | planned | |
@@ -30,7 +30,8 @@
 | 004 | Evals: golden set, trajectory grader, replay agent, report | Claude | merged | #5 |
 | 005 | CI eval gate, live agent, live runs and fixes | Claude | merged | #6-#12 |
 | 006 | Ship: container + CI smoke + GHCR, README, demo GIF | Claude | merged | #13 |
-| P2 | Phase 2 planning: PLAN, CLAUDE rules, STATUS, README, brief | Claude | in review | #15 |
+| P2 | Phase 2 planning: PLAN, CLAUDE rules, STATUS, README, brief | Claude | merged | #15 |
+| 007 | Backend protocol, SqliteBackend, FhirBackend, HAPI in CI, parity | Claude | in review | #16 |
 
 ## Workflow
 Claude builds each part in a fresh Claude Code session (rules in `CLAUDE.md`); Codex reviews each
@@ -87,30 +88,33 @@ requests. Sol stopped on f01 because of it. Rewording it means re-running both m
   - live runs are single samples;
   - the container bind turns off the SDK's DNS-rebinding check (bearer auth is still required).
 
-## Next action: Part 7 (Backend protocol + FHIR R4), after the owner merges the planning PR and says "go"
-Branch `part-7-fhir-backend` from `main`. Done means all of the following, CI green on push and PR:
-1. **`Backend` protocol** (`mcp_ops_server/backends/base.py`): typed methods for every operation the
-   tools use today (search providers, list open slots, book, cancel, referral status, plus what the
-   harness needs to snapshot appointments). Tools depend on the protocol, not on `store.py`.
-2. **`SqliteBackend`**: today's store behind the protocol, no behaviour change. Gate: the 179 existing
-   tests, the schema snapshot and the eval gate (31/31, 12/12) pass unchanged.
-3. **`FhirBackend`** over FHIR R4 REST using `httpx2` (already installed by `mcp` and used by the harness; no FHIR library
-   unless the PR justifies it). Mapping: Practitioner/PractitionerRole → providers, Schedule + Slot →
-   open slots, Appointment → book/cancel, ServiceRequest → referrals, Patient → patient IDs.
-   Booking updates the Slot with `If-Match` on its version, so two concurrent books of one slot
-   give one success and one clean error (race test against HAPI).
-4. **Synthetic seed as FHIR**: `seed.py` data exported to a transaction Bundle (deterministic IDs,
-   synthetic names only), loaded into HAPI before tests.
-5. **HAPI in CI**: a pinned `hapiproject/hapi` image as a service container in a new `fhir` job (or a
-   matrix on `test` and `evals`), with a health wait that fails loudly. Locally: `docker run` command
-   documented in the README and `.env.example` (`MCP_OPS_BACKEND`, `MCP_OPS_FHIR_URL`).
-6. **Parity**: the tool tests are parametrised over both backends, and the eval gate runs on both.
-   Any divergence is fixed or kept as a failing test with a FAILURES.md entry, never skipped.
-7. **Config**: `MCP_OPS_BACKEND=sqlite|fhir` (default `sqlite`); the server fails closed on an
-   unreachable FHIR URL at start, with one clear line.
-8. README: Who it's for + Roadmap updated, coupling map row for `backends/`. FAILURES.md, the
-   one-page brief `docs/briefs/part-7-fhir-backend.pdf`, a Codex review prompt, STATUS updated.
+## Part 7 (ready to merge, PR #16)
+Built on branch `claude/confident-brahmagupta-mz67te`, the branch this Claude Code session was
+assigned (not `part-7-fhir-backend`).
+- `Backend` protocol in `backends/base.py`; tools, server and harness depend only on it.
+- `SqliteBackend` = old `store.py`, unchanged: 179 tests + snapshot + eval gate passed before any FHIR code.
+- `FhirBackend` (FHIR R4 REST, `httpx2`), `fhir_seed` (deterministic Bundles, load/reset/export),
+  `MCP_OPS_BACKEND` / `MCP_OPS_FHIR_URL`, fail-closed start-up.
+- CI `fhir` job: HAPI `v8.4.0-2` pinned by digest, 294 tests on both backends, eval gate on FHIR.
+- Local results: `pytest -q` 217 passed (17 FHIR tests deselected); with
+  `MCP_OPS_TEST_BACKENDS=sqlite,fhir`, 294 passed; FHIR eval 31/31, 12/12, every trajectory
+  identical to SQLite.
+- Found and fixed a real double-booking window (sequence read after the slot), via mutation
+  tests; see FAILURES.md.
 
-Part 7 risks for the Codex review: FHIR search paging (missing results past page 1), time zones on
-Slot start/end, HAPI's eventual consistency of search indexes after a write, and the concurrency test
-being flaky rather than proving the `If-Match` guard.
+Codex review (of 5a003a6): 3x P1, 3x P2, all reproduced and fixed (FAILURES.md), plus the
+coverage gaps it named. Cursor Bugbot: 1 finding, the same as Codex's first P1, fixed in cc91d98.
+
+## Next action
+1. Done. Codex prompt used:
+```
+Review PR #16 in nikhilll30/mcp-ops-server (branch claude/confident-brahmagupta-mz67te) as a senior
+engineer. Focus: FHIR search paging (missing results past page 1), time zones on Slot start/end,
+HAPI's eventual consistency of search indexes and its search cache after a write, whether the
+concurrency tests prove the If-Match guards or could pass by luck, retry/deadline behaviour on
+409/412, fhir_seed reset correctness, and any SQLite/FHIR behaviour difference the parametrised
+tests miss. Also check test quality and anything that would embarrass this repo once public.
+List findings as P0/P1/P2 with file and line. Do not change code.
+```
+2. Done: findings fixed; FAILURES.md and the brief updated.
+3. Owner: merge PR #16, add `fhir` to the ruleset's required checks, and say "go" for Part 8.

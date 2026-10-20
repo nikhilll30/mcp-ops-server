@@ -54,6 +54,55 @@ jobs:
             eval-results.json
           if-no-files-found: ignore
 
+  fhir:
+    # Backend parity: the whole test suite with every tool test run on SQLite and on a real
+    # FHIR R4 server, then the eval gate on FHIR. HAPI is pinned by digest and gets only
+    # synthetic data (fhir_seed). The image has no health check, so the wait below polls
+    # /metadata and fails loudly; tests never skip a missing server.
+    runs-on: ubuntu-latest
+    services:
+      hapi:
+        image: hapiproject/hapi:v8.4.0-2@sha256:e60b0a2063db0c8ee65fc34206aed9df232a39d5e29ee37fdd9df74551895cd6
+        ports:
+          - 8080:8080
+    env:
+      MCP_OPS_TEST_BACKENDS: sqlite,fhir
+      MCP_OPS_TEST_FHIR_URL: http://127.0.0.1:8080/fhir
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,live]"
+      - name: Wait for HAPI FHIR
+        run: |
+          for i in $(seq 1 90); do
+            curl -sf "$MCP_OPS_TEST_FHIR_URL/metadata" -o /dev/null && exit 0
+            sleep 2
+          done
+          echo "::error::HAPI FHIR did not answer $MCP_OPS_TEST_FHIR_URL/metadata within 180 s"
+          docker logs "${{ job.services.hapi.id }}" 2>&1 | tail -50
+          exit 1
+      - name: Load the synthetic seed
+        run: python -m mcp_ops_server.backends.fhir_seed load --url "$MCP_OPS_TEST_FHIR_URL"
+      - name: Tests on both backends
+        run: pytest -q
+      - name: Eval gate on FHIR (replay agent)
+        run: >
+          python -m evals.run --backend fhir --fhir-url "$MCP_OPS_TEST_FHIR_URL"
+          --out fhir-eval-results.json --report fhir-eval-report.md
+      - name: Publish report to the job summary
+        if: always()
+        run: test -f fhir-eval-report.md && cat fhir-eval-report.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fhir-eval-results
+          path: |
+            fhir-eval-report.md
+            fhir-eval-results.json
+          if-no-files-found: ignore
+
   container:
     # Builds the production image and tests it as shipped: the container must turn healthy,
     # refuse /mcp without a token, and complete a real tool round trip (search, book,
@@ -126,7 +175,7 @@ jobs:
     # only job with write access to packages; PRs never reach it. Runs one at a time, and
     # only the run for the current head of main moves `latest`.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [lint, test, evals, container, secrets]
+    needs: [lint, test, evals, fhir, container, secrets]
     runs-on: ubuntu-latest
     concurrency:
       group: publish-ghcr

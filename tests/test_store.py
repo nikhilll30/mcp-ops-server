@@ -1,4 +1,4 @@
-"""Store behaviour not visible through a single tool call."""
+"""SqliteBackend behaviour not visible through a single tool call."""
 
 import asyncio
 import sqlite3
@@ -12,23 +12,24 @@ from conftest import NO_REFERRAL_PATIENT, PRIMARY_PROVIDER, call, seeded_busy_st
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 
 from mcp_ops_server import seed
+from mcp_ops_server.backends.base import BusyError, ConflictError, NotFoundError, StoreError
+from mcp_ops_server.backends.sqlite import SqliteBackend
 from mcp_ops_server.server import build_server
-from mcp_ops_server.store import BusyError, ConflictError, NotFoundError, Store, StoreError
 
 
 @pytest.fixture
-def server_and_store(store: Store) -> tuple:
+def server_and_store(store: SqliteBackend) -> tuple:
     return build_server(store), store
 
 
 def test_file_store_persists_bookings_and_is_not_reseeded(tmp_path: Path) -> None:
     path = str(tmp_path / "clinic.db")
-    first = Store(path)
+    first = SqliteBackend(path)
     slot_id = first.list_open_slots(PRIMARY_PROVIDER, seed.SCHEDULE_START)["slots"][0]["slot_id"]
     booked = first.book_appointment(NO_REFERRAL_PATIENT, slot_id)
     first.close()
 
-    reopened = Store(path)
+    reopened = SqliteBackend(path)
     open_ids = {
         s["slot_id"]
         for s in reopened.list_open_slots(PRIMARY_PROVIDER, seed.SCHEDULE_START)["slots"]
@@ -39,7 +40,7 @@ def test_file_store_persists_bookings_and_is_not_reseeded(tmp_path: Path) -> Non
     reopened.close()
 
 
-def test_failed_write_rolls_back(store: Store) -> None:
+def test_failed_write_rolls_back(store: SqliteBackend) -> None:
     """An error mid-transaction must not leave the connection inside an open transaction."""
     with pytest.raises(NotFoundError):
         store.book_appointment("PAT-0999", "SLT-00001")
@@ -53,7 +54,7 @@ def test_failed_write_rolls_back(store: Store) -> None:
 def test_failed_commit_rolls_back_and_store_stays_writable(tmp_path: Path) -> None:
     """COMMIT fails while another connection holds a read lock; the store must recover."""
     path = str(tmp_path / "clinic.db")
-    store = Store(path, timeout_s=0.2)
+    store = SqliteBackend(path, timeout_s=0.2)
     slot_id = _open_slot(store)
     reader = sqlite3.connect(path, isolation_level=None)
     reader.execute("BEGIN")
@@ -77,7 +78,7 @@ def test_concurrent_first_start_seeds_once(tmp_path: Path) -> None:
     def open_store() -> None:
         barrier.wait()
         try:
-            Store(path).close()
+            SqliteBackend(path).close()
         except BaseException as exc:  # noqa: BLE001 - collected and asserted below
             errors.append(exc)
 
@@ -96,11 +97,11 @@ def test_concurrent_first_start_seeds_once(tmp_path: Path) -> None:
 
 
 def _race(path: str, attempts: list[tuple[str, str]]) -> list[str]:
-    """Each attempt books through its own Store (own connection) at the same moment."""
-    stores = [Store(path) for _ in attempts]
+    """Each attempt books through its own SqliteBackend (own connection) at the same moment."""
+    stores = [SqliteBackend(path) for _ in attempts]
     barrier = threading.Barrier(len(attempts))
 
-    def attempt(store: Store, patient_id: str, slot_id: str) -> str:
+    def attempt(store: SqliteBackend, patient_id: str, slot_id: str) -> str:
         barrier.wait()
         try:
             store.book_appointment(patient_id, slot_id)
@@ -121,7 +122,7 @@ def _race(path: str, attempts: list[tuple[str, str]]) -> list[str]:
 
 def test_separate_connections_race_for_one_slot(tmp_path: Path) -> None:
     path = str(tmp_path / "clinic.db")
-    setup = Store(path)
+    setup = SqliteBackend(path)
     slot = setup.list_open_slots(PRIMARY_PROVIDER, seed.SCHEDULE_START, limit=1)["slots"][0]
     setup.close()
     free = [p for p in seed.generate().patient_ids if slot["start"] not in seeded_busy_starts(p)]
@@ -132,7 +133,7 @@ def test_separate_connections_race_for_one_slot(tmp_path: Path) -> None:
 def test_separate_connections_race_one_patient_into_overlapping_slots(tmp_path: Path) -> None:
     """Different slots (no unique-index protection), same patient, same time: one must win."""
     path = str(tmp_path / "clinic.db")
-    setup = Store(path)
+    setup = SqliteBackend(path)
     no_referral = ("PRV-001", "PRV-002", "PRV-007", "PRV-008")
     by_start: dict[str, list[str]] = {}
     for provider_id in no_referral:
@@ -147,13 +148,13 @@ def test_separate_connections_race_one_patient_into_overlapping_slots(tmp_path: 
 # ---- overlap boundaries -------------------------------------------------------------------
 
 
-def _add_slot(store: Store, slot_id: str, provider_id: str, start: str, end: str) -> None:
+def _add_slot(store: SqliteBackend, slot_id: str, provider_id: str, start: str, end: str) -> None:
     store._conn.execute(  # noqa: SLF001 - seed has only aligned slots; add an unaligned one
         "INSERT INTO slots VALUES (?, ?, ?, ?)", (slot_id, provider_id, start, end)
     )
 
 
-def test_partial_overlap_is_rejected(store: Store) -> None:
+def test_partial_overlap_is_rejected(store: SqliteBackend) -> None:
     _add_slot(store, "SLT-90001", "PRV-002", "2026-11-30T09:00:00", "2026-11-30T09:30:00")
     _add_slot(store, "SLT-90002", "PRV-007", "2026-11-30T09:15:00", "2026-11-30T09:45:00")
     store.book_appointment(NO_REFERRAL_PATIENT, "SLT-90001")
@@ -161,7 +162,7 @@ def test_partial_overlap_is_rejected(store: Store) -> None:
         store.book_appointment(NO_REFERRAL_PATIENT, "SLT-90002")
 
 
-def test_back_to_back_slots_are_allowed(store: Store) -> None:
+def test_back_to_back_slots_are_allowed(store: SqliteBackend) -> None:
     _add_slot(store, "SLT-90001", "PRV-002", "2026-11-30T09:00:00", "2026-11-30T09:30:00")
     _add_slot(store, "SLT-90002", "PRV-007", "2026-11-30T09:30:00", "2026-11-30T10:00:00")
     store.book_appointment(NO_REFERRAL_PATIENT, "SLT-90001")
@@ -203,13 +204,15 @@ def test_extreme_dates_get_a_clear_error(server_and_store: tuple, dates: dict) -
     assert not isinstance(exc.value, UnexpectedToolError)
 
 
-def _open_slot(store: Store) -> str:
+def _open_slot(store: SqliteBackend) -> str:
     out = store.list_open_slots(PRIMARY_PROVIDER, seed.SCHEDULE_START, limit=100)
     busy = seeded_busy_starts(NO_REFERRAL_PATIENT)
     return next(s["slot_id"] for s in out["slots"] if s["start"] not in busy)
 
 
-def test_slot_range_limit_counts_both_ends_and_names_the_latest_end_date(store: Store) -> None:
+def test_slot_range_limit_counts_both_ends_and_names_the_latest_end_date(
+    store: SqliteBackend,
+) -> None:
     """31 days counting both ends: start + 30 is allowed, start + 31 is not. A live model
     read the old "Range at most 31 days" as start + 31, so the error names the boundary."""
     start = seed.SCHEDULE_START

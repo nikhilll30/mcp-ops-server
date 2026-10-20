@@ -1,6 +1,14 @@
-"""Shared fixtures: a fresh seeded store and server per test, plus a call helper."""
+"""Shared fixtures: a fresh seeded backend and server per test, plus a call helper.
+
+Backends under test come from ``MCP_OPS_TEST_BACKENDS`` (comma-separated, default
+``sqlite``). With ``fhir`` in it, every test using ``backend`` or ``server`` also runs against
+the FHIR R4 server at ``MCP_OPS_TEST_FHIR_URL``, reset to the seed before each test, and tests
+marked ``fhir`` run. That server is overwritten: never point it at real data. An unreachable
+FHIR server fails the run; it is never skipped. CI's ``fhir`` job runs both backends.
+"""
 
 import asyncio
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -12,8 +20,17 @@ from mcp.server.auth.provider import AccessToken
 from mcp.server.mcpserver import MCPServer
 
 from mcp_ops_server import seed
+from mcp_ops_server.backends import fhir_seed
+from mcp_ops_server.backends.base import Backend
+from mcp_ops_server.backends.fhir import FhirBackend
+from mcp_ops_server.backends.sqlite import SqliteBackend
 from mcp_ops_server.server import build_server
-from mcp_ops_server.store import Store
+
+TEST_BACKENDS = [b.strip() for b in os.environ.get("MCP_OPS_TEST_BACKENDS", "sqlite").split(",")]
+if not set(TEST_BACKENDS) <= {"sqlite", "fhir"} or not TEST_BACKENDS:
+    raise ValueError(f"MCP_OPS_TEST_BACKENDS must list sqlite and/or fhir, not {TEST_BACKENDS}")
+FHIR_ENABLED = "fhir" in TEST_BACKENDS
+FHIR_URL = os.environ.get("MCP_OPS_TEST_FHIR_URL", "http://127.0.0.1:8080/fhir")
 
 # Facts from the deterministic seed that tests rely on (pinned in test_seed.py).
 DERM_PATIENT = "PAT-0001"  # approved dermatology referral REF-0001
@@ -62,16 +79,61 @@ def staff_principal() -> Iterator[None]:
         yield
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers", "fhir: needs the FHIR server (MCP_OPS_TEST_BACKENDS=...,fhir)"
+    )
+
+
+def pytest_report_header() -> str:
+    extra = f" at {FHIR_URL}" if FHIR_ENABLED else "; fhir-marked tests deselected"
+    return f"backends: {', '.join(TEST_BACKENDS)}{extra}"
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    if FHIR_ENABLED:
+        return
+    keep = [i for i in items if i.get_closest_marker("fhir") is None]
+    config.hook.pytest_deselected(items=[i for i in items if i not in keep])
+    items[:] = keep
+
+
+@pytest.fixture(scope="session")
+def fhir_url() -> str:
+    """The FHIR test server, with the seed loaded once per session. Fails if unreachable."""
+    if not FHIR_ENABLED:
+        pytest.fail("fhir_url used without fhir in MCP_OPS_TEST_BACKENDS")
+    fhir_seed.load(FHIR_URL)
+    probe = FhirBackend(FHIR_URL)
+    probe.check()
+    probe.close()
+    return FHIR_URL
+
+
 @pytest.fixture
-def store() -> Iterator[Store]:
-    s = Store()
+def store() -> Iterator[SqliteBackend]:
+    """The SQLite backend specifically (tests of its locking, timeouts and constraints)."""
+    s = SqliteBackend()
     yield s
     s.close()
 
 
+@pytest.fixture(params=TEST_BACKENDS)
+def backend(request: pytest.FixtureRequest) -> Iterator[Backend]:
+    """Each enabled backend in turn, freshly seeded."""
+    if request.param == "fhir":
+        url = request.getfixturevalue("fhir_url")
+        fhir_seed.reset(url)
+        b: Backend = FhirBackend(url)
+    else:
+        b = SqliteBackend()
+    yield b
+    b.close()
+
+
 @pytest.fixture
-def server(store: Store) -> MCPServer:
-    return build_server(store)
+def server(backend: Backend) -> MCPServer:
+    return build_server(backend)
 
 
 def call(server: MCPServer, tool: str, **args: Any) -> dict[str, Any]:

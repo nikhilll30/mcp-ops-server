@@ -8,6 +8,7 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from mcp_ops_server.auth import Guard
+from mcp_ops_server.backends.base import MAX_SLOT_RANGE_DAYS, Backend
 from mcp_ops_server.models import (
     AppointmentResult,
     Location,
@@ -15,7 +16,6 @@ from mcp_ops_server.models import (
     SearchProvidersResult,
     Specialty,
 )
-from mcp_ops_server.store import MAX_SLOT_RANGE_DAYS, Store
 from mcp_ops_server.tools import (
     READ_ONLY,
     AppointmentId,
@@ -28,7 +28,7 @@ from mcp_ops_server.tools import (
 )
 
 
-def register(server: MCPServer, store: Store, guard: Guard) -> None:
+def register(server: MCPServer, store: Backend, guard: Guard) -> None:
     @tool(server, annotations=READ_ONLY)
     def search_providers(
         specialty: Specialty | None = None,

@@ -720,6 +720,105 @@ def part6() -> list:
     ]
 
 
+def part7() -> list:
+    w = 7.0 * inch
+    cf = "<font face='Courier'>"
+    return [
+        Paragraph("Part 7 Brief · Backend protocol + FHIR R4", title),
+        Paragraph(
+            "mcp-ops-server · 20 Oct 2026 · PR #16 · Status: Codex review fixed (3x P1, 3x P2) + 1 Bugbot; ready to merge",
+            sub,
+        ),
+        Spacer(1, 4),
+        section("What was built"),
+        bl(
+            f"<b>One {cf}Backend</font> protocol</b> that tools and the eval harness depend on. Today's SQLite "
+            "store moved behind it unchanged: 179 tests, schema snapshot and eval gate passed before any FHIR code."
+        ),
+        bl(
+            "<b>A FHIR R4 backend</b> over plain REST (httpx2, no new dependency): PractitionerRole = provider, "
+            "Schedule + Slot = open slots, Appointment = booking, ServiceRequest = referral. Synthetic seed exported "
+            "as deterministic transaction Bundles (same IDs, patients are identifiers only); load, reset, export CLI."
+        ),
+        bl(
+            f"<b>Parity enforced in CI:</b> a new {cf}fhir</font> job runs HAPI (pinned by digest), every tool test "
+            "on both backends (294 tests), and the eval gate on FHIR. A test asserts the whole eval run (every result, "
+            "error text, state change and grade) is identical on both."
+        ),
+        section("How it works"),
+        table(
+            [
+                ["Risk", "How the FHIR backend handles it"],
+                [
+                    "Double booking",
+                    "Read the sequence first, check everything, then one transaction: Slot busy with If-Match, sequence "
+                    "+1 with If-Match, new Appointment. 409/412 = someone moved: re-check from scratch until the deadline.",
+                ],
+                [
+                    "Paging",
+                    "Every search follows every next link (tests use page size 1 and 7); foreign links refused.",
+                ],
+                [
+                    "Stale search",
+                    "Cache-Control: no-cache on every request (HAPI caches searches up to 60 s).",
+                ],
+                [
+                    "Time zones",
+                    "Slots stored as UTC instants; tools still see clinic-local time (fixed UTC-05:00).",
+                ],
+                [
+                    "Bad config",
+                    "Fails closed at start, one line: unreachable, not R4, or no seed loaded.",
+                ],
+            ],
+            [1.2 * inch, w - 1.2 * inch],
+        ),
+        section("Why it was done this way"),
+        bl(
+            "<b>Two guards, each proven alone.</b> The slot If-Match is the per-slot guard the plan asked for; the "
+            "sequence keeps APT numbering identical to SQLite and serialises bookings like BEGIN IMMEDIATE, so the "
+            "patient-overlap check cannot be raced either."
+        ),
+        bl(
+            "<b>Shared error messages</b> in base.py: an agent sees the same text on either store, so evals compare."
+        ),
+        section("What went wrong or surprised me (logged in FAILURES.md)"),
+        bl(
+            "<b>A real race, found by breaking my own guard.</b> With the slot If-Match removed, 20 threads booked one "
+            "slot 3-5 times: the sequence was read after the slot. Fixed by reading it first. Mutation matrix "
+            "(15 runs each): either guard alone 0 double bookings, neither 15/15."
+        ),
+        bl(
+            "<b>Codex 3x P1, 3x P2, all reproduced and fixed.</b> A write that timed out was reported "
+            "'cancelled' yet had committed: now it is read back, or reported as 'may or may not' with a safe retry. "
+            "The deadline bounded each socket wait, not the call (a dribbling server ran 3x over): now enforced on "
+            "the wait. Also: past slots crowded out upcoming ones (Bugbot too), reset ignored the seed, "
+            "system clock used host time."
+        ),
+        section("Verify it yourself"),
+        codebox(
+            [
+                "docker run -d -p 127.0.0.1:8080:8080 hapiproject/hapi:v8.4.0-2",
+                "python -m mcp_ops_server.backends.fhir_seed load --url http://127.0.0.1:8080/fhir",
+                "MCP_OPS_TEST_BACKENDS=sqlite,fhir python -m pytest -q          # 294 passed",
+                "python -m evals.run --backend fhir --fhir-url http://127.0.0.1:8080/fhir  # 31/31, 12/12",
+            ]
+        ),
+        section("Interview talking point"),
+        Paragraph(
+            '"The race test passed on the first try, so I removed each guard on purpose. One removal still passed '
+            "for the wrong reason and exposed a real double-booking window. Now every guard has a test that fails "
+            'without it."',
+            body,
+        ),
+        section("Next (your actions)"),
+        Paragraph(
+            "1) Merge PR #16. 2) Add <b>fhir</b> to the ruleset's required checks. 3) Say <b>go</b> for Part 8.",
+            body,
+        ),
+    ]
+
+
 def phase2() -> list:
     w = 7.0 * inch
     return [
@@ -833,6 +932,7 @@ PARTS = {
     4: (part4, "part-4-evals", "Part 4 Brief: Evals"),
     5: (part5, "part-5-ci-gate", "Part 5 Brief: CI eval gate"),
     6: (part6, "part-6-ship", "Part 6 Brief: Ship"),
+    7: (part7, "part-7-fhir-backend", "Part 7 Brief: Backend protocol + FHIR R4"),
 }
 
 

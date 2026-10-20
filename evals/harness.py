@@ -1,6 +1,7 @@
-"""Runs the real server for evals: one fresh server and database per task.
+"""Runs the real server for evals: one fresh server and freshly seeded data per task.
 
-Each task gets a copy of a freshly seeded database and its own server, built by the same
+Each task gets freshly seeded data (SQLite: a copy of a seeded database file; FHIR: the
+FHIR server reset to the seed) and its own server, built by the same
 ``build_http_app`` that ``python -m mcp_ops_server`` uses (real HTTP, real bearer auth,
 real limits). So a misbehaving agent cannot leave state behind for the next task, and every
 task's expectations can be computed from the seed. The server runs in a background thread
@@ -14,7 +15,6 @@ results.
 import logging
 import shutil
 import socket
-import sqlite3
 import tempfile
 import threading
 import time
@@ -32,9 +32,11 @@ from mcp.client.streamable_http import streamable_http_client
 from evals.grader import Step
 from mcp_ops_server import seed
 from mcp_ops_server.auth import ALL_SCOPES, issue
+from mcp_ops_server.backends import fhir_seed, make_backend
+from mcp_ops_server.backends.base import AppointmentRow, Backend
+from mcp_ops_server.backends.sqlite import SqliteBackend
 from mcp_ops_server.config import Settings
 from mcp_ops_server.server import build_http_app
-from mcp_ops_server.store import Store
 
 # principal name -> (scopes, bound patient). "portal:PAT-XXXX" is created on demand.
 PRINCIPALS: dict[str, tuple[list[str], str | None]] = {
@@ -45,12 +47,6 @@ PRINCIPALS: dict[str, tuple[list[str], str | None]] = {
 # The server runs in this process; keep its per-request INFO logs out of eval output.
 for _name in ("mcp", "httpx2", "httpx", "uvicorn", "uvicorn.error"):
     logging.getLogger(_name).setLevel(logging.WARNING)
-
-_APPOINTMENTS_SQL = (
-    "SELECT a.id, a.status, a.patient_id, a.referral_id, a.slot_id, s.start, "
-    "p.id AS provider_id, p.specialty, p.location FROM appointments a "
-    "JOIN slots s ON s.id = a.slot_id JOIN providers p ON p.id = s.provider_id"
-)
 
 
 def _principal_spec(name: str) -> tuple[list[str], str | None]:
@@ -66,9 +62,19 @@ def _free_port() -> int:
 
 
 class Harness:
-    """Per-suite resources (tokens, seeded template database). Use as a context manager."""
+    """Per-suite resources (tokens, seeded data). Use as a context manager.
 
-    def __init__(self, principals: Iterable[str]) -> None:
+    ``backend`` is "sqlite" or "fhir"; with "fhir", ``fhir_url`` is a FHIR R4 server the
+    suite may overwrite (the seed is loaded once, then reset before every task).
+    """
+
+    def __init__(
+        self, principals: Iterable[str], backend: str = "sqlite", fhir_url: str | None = None
+    ) -> None:
+        if backend == "fhir" and not fhir_url:
+            raise ValueError("the fhir backend needs fhir_url")
+        self._backend = backend
+        self._fhir_url = fhir_url
         self._dir = tempfile.TemporaryDirectory(prefix="mcp-ops-evals-")
         root = Path(self._dir.name)
         self._tokens_file = str(root / "tokens.json")
@@ -77,7 +83,10 @@ class Harness:
             scopes, patient = _principal_spec(name)
             self.tokens[name] = issue(self._tokens_file, f"evals-{name}", scopes, patient)
         self._template = root / "template.db"
-        Store(str(self._template)).close()  # seed once; each task copies this file
+        if backend == "fhir":
+            fhir_seed.load(fhir_url)  # type: ignore[arg-type] - checked above
+        else:
+            SqliteBackend(str(self._template)).close()  # seed once; each task copies this file
         self._count = 0
 
     def __enter__(self) -> "Harness":
@@ -90,19 +99,25 @@ class Harness:
     def task_server(self, now: datetime = seed.CLINIC_NOW) -> Iterator["TaskServer"]:
         self._count += 1
         db_path = str(Path(self._dir.name) / f"task-{self._count}.db")
-        shutil.copyfile(self._template, db_path)
+        if self._backend == "fhir":
+            fhir_seed.reset(self._fhir_url)  # type: ignore[arg-type] - checked in __init__
+        else:
+            shutil.copyfile(self._template, db_path)
         port = _free_port()
         settings = Settings(
             host="127.0.0.1",
             port=port,
+            backend=self._backend,
             db_path=db_path,
+            fhir_url=self._fhir_url,
             tokens_file=self._tokens_file,
             rate_limit_per_minute=100_000,  # evals measure agent behaviour, not the limiter
             now=now,
         )
+        backend = make_backend(settings)
         server = uvicorn.Server(
             uvicorn.Config(
-                build_http_app(settings), host="127.0.0.1", port=port, log_level="warning"
+                build_http_app(settings, backend), host="127.0.0.1", port=port, log_level="warning"
             )
         )
         thread = threading.Thread(target=server.run, daemon=True)
@@ -113,16 +128,17 @@ class Harness:
                 raise RuntimeError("eval server failed to start")
             time.sleep(0.01)
         try:
-            yield TaskServer(f"http://127.0.0.1:{port}/mcp", db_path, self.tokens)
+            yield TaskServer(f"http://127.0.0.1:{port}/mcp", backend, self.tokens)
         finally:
             server.should_exit = True
             thread.join(timeout=10)
+            backend.close()
 
 
 class TaskServer:
-    def __init__(self, url: str, db_path: str, tokens: dict[str, str]) -> None:
+    def __init__(self, url: str, backend: Backend, tokens: dict[str, str]) -> None:
         self.url = url
-        self.db_path = db_path
+        self.backend = backend
         self._tokens = tokens
 
     @asynccontextmanager
@@ -145,33 +161,31 @@ class TaskServer:
             return Step(tool, args, ok=False, error=text, latency_ms=latency_ms)
         return Step(tool, args, ok=True, result=result.structured_content, latency_ms=latency_ms)
 
-    def snapshot(self) -> dict[int, dict[str, Any]]:
-        conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-        try:
-            return {r["id"]: dict(r) for r in conn.execute(_APPOINTMENTS_SQL)}
-        finally:
-            conn.close()
+    def snapshot(self) -> dict[int, AppointmentRow]:
+        """Every appointment, read through the backend the server uses (not via MCP)."""
+        return self.backend.snapshot_appointments()
 
 
-def _public(row: dict[str, Any]) -> dict[str, Any]:
-    out = {k: v for k, v in row.items() if k != "id"}
-    out["appointment_id"] = f"APT-{row['id']:05d}"
+def _public(n: int, row: AppointmentRow) -> dict[str, Any]:
+    out: dict[str, Any] = dict(row)
+    out["appointment_id"] = f"APT-{n:05d}"
     out["date"] = row["start"][:10]
     return out
 
 
-def diff(before: dict[int, dict], after: dict[int, dict]) -> dict[str, list[dict[str, Any]]]:
+def diff(
+    before: dict[int, AppointmentRow], after: dict[int, AppointmentRow]
+) -> dict[str, list[dict[str, Any]]]:
     """What changed: new booked appointments, existing ones that became cancelled, and
     ``transient`` ones booked *and* cancelled within the task (net zero, but still writes
     the grader must see)."""
-    new = [r for i, r in after.items() if i not in before]
+    new = [(i, r) for i, r in after.items() if i not in before]
     return {
-        "booked": [_public(r) for r in new if r["status"] == "booked"],
+        "booked": [_public(i, r) for i, r in new if r["status"] == "booked"],
         "cancelled": [
-            _public(r)
+            _public(i, r)
             for i, r in after.items()
             if i in before and before[i]["status"] == "booked" and r["status"] == "cancelled"
         ],
-        "transient": [_public(r) for r in new if r["status"] == "cancelled"],
+        "transient": [_public(i, r) for i, r in new if r["status"] == "cancelled"],
     }

@@ -145,3 +145,28 @@ def test_results_do_not_depend_on_the_callers_clock(monkeypatch: pytest.MonkeyPa
         tasks=_tasks("b01-earliest-primary-care", "k03-date-in-the-past"), negatives=[]
     )
     assert [r["passed"] for r in results["tasks"]] == [True, True]
+
+
+# ---- Part 7: backend parity --------------------------------------------------------------
+
+
+def _trajectory(r: dict[str, Any]) -> tuple:
+    steps = [(s["tool"], s["args"], s["ok"], s["error"], s["result"]) for s in r["steps"]]
+    return steps, r["change"], r["grade"]
+
+
+@pytest.mark.fhir
+def test_fhir_backend_gives_the_same_eval_run_as_sqlite(
+    results: dict[str, Any], fhir_url: str
+) -> None:
+    """Not just the same pass count: every tool result, error text, state change and check,
+    for every golden task and negative control, is identical on FHIR and SQLite."""
+    fhir = run_suite(backend="fhir", fhir_url=fhir_url)
+    assert fhir["backend"] == "fhir" and results["backend"] == "sqlite"
+    runs = zip(
+        results["tasks"] + results["negative_controls"],
+        fhir["tasks"] + fhir["negative_controls"],
+        strict=True,
+    )
+    differ = [a["id"] for a, b in runs if _trajectory(a) != _trajectory(b)]
+    assert differ == []

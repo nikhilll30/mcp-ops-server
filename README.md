@@ -8,8 +8,9 @@ and a container that CI boots and tests on every PR. It comes with **trajectory-
 and a **CI gate** that blocks a merge when a known-good agent flow breaks.
 
 The reference domain is a **synthetic** clinic (providers, open slots, referrals, appointments),
-because it has real multi-step tasks and real security stakes. Phase 2 (see [Roadmap](#roadmap))
-makes it **HIPAA-ready** in front of a FHIR R4 backend and extracts the domain-free parts into
+because it has real multi-step tasks and real security stakes. It runs on SQLite or in front of a
+**FHIR R4** server, and CI proves both give identical results. Phase 2 (see [Roadmap](#roadmap))
+makes it **HIPAA-ready** and extracts the domain-free parts into
 `mcp-ops-kit`, so a salon, tutor or repair business can reuse the same hardening and evals.
 
 All data is synthetic and generated from a fixed seed. No real names, patients or credentials
@@ -19,17 +20,18 @@ appear anywhere.
 
 | You are | Use it today for | Coming in Phase 2 |
 |---|---|---|
-| **A developer building an MCP server** | A reference for scopes in code, per-client limits, a schema-drift guard and a container smoke-tested in CI | `mcp-ops-kit` on PyPI with the same pieces as a library; signed images |
+| **A developer building an MCP server** | A reference for scopes in code, per-client limits, a schema-drift guard, a container smoke-tested in CI, and one `Backend` protocol with two stores held to the same tests | `mcp-ops-kit` on PyPI with the same pieces as a library; signed images |
 | **An agent team** | A trajectory grader, negative controls that prove it can fail, a CI eval gate, measured live runs | Repeated runs with pass^k, a prompt-injection suite, a harness for any domain |
-| **Healthcare IT** | Studying a synthetic clinic with patient-bound tokens; **not** for real patient data (see [below](#can-i-use-it-with-real-patient-data)) | A FHIR R4 backend, audit log, expiring/revocable tokens, encryption at rest, a Terraform blueprint, a HIPAA controls matrix |
+| **Healthcare IT** | Studying a synthetic clinic with patient-bound tokens, and a FHIR R4 backend (Practitioner, Schedule/Slot, Appointment, ServiceRequest) tested against HAPI FHIR in CI, including concurrent booking; **not** for real patient data (see [below](#can-i-use-it-with-real-patient-data)) | Audit log, expiring/revocable tokens, encryption at rest, a Terraform blueprint, a HIPAA controls matrix |
 | **A booking business** (salon, tutor, repair) | Only by editing clinic code (see [Adapt it to your domain](#adapt-it-to-your-domain)) | A booking example built on the kit, and a guide to adapting it |
-| **An evaluator or learner** | A build documented part by part: a failure log, one brief per part, every number linked to where it was measured | The same for Parts 7–12, including what "HIPAA-ready" does and does not mean |
+| **An evaluator or learner** | A build documented part by part: a failure log, one brief per part, every number linked to where it was measured | The same for Parts 8–12, including what "HIPAA-ready" does and does not mean |
 
 | | |
 |---|---|
 | **Server** | 6 MCP tools over Streamable HTTP · bearer tokens with scopes and patient binding · rate limit, body limit, per-call deadline |
 | **Evals** | 31 golden tasks graded step by step, and on the exact database change · 12 negative controls the grader must fail |
-| **CI** | lint · 179 tests · eval gate (31/31, 12/12) · secret scan · the Docker image built and smoke-tested on every PR |
+| **Backends** | SQLite (default) or FHIR R4 (`MCP_OPS_BACKEND=fhir`), behind one protocol; same tool results, byte for byte, on every eval task |
+| **CI** | lint · 217 tests · eval gate (31/31, 12/12) · a `fhir` job: 294 tests with every tool test on both backends against HAPI FHIR, and the eval gate on FHIR · secret scan · the Docker image built and smoke-tested on every PR |
 | **Live models** | `gpt-6-luna` **30/31** for **$0.046** · `gpt-6.1-sol` **30/31** for **$0.339** (all 31 tasks, one run each) |
 
 ![Demo: issue a token, run the container, a real book and cancel over HTTP, then the eval gate](docs/demo/demo.gif)
@@ -87,11 +89,26 @@ Point any MCP client at `http://127.0.0.1:8000/mcp` with the header `Authorizati
 The image is not tied to any host. The same container runs on AWS App Runner/ECS, Fly or Cloud Run
 with only configuration (env vars, see [`.env.example`](.env.example)).
 
+**On FHIR R4.** The same server in front of a FHIR server instead of SQLite. Locally, with the
+HAPI FHIR image CI uses (synthetic data only: `fhir_seed load` writes the seed into it):
+
+```bash
+docker run -d --name hapi -p 127.0.0.1:8080:8080 hapiproject/hapi:v8.4.0-2   # ready in ~40 s
+python -m mcp_ops_server.backends.fhir_seed load --url http://127.0.0.1:8080/fhir
+MCP_OPS_BACKEND=fhir MCP_OPS_FHIR_URL=http://127.0.0.1:8080/fhir MCP_OPS_TOKENS_FILE=tokens.json \
+  python -m mcp_ops_server
+MCP_OPS_TEST_BACKENDS=sqlite,fhir pytest -q                  # 294 tests, both backends
+python -m evals.run --backend fhir --fhir-url http://127.0.0.1:8080/fhir
+```
+
+The server never writes seed data itself. It refuses to start, with one line, if the FHIR URL is
+unreachable, is not R4, or has no seed loaded.
+
 **From source.** Requires Python 3.12+.
 
 ```bash
 pip install -e ".[dev]"
-ruff check . && ruff format --check . && pytest -q   # 179 tests
+ruff check . && ruff format --check . && pytest -q   # 217 tests (FHIR ones need the server above)
 python -m evals.run                                  # 31/31 tasks passed; 12/12 negative controls caught
 python -m mcp_ops_server                             # needs MCP_OPS_TOKENS_FILE; see .env.example
 ```
@@ -106,10 +123,12 @@ python -m mcp_ops_server                             # needs MCP_OPS_TOKENS_FILE
    auth.py     token → scopes (+ optional patient binding); hashes only on disk
    limits.py   per-client rate limit, applied before argument validation
    server.py   MCPServer: 6 tools, /mcp (authenticated) and /healthz (no data)
-   tools/      thin wrappers: check scope → call the store → typed result
-   store.py    SQLite seeded from seed.py; one deadline covers lock wait, busy wait and the query
+   tools/      thin wrappers: check scope → call the Backend protocol → typed result
+   backends/   base.py: the protocol, errors and shared messages
+               sqlite.py: seeded from seed.py; one deadline covers lock wait, busy wait, query
+               fhir.py: FHIR R4 REST; If-Match on every write; every result page followed
  evals
-   harness.py  fresh seeded DB + real server per task; records every call the agent makes
+   harness.py  freshly seeded data + real server per task; records every call the agent makes
    grader.py   required/forbidden steps, preconditions, patient scope, budgets, exact DB diff
    run.py      replay or live agent → results JSON + Markdown report
 ```
@@ -147,14 +166,15 @@ the reusable parts into `mcp-ops-kit` only after a second domain has been built 
 
 | Coupling | Files | What ties it to the clinic |
 |---|---|---|
+| **Store-free** | `mcp_ops_server/backends/base.py` | The `Backend` protocol is the clinic's five operations, but tools and the harness depend only on it, so a new store is one class held to the same parametrised tests |
 | **Domain-free** | `mcp_ops_server/limits.py`, `Dockerfile`, `.github/workflows/` | Nothing in `limits.py` or the `Dockerfile`. CI has one clinic detail: the `container` job passes the clinic's scope names when it issues the smoke-test token. |
 | **Clinic-coupled, meant to be reused** | `mcp_ops_server/auth.py` | The three scope names are a hard-coded `Literal`, and token binding is to a `PAT-0000`-style patient ID |
-| | `evals/harness.py` | Seeds the clinic database and diffs the `appointments` table |
+| | `evals/harness.py` | Seeds the clinic data (SQLite file or FHIR reset) and diffs appointments via `snapshot_appointments` |
 | | `evals/grader.py` | The patient-scope check keys on `patient_id`, and the state check expects booked/cancelled appointments. Steps, preconditions and budgets are already generic. |
 | | `evals/run.py` | Uses the clinic's simulated clock (`seed.CLINIC_NOW`) |
 | | `scripts/smoke_test.py` | Its end-to-end flow is search provider → list slots → book → cancel |
 | **Thin wiring** | `server.py`, `config.py`, `__main__.py` | Register the clinic tools, default to the clinic clock, print the clinic scopes in the startup hint |
-| **The domain itself** | `seed.py`, `store.py`, `models.py`, `tools/`, `evals/golden/` | Replace these for a new domain |
+| **The domain itself** | `seed.py`, `backends/sqlite.py`, `backends/fhir.py`, `backends/fhir_seed.py`, `models.py`, `tools/`, `evals/golden/` | Replace these for a new domain (the FHIR mapping is clinic-specific by nature) |
 
 To adapt it now: replace the domain files, change the scope names in `auth.py`, and rewrite the
 harness's table diff, the grader's domain checks and the smoke flow. Then write golden tasks *and*
@@ -171,7 +191,7 @@ encrypted at rest (see [Known limits](#known-limits)). Phase 2 aims at **HIPAA-r
 | Tamper-evident audit log of every tool call, without the PHI arguments (Part 9) | Sign a **BAA with every vendor that touches PHI**: the hosting provider *and* the **LLM provider**, since tool results with PHI go into the model's context |
 | OAuth 2.1 tokens with expiry and revocation without a restart (Part 9) | Run a risk analysis and keep risk management, policies and workforce training (164.308) |
 | Encryption at rest, minimum-necessary tool outputs (Part 9) | Operate it in their own HIPAA-eligible accounts, with their own keys, backups, log retention and breach-notification process |
-| A FHIR R4 backend so the server fronts an existing record system (Part 7) | Decide who gets which tokens, review access regularly, and pen-test their deployment |
+| A FHIR R4 backend so the server fronts an existing record system (Part 7, done) | Decide who gets which tokens, review access regularly, and pen-test their deployment |
 | A Terraform blueprint, controls matrix, threat model and `SECURITY.md` (Parts 10–11) | Map the controls matrix to their own environment; anything marked "adopter's responsibility" is theirs |
 
 The repo itself will only ever contain synthetic data. This section is engineering guidance, **not
@@ -182,8 +202,8 @@ legal advice**; talk to your privacy officer or counsel.
 | Part | What | State |
 |---|---|---|
 | 1–6 | Foundation, core server, hardening, evals, CI gate with live numbers, shipped container | Done |
-| 7 | `Backend` protocol; FHIR R4 backend tested against HAPI FHIR in CI; parity with SQLite on every test and the eval gate | Next |
-| 8 | A booking-business example, then `mcp-ops-kit` extracted from what both domains share | Planned |
+| 7 | `Backend` protocol; FHIR R4 backend tested against HAPI FHIR in CI; parity with SQLite on every test and the eval gate | Done |
+| 8 | A booking-business example, then `mcp-ops-kit` extracted from what both domains share | Next |
 | 9 | Audit log, OAuth 2.1 expiry and revocation, encryption at rest, data minimisation, in the kit | Planned |
 | 10 | Terraform blueprint on HIPAA-eligible AWS, validated in CI, never applied | Planned |
 | 11 | HIPAA controls matrix (164.312), threat model, `SECURITY.md`, CodeQL, Dependabot, PyPI, signed images | Planned |
@@ -212,6 +232,14 @@ finding was reproduced before it was fixed, and each fix has a test that fails w
   for localhost binds) is off. Every `/mcp` request still needs a bearer token. Publish the
   port on localhost, as above, unless you mean to expose it.
 - The live results are single runs, so they say nothing about run-to-run variance.
+- **FHIR backend.** The synthetic clinic keeps one fixed UTC offset (UTC-05:00, no daylight
+  saving); Slot times are stored as UTC instants and converted. Every booking moves one
+  sequence resource, so bookings are serialised (as SQLite's are), which caps write throughput.
+  It assumes it is the only writer of Slot and Appointment status. A write cannot be cancelled
+  once sent: if the FHIR server does not answer in time, the backend reads the result back and
+  reports it, or says the outcome is unknown (with the appointment ID it would have) and that a
+  retry is safe. It never reports "cancelled" for a write that may have landed. `fhir_seed load`/`reset` and
+  the FHIR tests **overwrite** data: point them only at a throwaway server.
 
 ## License
 

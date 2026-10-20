@@ -3,12 +3,12 @@
 from mcp.server.mcpserver import MCPServer
 
 from mcp_ops_server.auth import Guard
+from mcp_ops_server.backends.base import Backend
 from mcp_ops_server.models import ReferralStatusResult, Specialty
-from mcp_ops_server.store import Store
 from mcp_ops_server.tools import READ_ONLY, PatientId, store_errors, tool
 
 
-def register(server: MCPServer, store: Store, guard: Guard) -> None:
+def register(server: MCPServer, store: Backend, guard: Guard) -> None:
     @tool(server, annotations=READ_ONLY)
     def get_referral_status(
         patient_id: PatientId, specialty: Specialty | None = None
