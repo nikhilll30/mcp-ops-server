@@ -2,12 +2,28 @@
 
 [![CI](https://github.com/nikhilll30/mcp-ops-server/actions/workflows/ci.yml/badge.svg)](https://github.com/nikhilll30/mcp-ops-server/actions/workflows/ci.yml)
 
-A production-shaped [MCP](https://modelcontextprotocol.io) server for a **synthetic** clinic: providers, open
-slots, referrals and appointments. It comes with **trajectory-level agent evals** and a **CI gate**
-that blocks a merge when a known-good agent flow breaks.
+A production-shaped [MCP](https://modelcontextprotocol.io) server that lets AI agents act on a
+booking system safely: scopes and patient binding enforced in server code, rate and size limits,
+and a container that CI boots and tests on every PR. It comes with **trajectory-level agent evals**
+and a **CI gate** that blocks a merge when a known-good agent flow breaks.
+
+The reference domain is a **synthetic** clinic (providers, open slots, referrals, appointments),
+because it has real multi-step tasks and real security stakes. Phase 2 (see [Roadmap](#roadmap))
+makes it **HIPAA-ready** in front of a FHIR R4 backend and extracts the domain-free parts into
+`mcp-ops-kit`, so a salon, tutor or repair business can reuse the same hardening and evals.
 
 All data is synthetic and generated from a fixed seed. No real names, patients or credentials
 appear anywhere.
+
+## Who it's for
+
+| You are | Use it today for | Coming in Phase 2 |
+|---|---|---|
+| **A developer building an MCP server** | A reference for scopes in code, per-client limits, a schema-drift guard and a container smoke-tested in CI | `mcp-ops-kit` on PyPI with the same pieces as a library; signed images |
+| **An agent team** | A trajectory grader, negative controls that prove it can fail, a CI eval gate, measured live runs | Repeated runs with pass^k, a prompt-injection suite, a harness for any domain |
+| **Healthcare IT** | Studying a synthetic clinic with patient-bound tokens; **not** for real patient data (see [below](#can-i-use-it-with-real-patient-data)) | A FHIR R4 backend, audit log, expiring/revocable tokens, encryption at rest, a Terraform blueprint, a HIPAA controls matrix |
+| **A booking business** (salon, tutor, repair) | Only by editing clinic code (see [Adapt it to your domain](#adapt-it-to-your-domain)) | A booking example built on the kit, and a guide to adapting it |
+| **An evaluator or learner** | A build documented part by part: a failure log, one brief per part, every number linked to where it was measured | The same for Parts 7–12, including what "HIPAA-ready" does and does not mean |
 
 | | |
 |---|---|
@@ -123,6 +139,57 @@ final state. That includes appointments booked and then cancelled within a task.
 Twelve deliberately bad trajectories must fail for their stated reason, which proves the grader
 can fail. CI runs the free, deterministic replay agent on every PR. Paid live runs are triggered
 by the owner from `main` only. The API key lives in a GitHub environment that only `main` can use.
+
+## Adapt it to your domain
+
+Today most of the code knows it is a clinic. This is the honest map, file by file. Part 8 extracts
+the reusable parts into `mcp-ops-kit` only after a second domain has been built on them.
+
+| Coupling | Files | What ties it to the clinic |
+|---|---|---|
+| **Domain-free** | `mcp_ops_server/limits.py`, `Dockerfile`, `.github/workflows/` | Nothing in `limits.py` or the `Dockerfile`. CI has one clinic detail: the `container` job passes the clinic's scope names when it issues the smoke-test token. |
+| **Clinic-coupled, meant to be reused** | `mcp_ops_server/auth.py` | The three scope names are a hard-coded `Literal`, and token binding is to a `PAT-0000`-style patient ID |
+| | `evals/harness.py` | Seeds the clinic database and diffs the `appointments` table |
+| | `evals/grader.py` | The patient-scope check keys on `patient_id`, and the state check expects booked/cancelled appointments. Steps, preconditions and budgets are already generic. |
+| | `evals/run.py` | Uses the clinic's simulated clock (`seed.CLINIC_NOW`) |
+| | `scripts/smoke_test.py` | Its end-to-end flow is search provider → list slots → book → cancel |
+| **Thin wiring** | `server.py`, `config.py`, `__main__.py` | Register the clinic tools, default to the clinic clock, print the clinic scopes in the startup hint |
+| **The domain itself** | `seed.py`, `store.py`, `models.py`, `tools/`, `evals/golden/` | Replace these for a new domain |
+
+To adapt it now: replace the domain files, change the scope names in `auth.py`, and rewrite the
+harness's table diff, the grader's domain checks and the smoke flow. Then write golden tasks *and*
+negative controls for your domain before trusting the gate.
+
+## Can I use it with real patient data?
+
+**Not yet, and not by code alone.** Today tokens never expire, there is no audit log and data is not
+encrypted at rest (see [Known limits](#known-limits)). Phase 2 aims at **HIPAA-ready**, never
+"HIPAA compliant": compliance belongs to an organisation, not to a repository.
+
+| What Phase 2 code adds (45 CFR 164.312 technical safeguards) | What the adopter must still do |
+|---|---|
+| Tamper-evident audit log of every tool call, without the PHI arguments (Part 9) | Sign a **BAA with every vendor that touches PHI**: the hosting provider *and* the **LLM provider**, since tool results with PHI go into the model's context |
+| OAuth 2.1 tokens with expiry and revocation without a restart (Part 9) | Run a risk analysis and keep risk management, policies and workforce training (164.308) |
+| Encryption at rest, minimum-necessary tool outputs (Part 9) | Operate it in their own HIPAA-eligible accounts, with their own keys, backups, log retention and breach-notification process |
+| A FHIR R4 backend so the server fronts an existing record system (Part 7) | Decide who gets which tokens, review access regularly, and pen-test their deployment |
+| A Terraform blueprint, controls matrix, threat model and `SECURITY.md` (Parts 10–11) | Map the controls matrix to their own environment; anything marked "adopter's responsibility" is theirs |
+
+The repo itself will only ever contain synthetic data. This section is engineering guidance, **not
+legal advice**; talk to your privacy officer or counsel.
+
+## Roadmap
+
+| Part | What | State |
+|---|---|---|
+| 1–6 | Foundation, core server, hardening, evals, CI gate with live numbers, shipped container | Done |
+| 7 | `Backend` protocol; FHIR R4 backend tested against HAPI FHIR in CI; parity with SQLite on every test and the eval gate | Next |
+| 8 | A booking-business example, then `mcp-ops-kit` extracted from what both domains share | Planned |
+| 9 | Audit log, OAuth 2.1 expiry and revocation, encryption at rest, data minimisation, in the kit | Planned |
+| 10 | Terraform blueprint on HIPAA-eligible AWS, validated in CI, never applied | Planned |
+| 11 | HIPAA controls matrix (164.312), threat model, `SECURITY.md`, CodeQL, Dependabot, PyPI, signed images | Planned |
+| 12 | Repeated live runs with pass^k, a prompt-injection suite | Planned |
+
+The detailed plan is in [`comms/PLAN.md`](comms/PLAN.md).
 
 ## Engineering log
 

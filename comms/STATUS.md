@@ -9,6 +9,17 @@
 | 5 CI gate + numbers | done (PRs #6-#11); Luna 30/31, Sol 30/31 (PR #12) | docs/briefs/part-5-ci-gate.pdf |
 | 6 Ship | done (PR #13 merged; repo and image public) | docs/briefs/part-6-ship.pdf |
 
+### Phase 2 (plan in `comms/PLAN.md`; rules in `CLAUDE.md`)
+| Part | State | Brief |
+|---|---|---|
+| P2 Planning | in review (branch `plan-phase-2`) | docs/briefs/phase-2-plan.pdf |
+| 7 Backend protocol + FHIR R4 | **next**, waiting for owner's merge + go | docs/briefs/part-7-fhir-backend.pdf |
+| 8 Booking example, then extract mcp-ops-kit | planned | |
+| 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation | planned | |
+| 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | planned | |
+| 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | planned | |
+| 12 Repeated live runs, pass^k, prompt-injection suite | planned | |
+
 ## Tasks
 | # | Task | Built by | State | PR |
 |---|---|---|---|---|
@@ -19,6 +30,7 @@
 | 004 | Evals: golden set, trajectory grader, replay agent, report | Claude | merged | #5 |
 | 005 | CI eval gate, live agent, live runs and fixes | Claude | merged | #6-#12 |
 | 006 | Ship: container + CI smoke + GHCR, README, demo GIF | Claude | merged | #13 |
+| P2 | Phase 2 planning: PLAN, CLAUDE rules, STATUS, README, brief | Claude | in review | plan-phase-2 |
 
 ## Workflow
 Claude builds each part in a fresh Claude Code session (rules in `CLAUDE.md`); Codex reviews each
@@ -74,3 +86,31 @@ requests. Sol stopped on f01 because of it. Rewording it means re-running both m
   - the in-memory database resets on restart;
   - live runs are single samples;
   - the container bind turns off the SDK's DNS-rebinding check (bearer auth is still required).
+
+## Next action: Part 7 (Backend protocol + FHIR R4), after the owner merges the planning PR and says "go"
+Branch `part-7-fhir-backend` from `main`. Done means all of the following, CI green on push and PR:
+1. **`Backend` protocol** (`mcp_ops_server/backends/base.py`): typed methods for every operation the
+   tools use today (search providers, list open slots, book, cancel, referral status, plus what the
+   harness needs to snapshot appointments). Tools depend on the protocol, not on `store.py`.
+2. **`SqliteBackend`**: today's store behind the protocol, no behaviour change. Gate: the 179 existing
+   tests, the schema snapshot and the eval gate (31/31, 12/12) pass unchanged.
+3. **`FhirBackend`** over FHIR R4 REST using `httpx2` (already installed by `mcp` and used by the harness; no FHIR library
+   unless the PR justifies it). Mapping: Practitioner/PractitionerRole → providers, Schedule + Slot →
+   open slots, Appointment → book/cancel, ServiceRequest → referrals, Patient → patient IDs.
+   Booking updates the Slot with `If-Match` on its version, so two concurrent books of one slot
+   give one success and one clean error (race test against HAPI).
+4. **Synthetic seed as FHIR**: `seed.py` data exported to a transaction Bundle (deterministic IDs,
+   synthetic names only), loaded into HAPI before tests.
+5. **HAPI in CI**: a pinned `hapiproject/hapi` image as a service container in a new `fhir` job (or a
+   matrix on `test` and `evals`), with a health wait that fails loudly. Locally: `docker run` command
+   documented in the README and `.env.example` (`MCP_OPS_BACKEND`, `MCP_OPS_FHIR_URL`).
+6. **Parity**: the tool tests are parametrised over both backends, and the eval gate runs on both.
+   Any divergence is fixed or kept as a failing test with a FAILURES.md entry, never skipped.
+7. **Config**: `MCP_OPS_BACKEND=sqlite|fhir` (default `sqlite`); the server fails closed on an
+   unreachable FHIR URL at start, with one clear line.
+8. README: Who it's for + Roadmap updated, coupling map row for `backends/`. FAILURES.md, the
+   one-page brief `docs/briefs/part-7-fhir-backend.pdf`, a Codex review prompt, STATUS updated.
+
+Part 7 risks for the Codex review: FHIR search paging (missing results past page 1), time zones on
+Slot start/end, HAPI's eventual consistency of search indexes after a write, and the concurrency test
+being flaky rather than proving the `If-Match` guard.

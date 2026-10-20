@@ -36,11 +36,24 @@ this repo once public. List findings as P0/P1/P2 with file and line. Do not chan
 - No new dependencies without a reason in the PR description.
 - Security checks (auth, scopes) are enforced in server code, never in prompts.
 
+## Phase 2 rules (Parts 7-12, see `comms/PLAN.md`)
+- Say **"HIPAA-ready"**, never "HIPAA compliant", in code, docs, briefs, PRs and commits.
+  Compliance belongs to an organisation (BAAs, risk analysis, policies), not to a repo.
+- **No real patient data, ever**, including in FHIR fixtures, HAPI seeds, test bundles and eval tasks.
+- **Backend parity:** every backend (SQLite, FHIR) passes the same parametrised tests and the same
+  eval gate in CI. A behaviour difference is a bug; fix it or document it as a failing test, never skip it.
+- Each part updates the README's "Who it's for" table and "Roadmap" table in the same PR.
+- **Automated PR reviewers** (Cursor Bugbot, Cursor Security, Codex) may comment on PRs. Treat their
+  findings like Codex's: reproduce first, fix what's real with a test that fails without the fix,
+  reply on the thread with reasons for what isn't, and log notable ones in `FAILURES.md`.
+  Never let a bot push to or approve a branch.
+
 ## MCP SDK v2 gotchas (mcp>=2.3,<3)
 - Server: `from mcp.server.mcpserver import MCPServer`. `FastMCP` does not exist in v2.
 - Client: `from mcp.client.streamable_http import streamable_http_client` (not `streamablehttp_client`).
 - Tools must return a `TypedDict` / Pydantic model to get an output schema and `structured_content`. A plain `dict` return gives neither.
 - Run: `build_server().run(transport="streamable-http", host=..., port=...)`, served at `/mcp`.
+- The SDK's HTTP client package is `httpx2` (`import httpx2`); plain `httpx` is not installed.
 
 ## Commands
 ```bash

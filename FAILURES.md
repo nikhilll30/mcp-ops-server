@@ -2,6 +2,11 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-20 · Phase 2 planning: the HTTP client is `httpx2`, not `httpx`
+- **What surprised me:** my first draft of the Part 7 plan said the FHIR backend would use `httpx`, "already installed via `mcp`". It is not: `pip show mcp` lists `httpx2` as the dependency, `import httpx` fails in this environment, and the repo's own harness, smoke test and HTTP integration test all import `httpx2`.
+- **What changed:** the Part 7 plan in `comms/STATUS.md` names `httpx2`, so the FHIR backend adds no new dependency. The MCP SDK gotchas in `CLAUDE.md` now say so.
+- **Lesson:** check a "no new dependency" claim against the installed packages, not memory.
+
 ## 2026-10-19 · Part 6: Codex review found 2x P1, 4x P2 (all reproduced or confirmed, all fixed)
 - **P1 · The README's revocation advice left the token working.** It said "remove its line from the tokens file", but a running server loads the file once. **Confirmed:** after the line was removed, the running verifier still accepted the token and a freshly loaded one rejected it. **Fix:** the README says to remove the line *and restart every server process*.
 - **P1 · The image published was not the image tested.** `publish` rebuilt from the Dockerfile on another runner, and pip resolves unpinned dependencies again at build time. **Fix:** on main, the `container` job saves the exact image it tested, with its image ID, as a 1-day artifact. `publish` loads that image, checks the ID matches, and pushes it. Nothing is rebuilt. **Verified locally:** save, remove, load, then the ID check passes.
