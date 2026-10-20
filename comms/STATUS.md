@@ -12,7 +12,7 @@
 ### Phase 2 (plan in `comms/PLAN.md`; rules in `CLAUDE.md`)
 | Part | State | Brief |
 |---|---|---|
-| P2 Planning | in review (branch `plan-phase-2`) | docs/briefs/phase-2-plan.pdf |
+| P2 Planning | in review (PR #15, branch `plan-phase-2`) | docs/briefs/phase-2-plan.pdf |
 | 7 Backend protocol + FHIR R4 | **next**, waiting for owner's merge + go | docs/briefs/part-7-fhir-backend.pdf |
 | 8 Booking example, then extract mcp-ops-kit | planned | |
 | 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation | planned | |
@@ -30,7 +30,7 @@
 | 004 | Evals: golden set, trajectory grader, replay agent, report | Claude | merged | #5 |
 | 005 | CI eval gate, live agent, live runs and fixes | Claude | merged | #6-#12 |
 | 006 | Ship: container + CI smoke + GHCR, README, demo GIF | Claude | merged | #13 |
-| P2 | Phase 2 planning: PLAN, CLAUDE rules, STATUS, README, brief | Claude | in review | plan-phase-2 |
+| P2 | Phase 2 planning: PLAN, CLAUDE rules, STATUS, README, brief | Claude | in review | #15 |
 
 ## Workflow
 Claude builds each part in a fresh Claude Code session (rules in `CLAUDE.md`); Codex reviews each

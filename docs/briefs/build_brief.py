@@ -725,7 +725,7 @@ def phase2() -> list:
     return [
         Paragraph("Phase 2 Plan · HIPAA-ready clinic + mcp-ops-kit", title),
         Paragraph(
-            "mcp-ops-server · 20 Oct 2026 · branch plan-phase-2 · Planning only, no code · "
+            "mcp-ops-server · 20 Oct 2026 · PR #15 · Planning only, no code · "
             "Part 7 starts after your merge and go",
             sub,
         ),
