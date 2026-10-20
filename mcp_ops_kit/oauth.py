@@ -96,6 +96,7 @@ class JwksSource:
         self._signature: object = None
         self._fetched_at = -math.inf
         self._loaded_at = -math.inf  # the last *successful* fetch
+        self._refresh_after = JWKS_TTL_S  # after a failed fetch, JWKS_REFETCH_MIN_S
         self._lock = threading.Lock()
 
     def _load(self) -> dict[str, jwt.PyJWK]:
@@ -125,13 +126,14 @@ class JwksSource:
         with self._lock:
             now = self._clock()
             if self._is_url:
-                stale = now - self._fetched_at > JWKS_TTL_S
-                unknown = kid not in self._keys and now - self._fetched_at > JWKS_REFETCH_MIN_S
+                since = now - self._fetched_at  # since the last attempt, failed or not
+                stale = since > self._refresh_after
+                unknown = kid not in self._keys and since > JWKS_REFETCH_MIN_S
                 if stale or unknown:
                     self._fetched_at = now
                     try:
                         self._keys = self._load()
-                        self._loaded_at = now
+                        self._loaded_at, self._refresh_after = now, JWKS_TTL_S
                     except Exception as exc:  # any failure: keep or drop by age, never a 500
                         # An outage at the authorization server keeps the last good keys for
                         # a while, but never indefinitely: a key retired during the outage
@@ -146,8 +148,10 @@ class JwksSource:
                             if self._keys
                             else "refusing JWTs",
                         )
-                        # retry in JWKS_REFETCH_MIN_S, not after a full TTL
-                        self._fetched_at = now - JWKS_TTL_S + JWKS_REFETCH_MIN_S
+                        # Retry in JWKS_REFETCH_MIN_S, not after a full TTL, and never sooner:
+                        # backdating _fetched_at instead made every request fetch while the
+                        # cache was empty (Cursor Bugbot, PR #20).
+                        self._refresh_after = JWKS_REFETCH_MIN_S
             else:
                 signature = _file_signature(self.location)
                 if signature != self._signature:

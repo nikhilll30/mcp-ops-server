@@ -372,3 +372,26 @@ def test_a_malformed_revocation_file_refuses_without_crashing(
     assert _verify(v, signer.token()) is not None
     revoked.write_text(json.dumps(body))
     assert _verify(v, signer.token()) is None
+
+
+def test_a_down_jwks_is_fetched_at_most_every_30_seconds(
+    jwks_server: tuple[str, dict], signer: Signer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cursor Bugbot, PR #20: with the cache empty and the endpoint down, the retry backoff
+    made every verification do a blocking fetch under the lock (10 requests, 10 fetches)."""
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    url, state = jwks_server
+    state["jwks"] = "down"  # garbage: every fetch fails
+    now = {"t": 1000.0}
+    v = JwtVerifier(
+        AUTH, issuer=ISSUER, audience=AUDIENCE, jwks=JwksSource(url, clock=lambda: now["t"])
+    )
+    for _ in range(10):
+        assert _verify(v, signer.token()) is None
+    assert state["hits"] == 1
+    now["t"] += 29
+    _verify(v, signer.token())
+    assert state["hits"] == 1
+    now["t"] += 2
+    _verify(v, signer.token())
+    assert state["hits"] == 2
