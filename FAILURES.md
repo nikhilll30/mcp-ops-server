@@ -2,6 +2,12 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-20 · Part 7: Cursor Bugbot, past slots crowded out upcoming ones on FHIR (reproduced, fixed)
+- **What broke:** on FHIR, `list_open_slots` asked the server for `limit + 1` free slots in the date range, then dropped the ones before "now". SQLite drops past slots *before* the limit. **Reproduced against HAPI:** with now = Wednesday 12:00 and a range from Monday, FHIR returned **no slots** where SQLite returned the next ones (limit 1, 3 and 20).
+- **What changed:** the search itself starts after now (`start=gt<now>`, on the whole second, matching SQLite's `start > now`). The Python filter stays as a second check. **Test:** `test_past_slots_never_crowd_out_upcoming_ones`, FHIR equal to SQLite, with a full page and `truncated` true. It failed before the fix.
+- **Why parity missed it:** every eval task and tool test either used the default clock (the schedule's first morning, with no past slots) or a limit large enough to reach past them. My own design note said to put `gt now` in the query. I wrote the filter in Python instead and never tested a mid-week clock with a small limit.
+- **Lesson:** a filter applied after a limit is a different query. Parity tests need the inputs where the two orders differ.
+
 ## 2026-10-20 · Part 7: my first FHIR booking could double-book if one guard was missing
 - **What broke:** a mutation test. I removed the slot's `If-Match` from the booking transaction, expecting the appointment-sequence `If-Match` to still serialise bookings. It did not: 20 threads booking one slot against HAPI gave **3 to 5 winners**, each with its own appointment number. The booking read the Slot first and the sequence last, so a rival could commit between the two reads. The slot then looked free and the sequence version still matched.
 - **What changed:** the sequence is read **before** any check. Every booking moves it, so any booking that commits while the checks run fails the sequence `If-Match`, and the booking re-checks from the start. **Tests:** a fake FHIR server records the requests. The first read must be the sequence, and the commit must be one transaction with `If-Match` on both the Slot (the version checked as free) and the sequence. Against HAPI there are tests that it rejects a stale `If-Match` on each resource, a deterministic interleaving (a rival books between A's checks and A's commit, and A gets "already booked"), and the 20-thread race.

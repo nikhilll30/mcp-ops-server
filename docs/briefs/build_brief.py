@@ -726,7 +726,7 @@ def part7() -> list:
     return [
         Paragraph("Part 7 Brief · Backend protocol + FHIR R4", title),
         Paragraph(
-            "mcp-ops-server · 20 Oct 2026 · PR #16 · Status: built, CI running; Codex review pending",
+            "mcp-ops-server · 20 Oct 2026 · PR #16 · Status: CI green; Bugbot finding fixed; Codex review pending",
             sub,
         ),
         Spacer(1, 4),
@@ -742,7 +742,7 @@ def part7() -> list:
         ),
         bl(
             f"<b>Parity enforced in CI:</b> a new {cf}fhir</font> job runs HAPI (pinned by digest), every tool test "
-            "on both backends (275 tests), and the eval gate on FHIR. A test asserts the whole eval run (every result, "
+            "on both backends (278 tests), and the eval gate on FHIR. A test asserts the whole eval run (every result, "
             "error text, state change and grade) is identical on both."
         ),
         section("How it works"),
@@ -790,14 +790,15 @@ def part7() -> list:
         ),
         bl(
             "<b>HAPI quirks:</b> without no-cache, 3 tool tests fail on stale searches; a no-op PUT keeps its version "
-            "(my test was wrong); references are enforced on write, so the seed loads in reference order."
+            "(my test was wrong). Bugbot: past slots crowded out upcoming ones on FHIR (filter after the limit); "
+            "reproduced on HAPI, fixed in the query, test added."
         ),
         section("Verify it yourself"),
         codebox(
             [
                 "docker run -d -p 127.0.0.1:8080:8080 hapiproject/hapi:v8.4.0-2",
                 "python -m mcp_ops_server.backends.fhir_seed load --url http://127.0.0.1:8080/fhir",
-                "MCP_OPS_TEST_BACKENDS=sqlite,fhir python -m pytest -q          # 275 passed",
+                "MCP_OPS_TEST_BACKENDS=sqlite,fhir python -m pytest -q          # 278 passed",
                 "python -m evals.run --backend fhir --fhir-url http://127.0.0.1:8080/fhir  # 31/31, 12/12",
             ]
         ),

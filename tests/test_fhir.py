@@ -489,3 +489,19 @@ def test_server_on_fhir_passes_the_container_smoke_test(
         proc.wait(timeout=10)
     out = capsys.readouterr().out
     assert "FAIL" not in out and out.rstrip().endswith("smoke test passed")
+
+
+@pytest.mark.fhir
+@pytest.mark.parametrize("limit", [1, 3, 20])
+def test_past_slots_never_crowd_out_upcoming_ones(fhir_url: str, limit: int) -> None:
+    """Cursor Bugbot, PR #16: with "now" mid-week, a range starting on Monday holds many free
+    slots already in the past. They must be excluded by the search itself, not after
+    ``limit`` results were fetched, or the list comes back short with a wrong ``truncated``."""
+    fhir_seed.reset(fhir_url)
+    now = datetime(2026, 11, 4, 12, 0)
+    fhir = FhirBackend(fhir_url, now=lambda: now)
+    sqlite = SqliteBackend(now=lambda: now)
+    args = (PRIMARY_PROVIDER, seed.SCHEDULE_START, None, limit)
+    got = fhir.list_open_slots(*args)
+    assert got == sqlite.list_open_slots(*args)
+    assert got["count"] == limit and got["truncated"] is True

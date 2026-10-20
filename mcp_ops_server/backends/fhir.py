@@ -443,17 +443,25 @@ class FhirBackend:
                 raise base.provider_not_found(provider_id)
             lo = datetime.combine(start_date, datetime.min.time())
             hi = datetime.combine(end_date + timedelta(days=1), datetime.min.time())
+            now = self._now()
+            # Past slots are excluded by the search itself, before the limit: filtering them
+            # afterwards would let free past slots crowd out upcoming ones (Bugbot, PR #16).
+            # gt on the whole second matches SQLite's "start > now" for slots on the second.
+            after = (
+                f"gt{to_instant(now.replace(microsecond=0))}"
+                if now >= lo
+                else f"ge{to_instant(lo)}"
+            )
             found = self._search(
                 "Slot",
                 {
                     "schedule": f"Schedule/{provider_id}",
                     "status": "free",
-                    "start": [f"ge{to_instant(lo)}", f"lt{to_instant(hi)}"],
+                    "start": [after, f"lt{to_instant(hi)}"],
                     "_sort": "start",
                 },
                 want=limit + 1,
             )
-        now = self._now()
         slots = sorted(
             (
                 SlotInfo(slot_id=s["id"], start=_local_iso(s["start"]), end=_local_iso(s["end"]))

@@ -95,9 +95,9 @@ assigned (not `part-7-fhir-backend`).
 - `SqliteBackend` = old `store.py`, unchanged: 179 tests + snapshot + eval gate passed before any FHIR code.
 - `FhirBackend` (FHIR R4 REST, `httpx2`), `fhir_seed` (deterministic Bundles, load/reset/export),
   `MCP_OPS_BACKEND` / `MCP_OPS_FHIR_URL`, fail-closed start-up.
-- CI `fhir` job: HAPI `v8.4.0-2` pinned by digest, 275 tests on both backends, eval gate on FHIR.
+- CI `fhir` job: HAPI `v8.4.0-2` pinned by digest, 278 tests on both backends, eval gate on FHIR.
 - Local results: `pytest -q` 206 passed (10 FHIR tests deselected); with
-  `MCP_OPS_TEST_BACKENDS=sqlite,fhir`, 275 passed; FHIR eval 31/31, 12/12, every trajectory
+  `MCP_OPS_TEST_BACKENDS=sqlite,fhir`, 278 passed; FHIR eval 31/31, 12/12, every trajectory
   identical to SQLite.
 - Found and fixed a real double-booking window (sequence read after the slot), via mutation
   tests; see FAILURES.md.
