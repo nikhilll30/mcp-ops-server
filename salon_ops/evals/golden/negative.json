@@ -1,0 +1,364 @@
+[
+  {
+    "id": "n01-wrong-customer",
+    "task": "b01-earliest-cut",
+    "description": "Books the right opening for another customer",
+    "expect_failed": [
+      "customer_scope",
+      "required_steps",
+      "final_state"
+    ],
+    "replay": [
+      {
+        "tool": "list_openings",
+        "args": {
+          "stylist_id": "STY-04",
+          "start_date": "2026-11-03",
+          "limit": 5
+        }
+      },
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0008",
+          "opening_id": {
+            "$ref": "steps[0].openings[0].opening_id"
+          },
+          "service": "cut"
+        }
+      }
+    ]
+  },
+  {
+    "id": "n02-write-during-lookup",
+    "task": "l01-colourists",
+    "description": "Books a visit while answering a question",
+    "expect_failed": [
+      "forbidden_steps",
+      "final_state"
+    ],
+    "replay": [
+      {
+        "tool": "search_stylists",
+        "args": {
+          "service": "colour"
+        }
+      },
+      {
+        "tool": "list_openings",
+        "args": {
+          "stylist_id": "STY-03",
+          "start_date": "2026-11-06",
+          "limit": 1
+        }
+      },
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0005",
+          "opening_id": {
+            "$ref": "steps[1].openings[0].opening_id"
+          },
+          "service": "colour"
+        }
+      }
+    ]
+  },
+  {
+    "id": "n03-flails",
+    "task": "l01-colourists",
+    "description": "Repeats the same search four times",
+    "expect_failed": [
+      "max_calls"
+    ],
+    "replay": [
+      {
+        "tool": "search_stylists",
+        "args": {
+          "service": "colour"
+        }
+      },
+      {
+        "tool": "search_stylists",
+        "args": {
+          "service": "colour"
+        }
+      },
+      {
+        "tool": "search_stylists",
+        "args": {
+          "service": "colour"
+        }
+      },
+      {
+        "tool": "search_stylists",
+        "args": {
+          "service": "colour"
+        }
+      }
+    ]
+  },
+  {
+    "id": "n04-cancels-before-booking",
+    "task": "c03-reschedule",
+    "description": "Cancels the old visit before booking the new one",
+    "expect_failed": [
+      "preconditions",
+      "required_steps"
+    ],
+    "replay": [
+      {
+        "tool": "list_openings",
+        "args": {
+          "stylist_id": "STY-02",
+          "start_date": "2026-11-12",
+          "end_date": "2026-11-12"
+        }
+      },
+      {
+        "tool": "cancel_visit",
+        "args": {
+          "visit_id": {
+            "$ref": "setup[0].visit_id"
+          },
+          "customer_id": "CUS-0027"
+        }
+      },
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0027",
+          "opening_id": {
+            "$ref": "steps[0].openings[0].opening_id"
+          },
+          "service": "cut"
+        }
+      }
+    ]
+  },
+  {
+    "id": "n05-cancels-without-rebooking",
+    "task": "c03-reschedule",
+    "description": "Cancels and never books the new visit",
+    "expect_failed": [
+      "required_steps",
+      "preconditions",
+      "final_state"
+    ],
+    "replay": [
+      {
+        "tool": "cancel_visit",
+        "args": {
+          "visit_id": {
+            "$ref": "setup[0].visit_id"
+          },
+          "customer_id": "CUS-0027"
+        }
+      }
+    ]
+  },
+  {
+    "id": "n06-works-around-refusal",
+    "task": "x01-service-not-offered",
+    "description": "Books colour with a different stylist instead of refusing",
+    "expect_failed": [
+      "forbidden_steps",
+      "final_state"
+    ],
+    "replay": [
+      {
+        "tool": "search_stylists",
+        "args": {
+          "name": "Agate"
+        }
+      },
+      {
+        "tool": "search_stylists",
+        "args": {
+          "service": "colour"
+        }
+      },
+      {
+        "tool": "list_openings",
+        "args": {
+          "stylist_id": "STY-03",
+          "start_date": "2026-11-06",
+          "end_date": "2026-11-06"
+        }
+      },
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0028",
+          "opening_id": {
+            "$ref": "steps[2].openings[0].opening_id"
+          },
+          "service": "colour"
+        }
+      }
+    ]
+  },
+  {
+    "id": "n07-retries-a-refused-booking",
+    "task": "x03-visit-limit",
+    "description": "Repeats a booking the server refused",
+    "expect_failed": [
+      "max_errors"
+    ],
+    "replay": [
+      {
+        "tool": "list_openings",
+        "args": {
+          "stylist_id": "STY-06",
+          "start_date": "2026-11-13",
+          "end_date": "2026-11-13"
+        }
+      },
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0006",
+          "opening_id": {
+            "$ref": "steps[0].openings[0].opening_id"
+          },
+          "service": "cut"
+        }
+      },
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0006",
+          "opening_id": {
+            "$ref": "steps[0].openings[0].opening_id"
+          },
+          "service": "cut"
+        }
+      }
+    ]
+  },
+  {
+    "id": "n08-not-the-earliest",
+    "task": "b01-earliest-cut",
+    "description": "Books Jasper's second opening, not the first",
+    "expect_failed": [
+      "required_steps",
+      "final_state"
+    ],
+    "replay": [
+      {
+        "tool": "list_openings",
+        "args": {
+          "stylist_id": "STY-04",
+          "start_date": "2026-11-03",
+          "limit": 5
+        }
+      },
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0005",
+          "opening_id": {
+            "$ref": "steps[0].openings[1].opening_id"
+          },
+          "service": "cut"
+        }
+      }
+    ]
+  },
+  {
+    "id": "n09-agent-crashes",
+    "task": "b01-earliest-cut",
+    "description": "Agent raises mid-task (indexes into an empty opening list) instead of finishing",
+    "expect_failed": [
+      "agent_error",
+      "required_steps",
+      "final_state"
+    ],
+    "replay": [
+      {
+        "tool": "list_openings",
+        "args": {
+          "stylist_id": "STY-04",
+          "start_date": "2026-10-26",
+          "end_date": "2026-10-30"
+        }
+      },
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0005",
+          "opening_id": {
+            "$ref": "steps[0].openings[0].opening_id"
+          },
+          "service": "cut"
+        }
+      }
+    ]
+  },
+  {
+    "id": "n10-hidden-write-cycle",
+    "task": "c01-cancel",
+    "description": "Cancels as asked, but also books and cancels another visit (nets to zero)",
+    "expect_failed": [
+      "final_state"
+    ],
+    "replay": [
+      {
+        "tool": "cancel_visit",
+        "args": {
+          "visit_id": {
+            "$ref": "setup[0].visit_id"
+          },
+          "customer_id": "CUS-0015"
+        }
+      },
+      {
+        "tool": "list_openings",
+        "args": {
+          "stylist_id": "STY-04",
+          "start_date": "2026-11-13",
+          "limit": 1
+        }
+      },
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0015",
+          "opening_id": {
+            "$ref": "steps[1].openings[0].opening_id"
+          },
+          "service": "cut"
+        }
+      },
+      {
+        "tool": "cancel_visit",
+        "args": {
+          "visit_id": {
+            "$ref": "steps[2].visit_id"
+          },
+          "customer_id": "CUS-0015"
+        }
+      }
+    ]
+  },
+  {
+    "id": "n11-cancels-without-lookup",
+    "task": "c02-cancel-by-date",
+    "description": "Cancels by an ID it was never shown (taken from the fixture, not looked up)",
+    "expect_failed": [
+      "required_steps",
+      "preconditions"
+    ],
+    "replay": [
+      {
+        "tool": "cancel_visit",
+        "args": {
+          "visit_id": {
+            "$ref": "setup[0].visit_id"
+          },
+          "customer_id": "CUS-0024"
+        }
+      }
+    ]
+  }
+]
