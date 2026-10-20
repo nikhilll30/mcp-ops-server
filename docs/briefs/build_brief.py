@@ -990,7 +990,7 @@ def part9() -> list:
         section("Verify it yourself"),
         codebox(
             [
-                "pytest -q                                   # 511 passed",
+                "pytest -q                                   # 512 passed",
                 "python -m evals.run; python -m salon_ops.evals.run   # 31/31 12/12; 18/18 14/14",
                 "python -m mcp_ops_kit.audit verify --file audit.log --key-env MCP_OPS_DATA_KEY",
             ]
