@@ -825,7 +825,7 @@ def part8() -> list:
     return [
         Paragraph("Part 8 Brief · Salon example, then mcp-ops-kit", title),
         Paragraph(
-            "mcp-ops-server · 20 Oct 2026 · PR #18 · Status: Codex review fixed (1x P1, 5x P2); CI green expected",
+            "mcp-ops-server · 20 Oct 2026 · PR #18 · Status: Codex review fixed (1x P1, 5x P2); CI green; ready to merge",
             sub,
         ),
         Spacer(1, 4),
