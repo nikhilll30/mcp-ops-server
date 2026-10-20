@@ -15,7 +15,7 @@
 | P2 Planning | done (PR #15 merged) | docs/briefs/phase-2-plan.pdf |
 | 7 Backend protocol + FHIR R4 | done (PR #16 merged) | docs/briefs/part-7-fhir-backend.pdf |
 | 8 Booking example, then extract mcp-ops-kit | done (PR #18 merged) | docs/briefs/part-8-mcp-ops-kit.pdf |
-| 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation, audience binding | **built** (PR #__PR__), waiting for Codex review | docs/briefs/part-9-safeguards.pdf |
+| 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation, audience binding | **built** (PR #20), waiting for Codex review | docs/briefs/part-9-safeguards.pdf |
 | 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | planned | |
 | 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | planned | |
 | 12 Repeated live runs, pass^k, prompt-injection suite | planned | |
@@ -33,7 +33,7 @@
 | P2 | Phase 2 planning: PLAN, CLAUDE rules, STATUS, README, brief | Claude | merged | #15 |
 | 007 | Backend protocol, SqliteBackend, FhirBackend, HAPI in CI, parity | Claude | merged | #16 |
 | 008 | Salon example (copy), then mcp-ops-kit extracted from both domains | Claude | merged | #18 |
-| 009 | Safeguards in the kit: tokens v2 + audience, OAuth JWTs, audit log, encryption at rest, minimisation | Claude | in review | #__PR__ |
+| 009 | Safeguards in the kit: tokens v2 + audience, OAuth JWTs, audit log, encryption at rest, minimisation | Claude | in review | #20 |
 
 ## Workflow
 Claude builds each part in a fresh Claude Code session (rules in `CLAUDE.md`); Codex reviews each
@@ -172,7 +172,7 @@ data minimisation, all in the kit). Added by the owner, 2026-10-20:
   and revocation in one migration. Files without a version are refused with a message naming the
   fix. This closes the Part 8 Codex P2 on cross-domain unbound tokens.
 
-## Part 9 (built, PR #__PR__, waiting for Codex review)
+## Part 9 (built, PR #20, waiting for Codex review)
 Built on branch `claude/happy-lovelace-rdq5e6` (the branch this session was assigned). The owner's
 "start the next part" on 2026-10-20 was the go. Everything is in `mcp_ops_kit`, so the clinic and
 the salon both have it with no domain-specific code.
@@ -199,9 +199,9 @@ the salon both have it with no domain-specific code.
 - One new dependency, `cryptography`: AES-GCM and HKDF, plus the RSA/EC signatures PyJWT
   needs. PyJWT itself was already required by `mcp`.
 - **Local results:**
-  - `pytest -q`: __TESTS__ passed. This includes every clinic tool test on encrypted SQLite
+  - `pytest -q`: 505 passed. This includes every clinic tool test on encrypted SQLite
     too, and the salon tool tests in memory and in an encrypted file.
-  - `sqlite,fhir` against HAPI: __FHIRTESTS__ passed.
+  - `sqlite,fhir` against HAPI: 583 passed.
   - Eval gates: clinic 31/31, 12/12 on SQLite and on FHIR; salon 18/18, 14/14.
   - Each eval task's audit chain is verified.
   - The Docker image was built from the real context, and every CI `container` step was
@@ -209,7 +209,7 @@ the salon both have it with no domain-specific code.
 
 Codex prompt for Part 9:
 ```
-Review PR #__PR__ in nikhilll30/mcp-ops-server (branch claude/happy-lovelace-rdq5e6) as a senior
+Review PR #20 in nikhilll30/mcp-ops-server (branch claude/happy-lovelace-rdq5e6) as a senior
 engineer. Focus: token verification (audience, expiry on wall-clock time, revocation and the
 file re-read on change, fail-closed behaviour on a broken file, migrate), the JWT verifier
 (algorithm confusion, kid handling, JWKS caching and rotation, required claims, subject binding),
