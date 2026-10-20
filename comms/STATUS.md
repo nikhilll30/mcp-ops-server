@@ -13,8 +13,8 @@
 | Part | State | Brief |
 |---|---|---|
 | P2 Planning | done (PR #15 merged) | docs/briefs/phase-2-plan.pdf |
-| 7 Backend protocol + FHIR R4 | **ready to merge** (PR #16, branch `claude/confident-brahmagupta-mz67te`; Codex fixed) | docs/briefs/part-7-fhir-backend.pdf |
-| 8 Booking example, then extract mcp-ops-kit | planned | |
+| 7 Backend protocol + FHIR R4 | done (PR #16 merged) | docs/briefs/part-7-fhir-backend.pdf |
+| 8 Booking example, then extract mcp-ops-kit | **next**, waiting for owner's go | |
 | 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation | planned | |
 | 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | planned | |
 | 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | planned | |
@@ -31,7 +31,7 @@
 | 005 | CI eval gate, live agent, live runs and fixes | Claude | merged | #6-#12 |
 | 006 | Ship: container + CI smoke + GHCR, README, demo GIF | Claude | merged | #13 |
 | P2 | Phase 2 planning: PLAN, CLAUDE rules, STATUS, README, brief | Claude | merged | #15 |
-| 007 | Backend protocol, SqliteBackend, FhirBackend, HAPI in CI, parity | Claude | in review | #16 |
+| 007 | Backend protocol, SqliteBackend, FhirBackend, HAPI in CI, parity | Claude | merged | #16 |
 
 ## Workflow
 Claude builds each part in a fresh Claude Code session (rules in `CLAUDE.md`); Codex reviews each
@@ -88,7 +88,7 @@ requests. Sol stopped on f01 because of it. Rewording it means re-running both m
   - live runs are single samples;
   - the container bind turns off the SDK's DNS-rebinding check (bearer auth is still required).
 
-## Part 7 (ready to merge, PR #16)
+## Part 7 (done, PR #16 merged 2026-10-20)
 Built on branch `claude/confident-brahmagupta-mz67te`, the branch this Claude Code session was
 assigned (not `part-7-fhir-backend`).
 - `Backend` protocol in `backends/base.py`; tools, server and harness depend only on it.
@@ -105,8 +105,11 @@ assigned (not `part-7-fhir-backend`).
 Codex review (of 5a003a6): 3x P1, 3x P2, all reproduced and fixed (FAILURES.md), plus the
 coverage gaps it named. Cursor Bugbot: 1 finding, the same as Codex's first P1, fixed in cc91d98.
 
-## Next action
-1. Done. Codex prompt used:
+Owner, 2026-10-20: merged PR #16 and added `fhir` to the `main` ruleset's required checks.
+Verified signed out: `GET /repos/nikhilll30/mcp-ops-server/rules/branches/main` lists the
+required checks `lint`, `test`, `evals`, `secrets`, `container` and `fhir`.
+
+The Codex prompt used for Part 7:
 ```
 Review PR #16 in nikhilll30/mcp-ops-server (branch claude/confident-brahmagupta-mz67te) as a senior
 engineer. Focus: FHIR search paging (missing results past page 1), time zones on Slot start/end,
@@ -116,5 +119,6 @@ concurrency tests prove the If-Match guards or could pass by luck, retry/deadlin
 tests miss. Also check test quality and anything that would embarrass this repo once public.
 List findings as P0/P1/P2 with file and line. Do not change code.
 ```
-2. Done: findings fixed; FAILURES.md and the brief updated.
-3. Owner: merge PR #16, add `fhir` to the ruleset's required checks, and say "go" for Part 8.
+
+## Next action: Part 8 (booking example, then extract mcp-ops-kit), after the owner says "go"
+Scope and done-criteria are in `comms/PLAN.md`. Not started.
