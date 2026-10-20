@@ -4,6 +4,7 @@ Usage:
     pip install -e ".[docs]"
     python docs/briefs/build_brief.py        # latest part
     python docs/briefs/build_brief.py 1      # a specific part
+    python docs/briefs/build_brief.py phase-2   # a phase plan
 """
 
 import sys
@@ -719,6 +720,112 @@ def part6() -> list:
     ]
 
 
+def phase2() -> list:
+    w = 7.0 * inch
+    return [
+        Paragraph("Phase 2 Plan · HIPAA-ready clinic + mcp-ops-kit", title),
+        Paragraph(
+            "mcp-ops-server · 20 Oct 2026 · PR #15 · Planning only, no code · "
+            "Part 7 starts after your merge and go",
+            sub,
+        ),
+        Spacer(1, 4),
+        section("What this PR does"),
+        bl(
+            "<b>Plans Phase 2</b> in comms/PLAN.md: the goal, an audience table, Parts 7-12 with acceptance "
+            "criteria, and the key decisions. <b>STATUS.md</b> gets Phase 2 rows and a detailed Part 7 next action."
+        ),
+        bl(
+            "<b>Adds rules to CLAUDE.md:</b> say HIPAA-ready, never HIPAA compliant; no real patient data ever; "
+            "backend parity; each part updates the README audience and roadmap tables; automated PR reviewers "
+            "(Bugbot, Cursor Security, Codex) are handled like Codex: reproduce, fix with a test or reply with reasons; "
+            "no bot pushes or approves."
+        ),
+        bl(
+            "<b>Broadens the README:</b> a wider intro, Who it's for, an honest file-by-file coupling map, "
+            "Can I use it with real patient data? (not yet; code vs adopter duties, BAA with the LLM provider; "
+            "not legal advice), and a Roadmap."
+        ),
+        section("The parts"),
+        table(
+            [
+                ["Part", "Builds", "Done when"],
+                [
+                    "7 FHIR R4",
+                    "Backend protocol; SQLite behind it; FhirBackend; seed as a FHIR Bundle",
+                    "Same tests + eval gate pass on both backends, HAPI in CI; If-Match race test",
+                ],
+                [
+                    "8 Kit",
+                    "A booking-business example first, then extract mcp-ops-kit",
+                    "Both domains pass their eval gates on the kit",
+                ],
+                [
+                    "9 Safeguards",
+                    "Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation",
+                    "Tamper test, no-restart revocation, no plaintext on disk, pinned field sets",
+                ],
+                [
+                    "10 Terraform",
+                    "Blueprint on HIPAA-eligible AWS",
+                    "fmt, validate, tflint, checkov in CI; never applied",
+                ],
+                [
+                    "11 Assurance",
+                    "164.312 controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images",
+                    "Every control maps to code, a test, Terraform or the adopter",
+                ],
+                [
+                    "12 Evals at scale",
+                    "Repeated live runs, pass^k, prompt-injection suite",
+                    "Variance and injection results in the README, costs measured",
+                ],
+            ],
+            [1.05 * inch, 3.0 * inch, w - 4.05 * inch],
+        ),
+        section("Why this way"),
+        bl(
+            "<b>HAPI, not a mock.</b> A mock agrees with my assumptions; a real FHIR server can disagree. "
+            "Parity is enforced in CI because a second backend that drifts is worse than one backend."
+        ),
+        bl(
+            "<b>Second domain before the kit.</b> Abstractions pulled from two working users fit; designed up "
+            "front, they guess. Today only limits.py and the Dockerfile are domain-free (CI has one line of scopes)."
+        ),
+        bl(
+            "<b>HIPAA-ready, not compliant.</b> Compliance needs an organisation: BAAs (including the LLM provider), "
+            "a risk analysis, policies. Code can supply the technical safeguards and say plainly what it cannot."
+        ),
+        section("What surprised me while planning"),
+        bl(
+            "The mcp 2.x SDK ships <font face='Courier'>httpx2</font>, not httpx, so the Part 7 plan names the client "
+            "the repo already uses (no new dependency). The grader's step and precondition checks are already "
+            "generic; only its patient-scope and appointments-state checks are clinic-coupled."
+        ),
+        section("Verify it yourself"),
+        codebox(
+            [
+                "git diff --stat main     # docs + the brief generator only; no server code changed",
+                "ruff check . && ruff format --check . && pytest -q",
+                "grep -rn 'HIPAA compliant' README.md comms/      # only in 'never ... compliant' wording",
+            ]
+        ),
+        section("Interview talking point"),
+        Paragraph(
+            '"Before writing code I mapped which files actually know the domain. Only two were free of it, so the '
+            "kit gets extracted from two working domains, and I say HIPAA-ready, because compliance is not a "
+            'property of a repo."',
+            body,
+        ),
+        section("Next (your actions)"),
+        Paragraph(
+            "1) Review and merge this PR. 2) Say <b>go</b> for Part 7 (branch part-7-fhir-backend). "
+            "No Codex review needed for a planning-only PR unless you want one.",
+            body,
+        ),
+    ]
+
+
 PARTS = {
     1: (part1, "part-1-foundation", "Part 1 Brief: Foundation"),
     2: (part2, "part-2-core-server", "Part 2 Brief: Core server"),
@@ -729,9 +836,14 @@ PARTS = {
 }
 
 
+PLANS = {
+    "phase-2": (phase2, "phase-2-plan", "Phase 2 Plan: HIPAA-ready clinic + mcp-ops-kit"),
+}
+
+
 if __name__ == "__main__":
-    n = int(sys.argv[1]) if len(sys.argv) > 1 else max(PARTS)
-    build, slug, doc_title = PARTS[n]
+    arg = sys.argv[1] if len(sys.argv) > 1 else str(max(PARTS))
+    build, slug, doc_title = PLANS[arg] if arg in PLANS else PARTS[int(arg)]
     out = f"docs/briefs/{slug}.pdf"
     doc = SimpleDocTemplate(
         out,
