@@ -12,8 +12,8 @@ from mcp.server.auth.provider import AccessToken
 from mcp.server.mcpserver import MCPServer
 
 from mcp_ops_server import seed
+from mcp_ops_server.backends.sqlite import SqliteBackend
 from mcp_ops_server.server import build_server
-from mcp_ops_server.store import Store
 
 # Facts from the deterministic seed that tests rely on (pinned in test_seed.py).
 DERM_PATIENT = "PAT-0001"  # approved dermatology referral REF-0001
@@ -63,14 +63,14 @@ def staff_principal() -> Iterator[None]:
 
 
 @pytest.fixture
-def store() -> Iterator[Store]:
-    s = Store()
+def store() -> Iterator[SqliteBackend]:
+    s = SqliteBackend()
     yield s
     s.close()
 
 
 @pytest.fixture
-def server(store: Store) -> MCPServer:
+def server(store: SqliteBackend) -> MCPServer:
     return build_server(store)
 
 

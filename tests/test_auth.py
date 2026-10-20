@@ -26,8 +26,8 @@ from mcp_ops_server.auth import (
     issue,
     main,
 )
+from mcp_ops_server.backends.sqlite import SqliteBackend
 from mcp_ops_server.server import build_server
-from mcp_ops_server.store import Store
 
 # tool -> (scope it needs, minimal valid arguments)
 TOOL_SCOPES = {
@@ -181,7 +181,7 @@ def test_patient_bound_token_can_still_browse_schedule(server: MCPServer) -> Non
 
 
 def test_rate_limit_is_per_client() -> None:
-    server = build_server(Store(), rate_limit_per_minute=3)
+    server = build_server(SqliteBackend(), rate_limit_per_minute=3)
     with as_principal(client_id="busy"):
         for _ in range(3):
             call(server, "search_providers")
@@ -192,7 +192,7 @@ def test_rate_limit_is_per_client() -> None:
 
 def test_rate_limit_counts_rejected_calls() -> None:
     """Probing with a token that lacks a scope still spends that client's budget."""
-    server = build_server(Store(), rate_limit_per_minute=2)
+    server = build_server(SqliteBackend(), rate_limit_per_minute=2)
     with as_principal(client_id="prober", scopes=["read:schedule"]):
         for _ in range(2):
             _error(server, "get_referral_status", {"patient_id": "PAT-0008"})
@@ -201,7 +201,7 @@ def test_rate_limit_counts_rejected_calls() -> None:
 
 def test_invalid_arguments_still_spend_the_budget() -> None:
     """Rate limiting runs before argument validation (Codex review, Part 3)."""
-    server = build_server(Store(), rate_limit_per_minute=2)
+    server = build_server(SqliteBackend(), rate_limit_per_minute=2)
     with as_principal(client_id="fuzzer"):
         for _ in range(2):
             assert "validation error" in _error(server, "search_providers", {"limit": 999})
@@ -209,7 +209,7 @@ def test_invalid_arguments_still_spend_the_budget() -> None:
 
 
 def test_health_counts_toward_the_rate_limit() -> None:
-    server = build_server(Store(), rate_limit_per_minute=1)
+    server = build_server(SqliteBackend(), rate_limit_per_minute=1)
     with as_principal(client_id="pinger"):
         call(server, "health")
         assert "Rate limit exceeded" in _error(server, "health", {})

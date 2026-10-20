@@ -10,9 +10,10 @@ import pytest
 from conftest import NO_REFERRAL_PATIENT, PRIMARY_PROVIDER, seeded_busy_starts
 
 from mcp_ops_server import seed
+from mcp_ops_server.backends.base import BusyError, CallTimeoutError, ConflictError
+from mcp_ops_server.backends.sqlite import SqliteBackend
 from mcp_ops_server.config import Settings
 from mcp_ops_server.limits import RateLimiter
-from mcp_ops_server.store import BusyError, CallTimeoutError, ConflictError, Store
 
 # ---- rate limiter --------------------------------------------------------------------------
 
@@ -64,14 +65,14 @@ SLOW_QUERY = (
 
 
 def test_runaway_read_is_interrupted_and_store_recovers() -> None:
-    store = Store(timeout_s=0.2)
+    store = SqliteBackend(timeout_s=0.2)
     with pytest.raises(CallTimeoutError):
         store._read(SLOW_QUERY)  # noqa: SLF001 - no public tool is slow enough to trip it
     assert store.search_providers()["count"] == 12
 
 
 def test_runaway_write_is_rolled_back() -> None:
-    store = Store(timeout_s=0.2)
+    store = SqliteBackend(timeout_s=0.2)
     slot_id = _open_slot(store)
     with pytest.raises(CallTimeoutError), store._write() as c:  # noqa: SLF001
         c.execute(
@@ -84,7 +85,7 @@ def test_runaway_write_is_rolled_back() -> None:
 
 
 def test_waiting_for_the_lock_is_bounded() -> None:
-    store = Store(timeout_s=0.1)
+    store = SqliteBackend(timeout_s=0.1)
     store._lock.acquire()  # noqa: SLF001 - simulate a stuck caller holding the lock
     try:
         with pytest.raises(BusyError):
@@ -96,8 +97,8 @@ def test_waiting_for_the_lock_is_bounded() -> None:
 # ---- simulated clock -----------------------------------------------------------------------
 
 
-def _at(when: str) -> Store:
-    return Store(now=lambda: datetime.fromisoformat(when))
+def _at(when: str) -> SqliteBackend:
+    return SqliteBackend(now=lambda: datetime.fromisoformat(when))
 
 
 def test_past_slots_are_hidden() -> None:
@@ -116,7 +117,7 @@ def test_booking_a_past_slot_is_refused() -> None:
 
 def test_started_appointment_cannot_be_cancelled() -> None:
     now = {"t": datetime(2026, 11, 2, 8, 0)}
-    store = Store(now=lambda: now["t"])
+    store = SqliteBackend(now=lambda: now["t"])
     slot_id = _open_slot(store)
     appt = store.book_appointment(NO_REFERRAL_PATIENT, slot_id)
     now["t"] = datetime.fromisoformat(appt["start"])
@@ -153,7 +154,7 @@ def test_settings_system_clock(monkeypatch: pytest.MonkeyPatch) -> None:
     assert Settings.from_env().now is None
 
 
-def _open_slot(store: Store) -> str:
+def _open_slot(store: SqliteBackend) -> str:
     out = store.list_open_slots(PRIMARY_PROVIDER, seed.SCHEDULE_START, limit=100)
     busy = seeded_busy_starts(NO_REFERRAL_PATIENT)
     return next(s["slot_id"] for s in out["slots"] if s["start"] not in busy)
@@ -164,8 +165,8 @@ def _open_slot(store: Store) -> str:
 SLACK_S = 0.08  # scheduling noise allowed beyond the deadline
 
 
-def _file_store(tmp_path: Path, timeout_s: float) -> Store:
-    return Store(str(tmp_path / "clinic.db"), timeout_s=timeout_s)
+def _file_store(tmp_path: Path, timeout_s: float) -> SqliteBackend:
+    return SqliteBackend(str(tmp_path / "clinic.db"), timeout_s=timeout_s)
 
 
 def test_lock_wait_and_db_wait_share_one_deadline(tmp_path: Path) -> None:

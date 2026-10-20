@@ -32,9 +32,9 @@ from mcp.client.streamable_http import streamable_http_client
 from evals.grader import Step
 from mcp_ops_server import seed
 from mcp_ops_server.auth import ALL_SCOPES, issue
+from mcp_ops_server.backends.sqlite import SqliteBackend
 from mcp_ops_server.config import Settings
 from mcp_ops_server.server import build_http_app
-from mcp_ops_server.store import Store
 
 # principal name -> (scopes, bound patient). "portal:PAT-XXXX" is created on demand.
 PRINCIPALS: dict[str, tuple[list[str], str | None]] = {
@@ -77,7 +77,7 @@ class Harness:
             scopes, patient = _principal_spec(name)
             self.tokens[name] = issue(self._tokens_file, f"evals-{name}", scopes, patient)
         self._template = root / "template.db"
-        Store(str(self._template)).close()  # seed once; each task copies this file
+        SqliteBackend(str(self._template)).close()  # seed once; each task copies this file
         self._count = 0
 
     def __enter__(self) -> "Harness":

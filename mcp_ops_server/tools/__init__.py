@@ -10,7 +10,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from mcp_ops_server.store import StoreError
+from mcp_ops_server.backends.base import StoreError
 
 PatientId = Annotated[
     str, Field(pattern=r"^PAT-[0-9]{4}$", description="Patient ID, e.g. PAT-0001.")

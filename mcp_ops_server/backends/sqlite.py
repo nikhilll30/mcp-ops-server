@@ -1,4 +1,4 @@
-"""SQLite store for the synthetic clinic, seeded from ``seed.py``.
+"""SQLite backend for the synthetic clinic, seeded from ``seed.py``.
 
 Integrity rules live here, not in the tool layer, and the critical one is also a database
 constraint: a partial unique index allows at most one *booked* appointment per slot, so a
@@ -13,6 +13,15 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 
 from mcp_ops_server import seed
+from mcp_ops_server.backends import base
+from mcp_ops_server.backends.base import (
+    AppointmentRow,
+    BusyError,
+    CallTimeoutError,
+    ConflictError,
+    appointment_id,
+    parse_appointment_id,
+)
 from mcp_ops_server.models import (
     AppointmentResult,
     OpenSlotsResult,
@@ -22,11 +31,6 @@ from mcp_ops_server.models import (
     SearchProvidersResult,
     SlotInfo,
 )
-
-MAX_SLOT_RANGE_DAYS = 31
-# Far wider than the 4-week schedule; keeps date arithmetic away from date.max.
-EARLIEST_DATE = date(2000, 1, 1)
-LATEST_DATE = date(2100, 12, 31)
 
 SCHEMA = """
 CREATE TABLE specialties (
@@ -66,45 +70,11 @@ CREATE INDEX appointments_by_patient ON appointments(patient_id, status);
 """
 
 
-class StoreError(Exception):
-    """An anticipated failure whose message is safe and useful to show an agent."""
-
-
-class NotFoundError(StoreError):
-    pass
-
-
-class ConflictError(StoreError):
-    pass
-
-
-class ReferralError(StoreError):
-    pass
-
-
-class BusyError(StoreError):
-    """Another caller held the database lock past the timeout."""
-
-
-class CallTimeoutError(StoreError):
-    """A statement ran past the per-call deadline and was interrupted."""
-
-
-def _appointment_id(n: int) -> str:
-    return f"APT-{n:05d}"
-
-
-def _parse_appointment_id(appointment_id: str) -> int | None:
-    prefix, _, digits = appointment_id.partition("-")
-    ok = prefix == "APT" and digits.isascii() and digits.isdigit() and len(digits) <= 18
-    return int(digits) if ok else None
-
-
 def _escape_like(text: str) -> str:
     return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-class Store:
+class SqliteBackend:
     """Thread-safe facade over one SQLite connection.
 
     The SDK runs sync tools in worker threads, so every statement goes through ``_lock``.
@@ -288,26 +258,9 @@ class Store:
         end_date: date | None = None,
         limit: int = 20,
     ) -> OpenSlotsResult:
-        for d in (start_date, end_date):
-            if d is not None and not EARLIEST_DATE <= d <= LATEST_DATE:
-                raise StoreError(
-                    f"Dates must be between {EARLIEST_DATE.isoformat()} and "
-                    f"{LATEST_DATE.isoformat()}."
-                )
-        end_date = end_date or start_date + timedelta(days=6)
-        if end_date < start_date:
-            raise StoreError("end_date must be on or after start_date.")
-        if (end_date - start_date).days >= MAX_SLOT_RANGE_DAYS:
-            latest = start_date + timedelta(days=MAX_SLOT_RANGE_DAYS - 1)
-            raise StoreError(
-                f"Date range is limited to {MAX_SLOT_RANGE_DAYS} days counting both ends: "
-                f"for start_date {start_date.isoformat()} the latest end_date is "
-                f"{latest.isoformat()}."
-            )
+        end_date = base.slot_range(start_date, end_date)
         if not self._read("SELECT 1 FROM providers WHERE id = ?", (provider_id,)):
-            raise NotFoundError(
-                f"Provider {provider_id} not found. Call search_providers to find provider IDs."
-            )
+            raise base.provider_not_found(provider_id)
         lo = datetime.combine(start_date, datetime.min.time()).isoformat()
         hi = datetime.combine(end_date + timedelta(days=1), datetime.min.time()).isoformat()
         rows = self._read(
@@ -350,7 +303,7 @@ class Store:
 
     def _require_patient(self, patient_id: str) -> None:
         if not self._read("SELECT 1 FROM patients WHERE id = ?", (patient_id,)):
-            raise NotFoundError(f"Patient {patient_id} not found.")
+            raise base.patient_not_found(patient_id)
 
     # ---- writes ------------------------------------------------------------------------
 
@@ -359,7 +312,7 @@ class Store:
     ) -> AppointmentResult:
         with self._write() as c:
             if not c.execute("SELECT 1 FROM patients WHERE id = ?", (patient_id,)).fetchone():
-                raise NotFoundError(f"Patient {patient_id} not found.")
+                raise base.patient_not_found(patient_id)
             slot = c.execute(
                 "SELECT s.*, p.specialty, sp.requires_referral FROM slots s "
                 "JOIN providers p ON p.id = s.provider_id "
@@ -367,35 +320,32 @@ class Store:
                 (slot_id,),
             ).fetchone()
             if slot is None:
-                raise NotFoundError(
-                    f"Slot {slot_id} not found. Call list_open_slots to find open slots."
-                )
+                raise base.slot_not_found(slot_id)
             if slot["start"] <= self._now_iso():
-                raise ConflictError(
-                    f"Slot {slot_id} starts at {slot['start']}, which is in the past. "
-                    "Call list_open_slots for an upcoming slot."
-                )
+                raise base.slot_in_past(slot_id, slot["start"])
             if c.execute(
                 "SELECT 1 FROM appointments WHERE slot_id = ? AND status = 'booked'", (slot_id,)
             ).fetchone():
-                # Name the slot's provider and time: nothing else lets a caller find "the next
-                # slot with the same provider that day" (no tool looks a slot up by ID).
-                raise ConflictError(
-                    f"Slot {slot_id} ({slot['provider_id']}, {slot['start']}) is already booked. "
-                    "Call list_open_slots for another slot."
-                )
+                raise base.slot_taken(slot_id, slot["provider_id"], slot["start"])
             clash = c.execute(
                 "SELECT a.id FROM appointments a JOIN slots s ON s.id = a.slot_id "
                 "WHERE a.patient_id = ? AND a.status = 'booked' AND s.start < ? AND ? < s.end",
                 (patient_id, slot["end"], slot["start"]),
             ).fetchone()
             if clash:
-                raise ConflictError(
-                    f"Patient {patient_id} already has appointment "
-                    f"{_appointment_id(clash['id'])} at an overlapping time."
-                )
-            self._check_referral(
-                c, patient_id, slot["specialty"], slot["requires_referral"], referral_id
+                raise base.patient_clash(patient_id, clash["id"])
+            ref = None
+            if referral_id is not None:
+                ref = c.execute(
+                    "SELECT patient_id, specialty, status FROM referrals WHERE id = ?",
+                    (referral_id,),
+                ).fetchone()
+            base.check_referral(
+                patient_id,
+                slot["specialty"],
+                bool(slot["requires_referral"]),
+                referral_id,
+                tuple(ref) if ref else None,
             )
             try:
                 cur = c.execute(
@@ -408,52 +358,42 @@ class Store:
             row = c.execute(_APPOINTMENT_SQL, (cur.lastrowid,)).fetchone()
         return _appointment(row)
 
-    @staticmethod
-    def _check_referral(
-        c: sqlite3.Connection,
-        patient_id: str,
-        specialty: str,
-        required: int,
-        referral_id: str | None,
-    ) -> None:
-        if referral_id is None:
-            if required:
-                raise ReferralError(
-                    f"{specialty} requires an approved referral. Call get_referral_status for "
-                    f"patient {patient_id} and pass an approved referral_id."
-                )
-            return
-        ref = c.execute(
-            "SELECT * FROM referrals WHERE id = ? AND patient_id = ?", (referral_id, patient_id)
-        ).fetchone()
-        if ref is None:
-            raise ReferralError(f"Referral {referral_id} not found for patient {patient_id}.")
-        if ref["specialty"] != specialty:
-            raise ReferralError(
-                f"Referral {referral_id} is for {ref['specialty']}, not {specialty}."
-            )
-        if ref["status"] != "approved":
-            raise ReferralError(f"Referral {referral_id} is {ref['status']}, not approved.")
-
     def cancel_appointment(self, appointment_id: str, patient_id: str) -> AppointmentResult:
-        n = _parse_appointment_id(appointment_id)
+        n = parse_appointment_id(appointment_id)
         with self._write() as c:
             row = c.execute(_APPOINTMENT_SQL, (n,)).fetchone() if n is not None else None
-            # Same message whether the ID is unknown or belongs to someone else.
             if row is None or row["patient_id"] != patient_id:
-                raise NotFoundError(
-                    f"Appointment {appointment_id} not found for patient {patient_id}."
-                )
+                raise base.appointment_not_found(appointment_id, patient_id)
             if row["status"] == "cancelled":
-                raise ConflictError(f"Appointment {appointment_id} is already cancelled.")
+                raise base.already_cancelled(appointment_id)
             if row["start"] <= self._now_iso():
-                raise ConflictError(
-                    f"Appointment {appointment_id} started at {row['start']}; "
-                    "it can no longer be cancelled."
-                )
+                raise base.already_started(appointment_id, row["start"])
             c.execute("UPDATE appointments SET status = 'cancelled' WHERE id = ?", (n,))
             row = c.execute(_APPOINTMENT_SQL, (n,)).fetchone()
         return _appointment(row)
+
+    def snapshot_appointments(self) -> dict[int, AppointmentRow]:
+        return {r["id"]: _snapshot_row(r) for r in self._read(_SNAPSHOT_SQL)}
+
+
+_SNAPSHOT_SQL = (
+    "SELECT a.id, a.status, a.patient_id, a.referral_id, a.slot_id, s.start, "
+    "p.id AS provider_id, p.specialty, p.location FROM appointments a "
+    "JOIN slots s ON s.id = a.slot_id JOIN providers p ON p.id = s.provider_id ORDER BY a.id"
+)
+
+
+def _snapshot_row(r: sqlite3.Row) -> AppointmentRow:
+    return {
+        "status": r["status"],
+        "patient_id": r["patient_id"],
+        "referral_id": r["referral_id"],
+        "slot_id": r["slot_id"],
+        "start": r["start"],
+        "provider_id": r["provider_id"],
+        "specialty": r["specialty"],
+        "location": r["location"],
+    }
 
 
 _APPOINTMENT_SQL = (
@@ -465,7 +405,7 @@ _APPOINTMENT_SQL = (
 
 def _appointment(r: sqlite3.Row) -> AppointmentResult:
     return {
-        "appointment_id": _appointment_id(r["id"]),
+        "appointment_id": appointment_id(r["id"]),
         "status": r["status"],
         "patient_id": r["patient_id"],
         "provider_id": r["provider_id"],

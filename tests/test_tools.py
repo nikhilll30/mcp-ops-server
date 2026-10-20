@@ -24,8 +24,9 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from mcp_ops_server import seed
+from mcp_ops_server.backends.base import ConflictError
+from mcp_ops_server.backends.sqlite import SqliteBackend
 from mcp_ops_server.server import build_server
-from mcp_ops_server.store import ConflictError, Store
 
 EXPECTED_TOOLS = {
     "health",
@@ -267,7 +268,7 @@ def test_book_input_errors(server: MCPServer, args: dict, message: str) -> None:
     assert message in call_error(server, "book_appointment", **args)
 
 
-def test_concurrent_bookings_of_one_slot_yield_one_winner(store: Store) -> None:
+def test_concurrent_bookings_of_one_slot_yield_one_winner(store: SqliteBackend) -> None:
     """Many threads race for one slot; the lock + unique index must allow exactly one."""
     slot_id = store.list_open_slots(PRIMARY_PROVIDER, seed.SCHEDULE_START)["slots"][0]["slot_id"]
     patients = [f"PAT-{i:04d}" for i in range(11, 31)]
@@ -287,7 +288,7 @@ def test_concurrent_bookings_of_one_slot_yield_one_winner(store: Store) -> None:
     assert results.count("conflict") == len(patients) - 1
 
 
-def test_unique_index_blocks_double_booking_even_without_app_check(store: Store) -> None:
+def test_unique_index_blocks_double_booking_even_without_app_check(store: SqliteBackend) -> None:
     conn = store._conn  # noqa: SLF001 - deliberately bypass the store's checks
     slot = seed.generate().appointments[0].slot_id
     with pytest.raises(Exception, match="UNIQUE"):
