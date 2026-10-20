@@ -14,8 +14,8 @@
 |---|---|---|
 | P2 Planning | done (PR #15 merged) | docs/briefs/phase-2-plan.pdf |
 | 7 Backend protocol + FHIR R4 | done (PR #16 merged) | docs/briefs/part-7-fhir-backend.pdf |
-| 8 Booking example, then extract mcp-ops-kit | **in review** (PR #18): Codex review fixed (1x P1, 5x P2); CI green on cb399c2, Bugbot + Cursor Security clean; ready to merge | docs/briefs/part-8-mcp-ops-kit.pdf |
-| 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation | next, after the owner's go | |
+| 8 Booking example, then extract mcp-ops-kit | done (PR #18 merged) | docs/briefs/part-8-mcp-ops-kit.pdf |
+| 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation, audience binding | **next**, waiting for owner's go | |
 | 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | planned | |
 | 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | planned | |
 | 12 Repeated live runs, pass^k, prompt-injection suite | planned | |
@@ -32,7 +32,7 @@
 | 006 | Ship: container + CI smoke + GHCR, README, demo GIF | Claude | merged | #13 |
 | P2 | Phase 2 planning: PLAN, CLAUDE rules, STATUS, README, brief | Claude | merged | #15 |
 | 007 | Backend protocol, SqliteBackend, FhirBackend, HAPI in CI, parity | Claude | merged | #16 |
-| 008 | Salon example (copy), then mcp-ops-kit extracted from both domains | Claude | in review | #18 |
+| 008 | Salon example (copy), then mcp-ops-kit extracted from both domains | Claude | merged | #18 |
 
 ## Workflow
 Claude builds each part in a fresh Claude Code session (rules in `CLAUDE.md`); Codex reviews each
@@ -121,7 +121,7 @@ tests miss. Also check test quality and anything that would embarrass this repo 
 List findings as P0/P1/P2 with file and line. Do not change code.
 ```
 
-## Part 8 (in review, PR #18)
+## Part 8 (done, PR #18 merged 2026-10-20)
 Built on branch `claude/youthful-hawking-h8wsdc` (the branch this session was assigned).
 - **8a (2b76211):** `salon_ops/`, a synthetic salon built by copying the clinic's code:
   - its own scopes and customer binding, 6 tools;
@@ -160,8 +160,16 @@ Codex review (of e8cd861): 1x P1, 5x P2, all in FAILURES.md.
   - the diff hid edits (`unexpected`);
   - empty env values became defaults;
   - `--fhir-url=URL` stopped parsing.
-- **Narrowed, not redesigned:** the cross-domain token claim. The kit README states the limit and a test pins it. Owner's call: add a domain field to tokens files (a format change).
+- **Narrowed, not redesigned:** the cross-domain token claim. The kit README states the limit and a test pins it.
+  Owner, 2026-10-20: no domain field now. It is closed in Part 9 by audience binding (below).
 
-## Next action
-Owner: merge PR #18 once CI is green. Optionally decide on the tokens-file domain field.
-Part 9 starts only after the owner says "go".
+## Part 9 definition of done
+Scope is in `comms/PLAN.md` (audit log, OAuth 2.1 expiry and revocation, encryption at rest,
+data minimisation, all in the kit). Added by the owner, 2026-10-20:
+- **Audience binding:** every token (JWT and static) names its audience, and the server rejects
+  tokens for another audience. Static tokens files get a versioned format with audience, expiry
+  and revocation in one migration. Files without a version are refused with a message naming the
+  fix. This closes the Part 8 Codex P2 on cross-domain unbound tokens.
+
+## Next action: Part 9, after the owner says "go"
+Not started.
