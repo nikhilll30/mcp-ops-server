@@ -918,7 +918,7 @@ def part9() -> list:
     return [
         Paragraph("Part 9 Brief · Safeguards in the kit", title),
         Paragraph(
-            "mcp-ops-server · 20 Oct 2026 · PR #20 · Status: built, CI running; waiting for Codex review",
+            "mcp-ops-server · 20 Oct 2026 · PR #20 · Status: built, CI green (push + PR); waiting for Codex review",
             sub,
         ),
         Spacer(1, 4),

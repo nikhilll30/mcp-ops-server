@@ -15,7 +15,7 @@
 | P2 Planning | done (PR #15 merged) | docs/briefs/phase-2-plan.pdf |
 | 7 Backend protocol + FHIR R4 | done (PR #16 merged) | docs/briefs/part-7-fhir-backend.pdf |
 | 8 Booking example, then extract mcp-ops-kit | done (PR #18 merged) | docs/briefs/part-8-mcp-ops-kit.pdf |
-| 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation, audience binding | **built** (PR #20), waiting for Codex review | docs/briefs/part-9-safeguards.pdf |
+| 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation, audience binding | **built** (PR #20), CI green, waiting for Codex review | docs/briefs/part-9-safeguards.pdf |
 | 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | planned | |
 | 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | planned | |
 | 12 Repeated live runs, pass^k, prompt-injection suite | planned | |
@@ -172,7 +172,7 @@ data minimisation, all in the kit). Added by the owner, 2026-10-20:
   and revocation in one migration. Files without a version are refused with a message naming the
   fix. This closes the Part 8 Codex P2 on cross-domain unbound tokens.
 
-## Part 9 (built, PR #20, waiting for Codex review)
+## Part 9 (built, PR #20, CI green, waiting for Codex review)
 Built on branch `claude/happy-lovelace-rdq5e6` (the branch this session was assigned). The owner's
 "start the next part" on 2026-10-20 was the go. Everything is in `mcp_ops_kit`, so the clinic and
 the salon both have it with no domain-specific code.
@@ -206,6 +206,11 @@ the salon both have it with no domain-specific code.
   - Each eval task's audit chain is verified.
   - The Docker image was built from the real context, and every CI `container` step was
     replayed locally.
+
+CI on PR #20 (head e461104): every job green on the push and pull_request runs (lint, test,
+evals, fhir, container, secrets). Cursor Bugbot found 3 defects and Cursor Security 1, all
+reproduced, fixed with tests that fail without the fix, and logged in FAILURES.md; both bots
+pass on the final head.
 
 Codex prompt for Part 9:
 ```
