@@ -14,7 +14,7 @@
 |---|---|---|
 | P2 Planning | done (PR #15 merged) | docs/briefs/phase-2-plan.pdf |
 | 7 Backend protocol + FHIR R4 | done (PR #16 merged) | docs/briefs/part-7-fhir-backend.pdf |
-| 8 Booking example, then extract mcp-ops-kit | **in review** (PR #18), awaiting Codex review | docs/briefs/part-8-mcp-ops-kit.pdf |
+| 8 Booking example, then extract mcp-ops-kit | **in review** (PR #18): CI green, Bugbot + Cursor Security clean; awaiting Codex review | docs/briefs/part-8-mcp-ops-kit.pdf |
 | 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation | next, after the owner's go | |
 | 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | planned | |
 | 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | planned | |
