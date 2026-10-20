@@ -9,7 +9,7 @@ class RateLimiter:
     """Allows ``per_minute`` calls per client, refilled continuously, with bursts up to that.
 
     In-process only: one server process, one budget. A multi-instance deploy would need a
-    shared store (e.g. Redis); noted for Part 6.
+    shared store (e.g. Redis); see the README's known limits.
     """
 
     def __init__(self, per_minute: int, clock: Callable[[], float] = time.monotonic) -> None:

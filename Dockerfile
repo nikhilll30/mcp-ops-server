@@ -1,4 +1,5 @@
-# Production image for mcp-ops-server: the MCP server only (no evals, no tests).
+# Production image for mcp-ops-server: the clinic MCP server (no evals, no tests). The wheel
+# also carries mcp_ops_kit, which the server is built on, and the salon example package.
 # Base pinned by digest so a rebuild gets the same OS and Python; bump it deliberately.
 FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
 
@@ -9,8 +10,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
+COPY mcp_ops_kit ./mcp_ops_kit
 COPY mcp_ops_server ./mcp_ops_server
-RUN pip install . && rm -rf /app/mcp_ops_server /app/pyproject.toml
+COPY salon_ops ./salon_ops
+RUN pip install . && rm -rf /app/mcp_ops_kit /app/mcp_ops_server /app/salon_ops /app/pyproject.toml
 
 # Unprivileged user; /data holds the tokens file (mounted at run time, never baked in).
 RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin app \

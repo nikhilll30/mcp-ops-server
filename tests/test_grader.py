@@ -3,14 +3,15 @@ so each check is tested on its own here, not only through the suite."""
 
 import pytest
 
-from evals.grader import (
+from mcp_ops_kit.evals.grader import (
     Step,
+    SubjectRule,
     check_budget,
     check_forbidden,
-    check_patient_scope,
     check_preconditions,
     check_required,
     check_state,
+    check_subject_scope,
     grade,
     matches,
     render,
@@ -18,7 +19,10 @@ from evals.grader import (
     resolve_refs,
     step_matches,
 )
-from evals.harness import diff
+from mcp_ops_kit.evals.harness import diff
+from mcp_ops_server.backends.base import appointment_id
+
+PATIENTS = SubjectRule(arg="patient_id", task_key="patients", check="patient_scope")
 
 
 def _step(tool: str, ok: bool = True, **args: object) -> Step:
@@ -102,10 +106,10 @@ def test_forbidden() -> None:
 
 def test_patient_scope_ignores_refused_calls() -> None:
     other = [_step("get_referral_status", patient_id="PAT-0002")]
-    assert not check_patient_scope(["PAT-0001"], other).passed
+    assert not check_subject_scope(PATIENTS, ["PAT-0001"], other).passed
     refused = [_step("get_referral_status", ok=False, patient_id="PAT-0002")]
-    assert check_patient_scope(["PAT-0001"], refused).passed
-    assert check_patient_scope(["PAT-0001"], [_step("search_providers")]).passed
+    assert check_subject_scope(PATIENTS, ["PAT-0001"], refused).passed
+    assert check_subject_scope(PATIENTS, ["PAT-0001"], [_step("search_providers")]).passed
 
 
 def test_budgets() -> None:
@@ -151,9 +155,13 @@ def test_grade_resolves_setup_refs() -> None:
         "booked": [],
         "cancelled": [{"appointment_id": "APT-00009", "patient_id": "PAT-0021"}],
     }
-    ok = grade(task, [], change, {"setup": [None, {"appointment_id": "APT-00009"}]})
+    ok = grade(
+        task, [], change, {"setup": [None, {"appointment_id": "APT-00009"}]}, subject=PATIENTS
+    )
     assert ok.passed
-    wrong = grade(task, [], change, {"setup": [None, {"appointment_id": "APT-00010"}]})
+    wrong = grade(
+        task, [], change, {"setup": [None, {"appointment_id": "APT-00010"}]}, subject=PATIENTS
+    )
     assert wrong.failed() == ["final_state"]
 
 
@@ -172,7 +180,7 @@ def test_diff_reports_net_change_and_transient_writes() -> None:
         3: _row(3, "booked"),  # new booking
         4: _row(4, "cancelled"),  # booked and cancelled within the task: reported as transient
     }
-    change = diff(before, after)
+    change = diff(before, after, record_key="appointment_id", record_id=appointment_id)
     assert [r["appointment_id"] for r in change["booked"]] == ["APT-00003"]
     assert [r["appointment_id"] for r in change["cancelled"]] == ["APT-00001"]
     assert [r["appointment_id"] for r in change["transient"]] == ["APT-00004"]
@@ -234,7 +242,9 @@ def test_preconditions_apply_to_every_matching_step() -> None:
 
 def test_agent_error_and_unresolvable_expectations_fail_cleanly() -> None:
     task = {"id": "t", "patients": [], "expect": {}}
-    crashed = grade(task, [], {}, agent_error="IndexError: list index out of range")
+    crashed = grade(
+        task, [], {}, agent_error="IndexError: list index out of range", subject=PATIENTS
+    )
     assert crashed.failed() == ["agent_error"]
     bad_ref = {"id": "t", "expect": {"state": {"booked": [{"slot_id": {"$ref": "steps[3].x"}}]}}}
-    assert grade(bad_ref, [], {}, {"steps": []}).failed() == ["expectations"]
+    assert grade(bad_ref, [], {}, {"steps": []}, subject=PATIENTS).failed() == ["expectations"]

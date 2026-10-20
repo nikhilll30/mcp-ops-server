@@ -18,7 +18,7 @@ docs = ["reportlab>=4", "pillow>=10"]  # briefs (PDF) and the demo GIF
 live = ["openai>=3.35,<4"]  # only for the owner-triggered live eval (evals/agents_openai.py)
 
 [tool.hatch.build.targets.wheel]
-packages = ["mcp_ops_server", "salon_ops"]
+packages = ["mcp_ops_kit", "mcp_ops_server", "salon_ops"]
 
 [tool.ruff]
 line-length = 100

@@ -1,6 +1,8 @@
 # Evals
 
-Trajectory-level evals for the MCP server. An agent's run is graded on **every step it took** and
+Trajectory-level evals for the clinic MCP server. The harness, grader, agents and report live in
+`mcp_ops_kit/evals/` (shared with the salon example, `salon_ops/evals/`); this folder is the
+clinic's part: its `EvalDomain` (`run.py`), golden tasks and live-agent prompt. An agent's run is graded on **every step it took** and
 on **what actually changed in the database**, not just on its final answer.
 
 ```bash
@@ -9,7 +11,7 @@ python -m evals.golden.make_tasks      # regenerate golden/*.json after editing 
 ```
 
 ## How a run works
-1. **Every task gets its own freshly seeded database and server.** `harness.py` builds the app
+1. **Every task gets its own freshly seeded database and server.** The kit's harness builds the app
    with the same `build_http_app` that `python -m mcp_ops_server` uses (real HTTP, real bearer
    auth, real limits) and runs it in a background thread. So a bad run cannot leave state for
    the next task, and expectations can be exact (e.g. "the earliest slot is SLT-00002").
@@ -20,7 +22,7 @@ python -m evals.golden.make_tasks      # regenerate golden/*.json after editing 
    (`staff`, `reader`, or a patient-bound `portal:PAT-XXXX` token).
 4. **The harness records every call the agent makes**; that record, not anything the agent
    returns, is graded. An agent that crashes fails its task (`agent_error`), not the run.
-5. `grader.py` checks the recorded trajectory and the before/after diff of the appointments
+5. The kit's grader checks the recorded trajectory and the before/after diff of the appointments
    table.
 
 ## What the grader checks
@@ -30,7 +32,7 @@ python -m evals.golden.make_tasks      # regenerate golden/*.json after editing 
 | `required_steps` | a required call is missing, failed, or (by default) out of order; each requirement needs its own step |
 | `forbidden_steps` | a forbidden call happened, e.g. any successful write in a refusal or auth task |
 | `preconditions` | a step happened without its prerequisite before it, e.g. *any* successful specialist booking not preceded by a check of *that specialty's* referral |
-| `patient_scope` | any successful call named a patient the task did not mention |
+| `patient_scope` | any successful call named a patient the task did not mention (the kit's subject-scope check; the salon's is `customer_scope`) |
 | `max_calls` / `max_errors` | the agent flailed or kept hitting errors |
 | `final_state` | the database change differs from the expected bookings, cancellations and transient (booked-then-cancelled) appointments; matched one-to-one, extra changes fail |
 

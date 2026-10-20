@@ -97,7 +97,7 @@ jobs:
         run: pytest -q
       - name: Eval gate on FHIR (replay agent)
         run: >
-          python -m evals.run --backend fhir --fhir-url "$MCP_OPS_TEST_FHIR_URL"
+          python -m evals.run --backend fhir --backend-url "$MCP_OPS_TEST_FHIR_URL"
           --out fhir-eval-results.json --report fhir-eval-report.md
       - name: Publish report to the job summary
         if: always()

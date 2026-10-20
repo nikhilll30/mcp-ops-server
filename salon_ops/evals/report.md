@@ -1,6 +1,6 @@
-# Eval report
+# Eval report: salon
 
-Agent: **replay** · finished 2026-10-20T20:14:52+00:00 · backend: **sqlite** · server: `python -m salon_ops` over Streamable HTTP with issued tokens.
+Agent: **replay** · finished 2026-10-20T20:32:44+00:00 · backend: **sqlite** · server: `python -m salon_ops` over Streamable HTTP with issued tokens.
 
 **18/18 golden tasks passed** · **11/11 negative controls caught** · 33 tool calls, 5 tool errors, 0 agent errors (crashes or API failures).
 
@@ -57,10 +57,10 @@ Agent: **replay** · finished 2026-10-20T20:14:52+00:00 · backend: **sqlite** �
 
 | Tool | Calls | p50 ms | p95 ms | max ms |
 |---|---|---|---|---|
-| `book_visit` | 7 | 10.5 | 13.6 | 13.7 |
-| `cancel_visit` | 5 | 11.2 | 12.9 | 13.0 |
-| `get_customer_visits` | 3 | 10.7 | 10.8 | 10.9 |
-| `list_openings` | 9 | 10.3 | 13.3 | 14.6 |
-| `search_stylists` | 9 | 9.5 | 33.8 | 47.8 |
+| `book_visit` | 7 | 14.8 | 18.2 | 18.2 |
+| `cancel_visit` | 5 | 15.8 | 21.3 | 21.6 |
+| `get_customer_visits` | 3 | 17.3 | 17.5 | 17.6 |
+| `list_openings` | 9 | 15.0 | 20.1 | 20.3 |
+| `search_stylists` | 9 | 14.4 | 40.8 | 57.2 |
 
 Latency is from one local run and varies by machine; it is a baseline, not a benchmark.

@@ -5,13 +5,12 @@ a database constraint: a partial unique index allows at most one *booked* visit 
 """
 
 import sqlite3
-import threading
-import time
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from typing import TypedDict
 
+from mcp_ops_kit.errors import ConflictError, NotFoundError, StoreError
+from mcp_ops_kit.sqlite import SqliteStore, escape_like, has_table, run_script
 from salon_ops import seed
 from salon_ops.models import (
     CustomerVisitsResult,
@@ -26,26 +25,6 @@ from salon_ops.models import (
 MAX_RANGE_DAYS = 14
 EARLIEST_DATE = date(2000, 1, 1)
 LATEST_DATE = date(2100, 12, 31)
-
-
-class StoreError(Exception):
-    """An anticipated failure whose message is safe and useful to show an agent."""
-
-
-class NotFoundError(StoreError):
-    pass
-
-
-class ConflictError(StoreError):
-    pass
-
-
-class BusyError(StoreError):
-    """The store could not serve the call in time (lock held or contention)."""
-
-
-class CallTimeoutError(StoreError):
-    """A call ran past the per-call deadline and was cancelled. Nothing was written."""
 
 
 class VisitRow(TypedDict):
@@ -102,20 +81,9 @@ def parse_visit_id(value: str) -> int | None:
     return int(digits) if ok else None
 
 
-def _escape_like(text: str) -> str:
-    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-
-class SalonStore:
-    """Thread-safe facade over one SQLite connection, with one deadline per call.
-
-    The locking and deadline handling is the clinic's ``SqliteBackend`` pattern: the SDK runs
-    sync tools in worker threads, so every statement goes through ``_lock``; writes use
-    ``BEGIN IMMEDIATE``; and one deadline covers the lock wait, SQLite's busy wait and
-    statement execution, with a write that reaches COMMIT late rolled back.
-
-    ``now`` returns the current salon-local time.
-    """
+class SalonStore(SqliteStore):
+    """The salon over one SQLite connection, with the kit's per-call deadline and locking
+    (``mcp_ops_kit.sqlite.SqliteStore``). ``now`` returns the current salon-local time."""
 
     def __init__(
         self,
@@ -124,88 +92,15 @@ class SalonStore:
         timeout_s: float = 5.0,
         now: Callable[[], datetime] = lambda: seed.SALON_NOW,
     ) -> None:
-        self._conn = sqlite3.connect(
-            path, timeout=timeout_s, check_same_thread=False, isolation_level=None
-        )
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA foreign_keys = ON")
-        self._lock = threading.Lock()
-        self._timeout_s = timeout_s
-        self._deadline = float("inf")
-        self._conn.set_progress_handler(self._past_deadline, 1000)
-        self._now = now
         self._seed_value = seed_value
-        self._initialize()
+        super().__init__(path, label="salon", timeout_s=timeout_s, now=now)
 
-    def _past_deadline(self) -> int:
-        return 1 if time.monotonic() > self._deadline else 0
+    def _is_seeded(self, c: sqlite3.Connection) -> bool:
+        return has_table(c, "stylists")
 
-    def _check_deadline(self) -> None:
-        if time.monotonic() > self._deadline:
-            raise CallTimeoutError("The call took too long and was cancelled.")
-
-    def _bound_busy_wait(self) -> None:
-        self._check_deadline()
-        remaining = min(self._deadline - time.monotonic(), self._timeout_s)
-        self._conn.execute(f"PRAGMA busy_timeout = {max(1, int(remaining * 1000))}")
-
-    @contextmanager
-    def _locked(self) -> Iterator[None]:
-        deadline = time.monotonic() + self._timeout_s
-        if not self._lock.acquire(timeout=self._timeout_s):
-            raise BusyError("The salon database is busy. Retry the call.")
-        self._deadline = deadline
-        try:
-            self._bound_busy_wait()
-            yield
-        except sqlite3.OperationalError as exc:
-            if "interrupted" in str(exc):
-                raise CallTimeoutError("The call took too long and was cancelled.") from exc
-            if "locked" in str(exc):
-                raise BusyError("The salon database is busy. Retry the call.") from exc
-            raise
-        finally:
-            self._deadline = float("inf")
-            self._lock.release()
-
-    @contextmanager
-    def _write(self) -> Iterator[sqlite3.Connection]:
-        with self._locked():
-            try:
-                self._conn.execute("BEGIN IMMEDIATE")
-                yield self._conn
-                self._bound_busy_wait()
-                self._conn.execute("COMMIT")
-            except BaseException:
-                if self._conn.in_transaction:
-                    self._deadline = float("inf")
-                    self._conn.execute("ROLLBACK")
-                raise
-
-    def _read(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
-        with self._locked():
-            return self._conn.execute(sql, params).fetchall()
-
-    def close(self) -> None:
-        self._conn.close()
-
-    def _now_iso(self) -> str:
-        return self._now().isoformat()
-
-    def _initialize(self) -> None:
-        with self._write() as c:
-            self._deadline = float("inf")
-            if c.execute(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'stylists'"
-            ).fetchone():
-                return
-            self._load(c, seed.generate(self._seed_value))
-
-    @staticmethod
-    def _load(c: sqlite3.Connection, data: seed.SeedData) -> None:
-        for stmt in SCHEMA.split(";"):
-            if stmt.strip():
-                c.execute(stmt)
+    def _seed(self, c: sqlite3.Connection) -> None:
+        data = seed.generate(self._seed_value)
+        run_script(c, SCHEMA)
         c.executemany(
             "INSERT INTO stylists VALUES (?, ?, ?)",
             [(s.id, s.name, s.studio) for s in data.stylists],
@@ -252,7 +147,7 @@ class SalonStore:
             params.append(studio)
         if name:
             sql += " AND s.name LIKE ? ESCAPE '\\'"
-            params.append(f"%{_escape_like(name.strip())}%")
+            params.append(f"%{escape_like(name.strip())}%")
         sql += " ORDER BY s.id LIMIT ?"
         params.append(limit)
         stylists = [

@@ -1,17 +1,14 @@
 """The salon's MCP tools: thin wrappers that check scope, then call the store."""
 
-import inspect
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
 from datetime import date
 from typing import Annotated
 
 from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from salon_ops.auth import Guard
+from mcp_ops_kit.auth import Guard
+from mcp_ops_kit.server import READ_ONLY, store_errors, tool
 from salon_ops.models import (
     CustomerVisitsResult,
     OpeningsResult,
@@ -20,7 +17,7 @@ from salon_ops.models import (
     Studio,
     VisitResult,
 )
-from salon_ops.store import MAX_RANGE_DAYS, SalonStore, StoreError
+from salon_ops.store import MAX_RANGE_DAYS, SalonStore
 
 CustomerId = Annotated[
     str, Field(pattern=r"^CUS-[0-9]{4}$", description="Customer ID, e.g. CUS-0001.")
@@ -38,26 +35,6 @@ VisitId = Annotated[
         description="Visit ID from book_visit or get_customer_visits.",
     ),
 ]
-
-READ_ONLY = ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHint=False)
-
-
-@contextmanager
-def store_errors() -> Iterator[None]:
-    """Turn anticipated store failures into ToolErrors the agent can read and act on."""
-    try:
-        yield
-    except StoreError as exc:
-        raise ToolError(str(exc)) from exc
-
-
-def tool(server: MCPServer, **kwargs: object) -> Callable[[Callable], Callable]:
-    """Register a tool whose description is its docstring, dedented the same on every Python."""
-
-    def register(fn: Callable) -> Callable:
-        return server.tool(description=inspect.cleandoc(fn.__doc__ or ""), **kwargs)(fn)
-
-    return register
 
 
 def register(server: MCPServer, store: SalonStore, guard: Guard) -> None:

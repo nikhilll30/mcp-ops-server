@@ -9,9 +9,9 @@ from typing import Any
 
 import pytest
 
-from evals.agents import ReplayAgent
 from evals.golden.make_tasks import build
 from evals.run import load, report, run_suite
+from mcp_ops_kit.evals.agents import ReplayAgent
 
 CHECK_NAMES = {
     "agent_error",

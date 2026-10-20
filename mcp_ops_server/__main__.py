@@ -1,37 +1,22 @@
 """Entry point for ``python -m mcp_ops_server``."""
 
-import sys
-from pathlib import Path
-
-import uvicorn
-
+from mcp_ops_kit.server import serve
+from mcp_ops_server.auth import AUTH
 from mcp_ops_server.backends.fhir import BackendUnavailableError
-from mcp_ops_server.config import Settings
+from mcp_ops_server.config import ENV_PREFIX, Settings
 from mcp_ops_server.server import build_http_app
 
 
 def main() -> None:
-    settings = Settings.from_env()
-    if not settings.tokens_file:
-        # Fail closed: never serve patient-like data without auth.
-        sys.exit(
-            "MCP_OPS_TOKENS_FILE is not set. Issue a token first:\n"
-            "  python -m mcp_ops_server.auth issue --file tokens.json --client dev "
-            "--scope read:schedule --scope write:schedule --scope read:referrals\n"
-            "then run with MCP_OPS_TOKENS_FILE=tokens.json"
-        )
-    if not Path(settings.tokens_file).is_file():
-        # Same fail-closed rule, with a message instead of a traceback (e.g. a container
-        # started before a tokens file was mounted).
-        sys.exit(
-            f"Tokens file {settings.tokens_file} not found. Issue a token into it first "
-            "(python -m mcp_ops_server.auth issue --file ...) or point MCP_OPS_TOKENS_FILE at it."
-        )
-    try:
-        app = build_http_app(settings)
-    except BackendUnavailableError as exc:
-        sys.exit(str(exc))  # fail closed with one line, not a traceback
-    uvicorn.run(app, host=settings.host, port=settings.port, log_level="info")
+    # Fails closed: never serves patient-like data without a tokens file, and refuses to
+    # start (with one line, not a traceback) if the FHIR backend is unusable.
+    serve(
+        Settings.from_env(),
+        build_http_app,  # type: ignore[arg-type] - called with the clinic Settings above
+        auth=AUTH,
+        env_prefix=ENV_PREFIX,
+        startup_errors=(BackendUnavailableError,),
+    )
 
 
 if __name__ == "__main__":

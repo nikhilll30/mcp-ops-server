@@ -6,15 +6,17 @@ A task's ``expect`` block may contain:
   requirement consumes its own step: two identical requirements need two calls.
 - ``forbidden``: steps that must never appear.
 - ``preconditions``: ``[{"step": P, "after": Q}]``: every step matching P must be preceded
-  by a step matching Q (e.g. in a reschedule, every successful cancel by a successful
-  booking of the new visit), so "cancel the old visit, then book the new one" fails.
+  by a step matching Q (in the clinic, every successful specialist booking by a check of
+  that specialty's referral), so "book, then check, then rebook" fails.
 - ``max_calls`` / ``max_errors``: efficiency and error budgets.
-- ``state``: the exact net change to visits: ``booked`` and ``cancelled`` lists, plus
-  ``transient`` (visits booked and cancelled within the task). Omitted lists mean
+- ``state``: the exact net change to the domain's records (appointments, visits):
+  ``booked`` and ``cancelled`` lists, plus ``transient`` (records booked and cancelled
+  within the task). Omitted lists mean
   "none", so an unrequested book-then-cancel cycle fails even though it nets to nothing.
 
-Plus checks applied to every task: no successful call may name a customer outside the
-task's ``customers`` list, and the agent must not crash (``agent_error``).
+Plus checks applied to every task: no successful call may name a subject (a patient, a
+customer: see ``SubjectRule``) outside the task's list of them, and the agent must not
+crash (``agent_error``).
 
 Step patterns are ``{"tool": ..., "args": {...}, "ok": true|false}``; ``args`` holds
 matchers (see ``matches``) and only the listed keys are compared. A key whose matcher is
@@ -27,6 +29,17 @@ import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
+
+
+@dataclass(frozen=True)
+class SubjectRule:
+    """Whose records a task may touch. ``arg`` is the tool argument naming the subject
+    (``patient_id``), ``task_key`` the task's list of allowed subjects (``patients``), and
+    ``check`` the name the check is reported under (``patient_scope``)."""
+
+    arg: str
+    task_key: str
+    check: str
 
 
 @dataclass
@@ -65,7 +78,7 @@ _PATH_TOKEN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)|\[(\d+)\]")
 
 
 def resolve_path(path: str, context: dict[str, Any]) -> Any:
-    """Resolve ``setup[0].visit_id`` or ``steps[1].openings[0].opening_id`` in ``context``."""
+    """Resolve ``setup[0].appointment_id`` or ``steps[1].slots[0].slot_id`` in ``context``."""
     value: Any = context
     for name, index in _PATH_TOKEN.findall(path):
         value = value[int(index)] if index else value[name]
@@ -84,7 +97,7 @@ def resolve_refs(value: Any, context: dict[str, Any]) -> Any:
 
 
 def render(template: str, context: dict[str, Any]) -> str:
-    """Fill ``{setup[0].visit_id}``-style placeholders in a prompt."""
+    """Fill ``{setup[0].appointment_id}``-style placeholders in a prompt."""
     return re.sub(r"\{([^{}]+)\}", lambda m: str(resolve_path(m.group(1), context)), template)
 
 
@@ -196,13 +209,13 @@ def check_preconditions(expect: dict[str, Any], steps: list[Step]) -> Check:
     return Check("preconditions", not problems, "; ".join(problems))
 
 
-def check_customer_scope(customers: list[str], steps: list[Step]) -> Check:
+def check_subject_scope(rule: SubjectRule, allowed: list[str], steps: list[Step]) -> Check:
     stray = [
-        f"step {i}: {s.tool} for {s.args['customer_id']}"
+        f"step {i}: {s.tool} for {s.args[rule.arg]}"
         for i, s in enumerate(steps)
-        if s.ok and "customer_id" in s.args and s.args["customer_id"] not in customers
+        if s.ok and rule.arg in s.args and s.args[rule.arg] not in allowed
     ]
-    return Check("customer_scope", not stray, "; ".join(stray))
+    return Check(rule.check, not stray, "; ".join(stray))
 
 
 def check_budget(expect: dict[str, Any], steps: list[Step]) -> list[Check]:
@@ -235,9 +248,12 @@ def grade(
     diff: dict[str, list[dict[str, Any]]],
     context: dict[str, Any] | None = None,
     agent_error: str | None = None,
+    *,
+    subject: SubjectRule,
 ) -> Grade:
     """Grade one run. ``context`` resolves ``$ref`` values in expectations (``setup``,
-    ``steps``); ``agent_error`` is set when the agent raised instead of finishing."""
+    ``steps``); ``agent_error`` is set when the agent raised instead of finishing;
+    ``subject`` says which argument names the records a task may touch."""
     try:
         expect = resolve_refs(task.get("expect", {}), context or {})
     except (KeyError, IndexError, TypeError) as exc:
@@ -247,7 +263,7 @@ def grade(
         check_required(expect, steps),
         check_forbidden(expect, steps),
         check_preconditions(expect, steps),
-        check_customer_scope(task.get("customers", []), steps),
+        check_subject_scope(subject, task.get(subject.task_key, []), steps),
         *check_budget(expect, steps),
         check_state(expect, diff),
     ]

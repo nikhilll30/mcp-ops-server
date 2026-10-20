@@ -9,11 +9,11 @@ from pathlib import Path
 import pytest
 from conftest import NO_REFERRAL_PATIENT, PRIMARY_PROVIDER, seeded_busy_starts
 
+from mcp_ops_kit.limits import RateLimiter
 from mcp_ops_server import seed
 from mcp_ops_server.backends.base import BusyError, CallTimeoutError, ConflictError
 from mcp_ops_server.backends.sqlite import SqliteBackend
 from mcp_ops_server.config import Settings
-from mcp_ops_server.limits import RateLimiter
 
 # ---- rate limiter --------------------------------------------------------------------------
 

@@ -8,15 +8,15 @@ its final answer) for the report; it is never used for grading. An agent with an
 ``aclose()`` has it called once after its last task.
 
 ``ReplayAgent`` needs no LLM: it replays a scripted trajectory, resolving ``$ref`` values
-against earlier results (``steps[1].openings[0].opening_id``) and setup results. It runs free and
+against earlier results (``steps[1].slots[0].slot_id``) and setup results. It runs free and
 deterministically in CI, so a server change that breaks a known-good agent flow fails the
-build.
+build. ``openai_agent.OpenAIAgent`` is an LLM agent behind the same interface.
 """
 
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
-from salon_ops.evals.grader import Step, resolve_refs
+from mcp_ops_kit.evals.grader import Step, resolve_refs
 
 # ``call(tool, args)``. Arguments that are not a dict (a model's malformed JSON) are recorded
 # as a failed step and never sent to the server.
