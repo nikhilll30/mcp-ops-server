@@ -2,6 +2,21 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-20 · Part 7: my first FHIR booking could double-book if one guard was missing
+- **What broke:** a mutation test. I removed the slot's `If-Match` from the booking transaction, expecting the appointment-sequence `If-Match` to still serialise bookings. It did not: 20 threads booking one slot against HAPI gave **3 to 5 winners**, each with its own appointment number. The booking read the Slot first and the sequence last, so a rival could commit between the two reads. The slot then looked free and the sequence version still matched.
+- **What changed:** the sequence is read **before** any check. Every booking moves it, so any booking that commits while the checks run fails the sequence `If-Match`, and the booking re-checks from the start. **Tests:** a fake FHIR server records the requests. The first read must be the sequence, and the commit must be one transaction with `If-Match` on both the Slot (the version checked as free) and the sequence. Against HAPI there are tests that it rejects a stale `If-Match` on each resource, a deterministic interleaving (a rival books between A's checks and A's commit, and A gets "already booked"), and the 20-thread race.
+- **Mutation matrix (15 race runs each, against HAPI):** both guards: 0 double bookings. Slot `If-Match` only: 0. Sequence `If-Match` only (read first): 0. Neither: 15/15 runs double-booked. Removing either `If-Match`, or moving the sequence read back, fails the transaction-shape test.
+- **Lesson:** a version guard protects only what was read *after* the version it checks. "The race test passes" proved nothing until I broke each guard on purpose.
+
+## 2026-10-20 · Part 7: HAPI's search cache would show a just-booked slot as open
+- **What I checked:** HAPI can reuse cached search results for up to a minute. The backend sends `Cache-Control: no-cache` on every request. **Mutation:** with that header removed, 3 tool tests fail on FHIR. These were booking then listing slots, the overlap check, and the cancel ownership check: each reads a search result from before its own write. With the header, all pass. A unit test pins the header.
+- **Also found while testing:** HAPI does not create a new version for a PUT that changes nothing. My first "someone else moved the sequence" test re-PUT the same content and expected a conflict that never came. The test was wrong, not the backend: every booking changes the sequence value and every cancel changes a status. The test now makes a real change.
+
+## 2026-10-20 · Part 7: HAPI enforces references on write, so the seed is ordered
+- **What broke:** my first hand-written PUT of a Slot failed with `HAPI-1094: Resource Schedule/PRV-001 not found`, and a Schedule before its Practitioner failed the same way.
+- **What changed:** the seed is exported as transaction Bundles in reference order: Locations, Patients, Practitioners, roles, Schedules and referrals, then Slots in chunks of 1,000, then Appointments, the sequence, and last a marker with a hash of the Bundles. A load that stops part-way is never mistaken for a complete one. **Tests:** every reference in the Bundles resolves to a resource in them. Loading twice is a no-op. Reset restores exactly the seed (the appointment snapshot and open slots match SQLite, and numbering restarts at APT-00129).
+- **Disclosed:** Docker was installed in this session but its daemon was not running. I started it (`sudo dockerd`) to run HAPI `v8.4.0-2` locally, and pulled the image by the digest CI pins. The proof that it works on GitHub's network is the new `fhir` CI job.
+
 ## 2026-10-20 · Phase 2 planning: the HTTP client is `httpx2`, not `httpx`
 - **What surprised me:** my first draft of the Part 7 plan said the FHIR backend would use `httpx`, "already installed via `mcp`". It is not: `pip show mcp` lists `httpx2` as the dependency, `import httpx` fails in this environment, and the repo's own harness, smoke test and HTTP integration test all import `httpx2`.
 - **What changed:** the Part 7 plan in `comms/STATUS.md` names `httpx2`, so the FHIR backend adds no new dependency. The MCP SDK gotchas in `CLAUDE.md` now say so.
