@@ -139,7 +139,8 @@ jobs:
           echo "MCP_TOKEN=$TOKEN" >> "$GITHUB_ENV"
           KEY=$(docker run --rm mcp-ops-server:ci python -m mcp_ops_kit.crypto new-key)
           echo "::add-mask::$KEY"
-          echo "MCP_OPS_DATA_KEY=$KEY" >> "$GITHUB_ENV"
+          echo "MCP_OPS_DATA_KEY=$KEY" >> "$GITHUB_ENV"  # for later steps
+          export MCP_OPS_DATA_KEY="$KEY"  # $GITHUB_ENV does not reach this step's own shell
           # Without a data key the image must refuse to start (fail closed), with one line.
           if docker run --rm -v "$PWD/ctdata:/data:ro" mcp-ops-server:ci > nokey.log 2>&1; then
             echo "::error::the container started without MCP_OPS_DATA_KEY"; exit 1
