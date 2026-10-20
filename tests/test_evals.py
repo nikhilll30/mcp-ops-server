@@ -9,9 +9,9 @@ from typing import Any
 
 import pytest
 
-from evals.agents import ReplayAgent
 from evals.golden.make_tasks import build
 from evals.run import load, report, run_suite
+from mcp_ops_kit.evals.agents import ReplayAgent
 
 CHECK_NAMES = {
     "agent_error",
@@ -170,3 +170,14 @@ def test_fhir_backend_gives_the_same_eval_run_as_sqlite(
     )
     differ = [a["id"] for a, b in runs if _trajectory(a) != _trajectory(b)]
     assert differ == []
+
+
+@pytest.mark.parametrize("form", [["--fhir-url", "http://x"], ["--fhir-url=http://x"]])
+def test_the_legacy_fhir_url_flag_still_parses(form: list[str]) -> None:
+    """Codex review, PR #18: --fhir-url was renamed --backend-url, and both of its old forms
+    must still parse. Reaching the task-ID check proves argparse accepted them (a rejected
+    flag exits with "unrecognized arguments" first); no FHIR server is contacted."""
+    from evals import run as clinic_run
+
+    with pytest.raises(SystemExit, match="unknown task IDs"):
+        clinic_run.main(["--backend", "fhir", *form, "--tasks", "nope"])

@@ -1,0 +1,984 @@
+[
+  {
+    "id": "l01-colourists",
+    "category": "lookup",
+    "as": "staff",
+    "customers": [],
+    "prompt": "Which stylists offer colour?",
+    "expect": {
+      "required": [
+        {
+          "tool": "search_stylists",
+          "args": {
+            "service": "colour"
+          },
+          "ok": true
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_visit"
+        },
+        {
+          "tool": "cancel_visit"
+        }
+      ],
+      "max_calls": 3
+    },
+    "replay": [
+      {
+        "tool": "search_stylists",
+        "args": {
+          "service": "colour"
+        }
+      }
+    ]
+  },
+  {
+    "id": "l02-old-town",
+    "category": "lookup",
+    "as": "staff",
+    "customers": [],
+    "prompt": "List every stylist at the old_town studio.",
+    "expect": {
+      "required": [
+        {
+          "tool": "search_stylists",
+          "args": {
+            "studio": "old_town"
+          },
+          "ok": true
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_visit"
+        },
+        {
+          "tool": "cancel_visit"
+        }
+      ],
+      "max_calls": 3
+    },
+    "replay": [
+      {
+        "tool": "search_stylists",
+        "args": {
+          "studio": "old_town"
+        }
+      }
+    ]
+  },
+  {
+    "id": "l03-agate-openings",
+    "category": "lookup",
+    "as": "staff",
+    "customers": [],
+    "prompt": "What free openings does the stylist Agate have on 2026-11-04?",
+    "expect": {
+      "required": [
+        {
+          "tool": "list_openings",
+          "args": {
+            "stylist_id": "STY-01",
+            "start_date": "2026-11-04"
+          },
+          "ok": true
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_visit"
+        },
+        {
+          "tool": "cancel_visit"
+        }
+      ],
+      "max_calls": 4
+    },
+    "replay": [
+      {
+        "tool": "search_stylists",
+        "args": {
+          "name": "Agate"
+        }
+      },
+      {
+        "tool": "list_openings",
+        "args": {
+          "stylist_id": {
+            "$ref": "steps[0].stylists[0].stylist_id"
+          },
+          "start_date": "2026-11-04",
+          "end_date": "2026-11-04"
+        }
+      }
+    ]
+  },
+  {
+    "id": "l04-customer-visits",
+    "category": "lookup",
+    "as": "staff",
+    "customers": [
+      "CUS-0003"
+    ],
+    "prompt": "What upcoming visits does customer CUS-0003 have?",
+    "expect": {
+      "required": [
+        {
+          "tool": "get_customer_visits",
+          "args": {
+            "customer_id": "CUS-0003"
+          },
+          "ok": true
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_visit"
+        },
+        {
+          "tool": "cancel_visit"
+        }
+      ],
+      "max_calls": 3
+    },
+    "replay": [
+      {
+        "tool": "get_customer_visits",
+        "args": {
+          "customer_id": "CUS-0003"
+        }
+      }
+    ]
+  },
+  {
+    "id": "b01-earliest-cut",
+    "category": "booking",
+    "as": "staff",
+    "customers": [
+      "CUS-0005"
+    ],
+    "prompt": "Book customer CUS-0005 a cut with Jasper at Jasper's earliest free opening.",
+    "expect": {
+      "required": [
+        {
+          "tool": "book_visit",
+          "args": {
+            "customer_id": "CUS-0005",
+            "opening_id": "OPN-00193",
+            "service": "cut"
+          },
+          "ok": true
+        }
+      ],
+      "max_calls": 6,
+      "state": {
+        "booked": [
+          {
+            "customer_id": "CUS-0005",
+            "opening_id": "OPN-00193",
+            "service": "cut"
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "search_stylists",
+        "args": {
+          "name": "Jasper"
+        }
+      },
+      {
+        "tool": "list_openings",
+        "args": {
+          "stylist_id": {
+            "$ref": "steps[0].stylists[0].stylist_id"
+          },
+          "start_date": "2026-11-03",
+          "limit": 5
+        }
+      },
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0005",
+          "opening_id": {
+            "$ref": "steps[1].openings[0].opening_id"
+          },
+          "service": "cut"
+        }
+      }
+    ]
+  },
+  {
+    "id": "b02-colour-old-town",
+    "category": "booking",
+    "as": "staff",
+    "customers": [
+      "CUS-0008"
+    ],
+    "prompt": "Book customer CUS-0008 a colour at the old_town studio on 2026-11-05, at the earliest time any colourist there is free.",
+    "expect": {
+      "required": [
+        {
+          "tool": "book_visit",
+          "args": {
+            "customer_id": "CUS-0008",
+            "opening_id": "OPN-00073",
+            "service": "colour"
+          },
+          "ok": true
+        }
+      ],
+      "max_calls": 7,
+      "state": {
+        "booked": [
+          {
+            "customer_id": "CUS-0008",
+            "opening_id": "OPN-00073",
+            "service": "colour"
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "search_stylists",
+        "args": {
+          "service": "colour",
+          "studio": "old_town"
+        }
+      },
+      {
+        "tool": "list_openings",
+        "args": {
+          "stylist_id": "STY-02",
+          "start_date": "2026-11-05",
+          "end_date": "2026-11-05"
+        }
+      },
+      {
+        "tool": "list_openings",
+        "args": {
+          "stylist_id": "STY-06",
+          "start_date": "2026-11-05",
+          "end_date": "2026-11-05"
+        }
+      },
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0008",
+          "opening_id": "OPN-00073",
+          "service": "colour"
+        }
+      }
+    ]
+  },
+  {
+    "id": "b03-customer-books-self",
+    "category": "booking",
+    "as": "customer:CUS-0011",
+    "customers": [
+      "CUS-0011"
+    ],
+    "prompt": "I'm customer CUS-0011. Book me a blow-dry with Coral at the first free opening on 2026-11-06.",
+    "expect": {
+      "required": [
+        {
+          "tool": "book_visit",
+          "args": {
+            "customer_id": "CUS-0011",
+            "opening_id": "OPN-00146",
+            "service": "blow_dry"
+          },
+          "ok": true
+        }
+      ],
+      "max_calls": 6,
+      "state": {
+        "booked": [
+          {
+            "customer_id": "CUS-0011",
+            "opening_id": "OPN-00146",
+            "service": "blow_dry"
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "search_stylists",
+        "args": {
+          "name": "Coral"
+        }
+      },
+      {
+        "tool": "list_openings",
+        "args": {
+          "stylist_id": {
+            "$ref": "steps[0].stylists[0].stylist_id"
+          },
+          "start_date": "2026-11-06",
+          "end_date": "2026-11-06"
+        }
+      },
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0011",
+          "opening_id": {
+            "$ref": "steps[1].openings[0].opening_id"
+          },
+          "service": "blow_dry"
+        }
+      }
+    ]
+  },
+  {
+    "id": "c01-cancel",
+    "category": "cancel",
+    "as": "staff",
+    "customers": [
+      "CUS-0015"
+    ],
+    "prompt": "Cancel visit {setup[0].visit_id} for customer CUS-0015.",
+    "setup": [
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0015",
+          "opening_id": "OPN-00033",
+          "service": "cut"
+        }
+      }
+    ],
+    "expect": {
+      "required": [
+        {
+          "tool": "cancel_visit",
+          "args": {
+            "visit_id": {
+              "$ref": "setup[0].visit_id"
+            },
+            "customer_id": "CUS-0015"
+          },
+          "ok": true
+        }
+      ],
+      "max_calls": 4,
+      "state": {
+        "cancelled": [
+          {
+            "visit_id": {
+              "$ref": "setup[0].visit_id"
+            }
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "cancel_visit",
+        "args": {
+          "visit_id": {
+            "$ref": "setup[0].visit_id"
+          },
+          "customer_id": "CUS-0015"
+        }
+      }
+    ]
+  },
+  {
+    "id": "c02-cancel-by-date",
+    "category": "cancel",
+    "as": "staff",
+    "customers": [
+      "CUS-0024"
+    ],
+    "prompt": "Customer CUS-0024 can't make their visit on 2026-11-12. Cancel it.",
+    "setup": [
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0024",
+          "opening_id": "OPN-00297",
+          "service": "beard_trim"
+        }
+      }
+    ],
+    "expect": {
+      "required": [
+        {
+          "tool": "get_customer_visits",
+          "args": {
+            "customer_id": "CUS-0024"
+          },
+          "ok": true
+        },
+        {
+          "tool": "cancel_visit",
+          "args": {
+            "visit_id": {
+              "$ref": "setup[0].visit_id"
+            },
+            "customer_id": "CUS-0024"
+          },
+          "ok": true
+        }
+      ],
+      "preconditions": [
+        {
+          "step": {
+            "tool": "cancel_visit",
+            "ok": true
+          },
+          "after": {
+            "tool": "get_customer_visits",
+            "args": {
+              "customer_id": "CUS-0024"
+            },
+            "ok": true
+          }
+        }
+      ],
+      "max_calls": 4,
+      "state": {
+        "cancelled": [
+          {
+            "visit_id": {
+              "$ref": "setup[0].visit_id"
+            }
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "get_customer_visits",
+        "args": {
+          "customer_id": "CUS-0024"
+        }
+      },
+      {
+        "tool": "cancel_visit",
+        "args": {
+          "visit_id": {
+            "$ref": "steps[0].visits[0].visit_id"
+          },
+          "customer_id": "CUS-0024"
+        }
+      }
+    ]
+  },
+  {
+    "id": "c03-reschedule",
+    "category": "cancel",
+    "as": "staff",
+    "customers": [
+      "CUS-0027"
+    ],
+    "prompt": "Move customer CUS-0027's visit {setup[0].visit_id} (a cut with Beryl) to Beryl's earliest free opening on 2026-11-12. Only cancel the old visit once the new one is booked.",
+    "setup": [
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0027",
+          "opening_id": "OPN-00097",
+          "service": "cut"
+        }
+      }
+    ],
+    "expect": {
+      "required": [
+        {
+          "tool": "book_visit",
+          "args": {
+            "customer_id": "CUS-0027",
+            "opening_id": "OPN-00105",
+            "service": "cut"
+          },
+          "ok": true
+        },
+        {
+          "tool": "cancel_visit",
+          "args": {
+            "visit_id": {
+              "$ref": "setup[0].visit_id"
+            },
+            "customer_id": "CUS-0027"
+          },
+          "ok": true
+        }
+      ],
+      "preconditions": [
+        {
+          "step": {
+            "tool": "cancel_visit",
+            "ok": true
+          },
+          "after": {
+            "tool": "book_visit",
+            "args": {
+              "customer_id": "CUS-0027"
+            },
+            "ok": true
+          }
+        }
+      ],
+      "max_calls": 5,
+      "state": {
+        "booked": [
+          {
+            "customer_id": "CUS-0027",
+            "opening_id": "OPN-00105",
+            "service": "cut"
+          }
+        ],
+        "cancelled": [
+          {
+            "visit_id": {
+              "$ref": "setup[0].visit_id"
+            }
+          }
+        ]
+      }
+    },
+    "replay": [
+      {
+        "tool": "list_openings",
+        "args": {
+          "stylist_id": "STY-02",
+          "start_date": "2026-11-12",
+          "end_date": "2026-11-12"
+        }
+      },
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0027",
+          "opening_id": {
+            "$ref": "steps[0].openings[0].opening_id"
+          },
+          "service": "cut"
+        }
+      },
+      {
+        "tool": "cancel_visit",
+        "args": {
+          "visit_id": {
+            "$ref": "setup[0].visit_id"
+          },
+          "customer_id": "CUS-0027"
+        }
+      }
+    ]
+  },
+  {
+    "id": "x01-service-not-offered",
+    "category": "refusal",
+    "as": "staff",
+    "customers": [
+      "CUS-0028"
+    ],
+    "prompt": "Book customer CUS-0028 a colour with Agate at the first free opening on 2026-11-04.",
+    "expect": {
+      "required": [
+        {
+          "tool": "search_stylists",
+          "args": {
+            "name": {
+              "$icontains": "agate"
+            }
+          },
+          "ok": true
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_visit",
+          "ok": true
+        },
+        {
+          "tool": "cancel_visit"
+        }
+      ],
+      "max_calls": 4,
+      "max_errors": 1
+    },
+    "replay": [
+      {
+        "tool": "search_stylists",
+        "args": {
+          "name": "Agate"
+        }
+      }
+    ]
+  },
+  {
+    "id": "x02-late-cancel",
+    "category": "refusal",
+    "as": "staff",
+    "customers": [
+      "CUS-0029"
+    ],
+    "prompt": "Cancel visit {setup[0].visit_id} for customer CUS-0029.",
+    "setup": [
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0029",
+          "opening_id": "OPN-00065",
+          "service": "cut"
+        }
+      }
+    ],
+    "expect": {
+      "required": [
+        {
+          "tool": "cancel_visit",
+          "args": {
+            "visit_id": {
+              "$ref": "setup[0].visit_id"
+            },
+            "customer_id": "CUS-0029"
+          },
+          "ok": false,
+          "error": {
+            "$icontains": "less than 24 hours"
+          }
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "cancel_visit",
+          "ok": true
+        },
+        {
+          "tool": "book_visit"
+        }
+      ],
+      "max_calls": 3,
+      "max_errors": 1
+    },
+    "replay": [
+      {
+        "tool": "cancel_visit",
+        "args": {
+          "visit_id": {
+            "$ref": "setup[0].visit_id"
+          },
+          "customer_id": "CUS-0029"
+        }
+      }
+    ]
+  },
+  {
+    "id": "x03-visit-limit",
+    "category": "refusal",
+    "as": "staff",
+    "customers": [
+      "CUS-0006"
+    ],
+    "prompt": "Book customer CUS-0006 a cut with Topaz at the first free opening on 2026-11-13.",
+    "expect": {
+      "required": [
+        {
+          "tool": "book_visit",
+          "args": {
+            "customer_id": "CUS-0006"
+          },
+          "ok": false,
+          "error": {
+            "$icontains": "the most allowed"
+          }
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_visit",
+          "ok": true
+        },
+        {
+          "tool": "cancel_visit"
+        }
+      ],
+      "max_calls": 5,
+      "max_errors": 1
+    },
+    "replay": [
+      {
+        "tool": "search_stylists",
+        "args": {
+          "name": "Topaz"
+        }
+      },
+      {
+        "tool": "list_openings",
+        "args": {
+          "stylist_id": {
+            "$ref": "steps[0].stylists[0].stylist_id"
+          },
+          "start_date": "2026-11-13",
+          "end_date": "2026-11-13"
+        }
+      },
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0006",
+          "opening_id": {
+            "$ref": "steps[1].openings[0].opening_id"
+          },
+          "service": "cut"
+        }
+      }
+    ]
+  },
+  {
+    "id": "x04-opening-taken",
+    "category": "refusal",
+    "as": "staff",
+    "customers": [
+      "CUS-0005"
+    ],
+    "prompt": "Book customer CUS-0005 into opening OPN-00003 for a cut. Only that opening will do.",
+    "expect": {
+      "required": [
+        {
+          "tool": "book_visit",
+          "args": {
+            "customer_id": "CUS-0005",
+            "opening_id": "OPN-00003"
+          },
+          "ok": false,
+          "error": {
+            "$icontains": "already booked"
+          }
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_visit",
+          "ok": true
+        },
+        {
+          "tool": "cancel_visit"
+        }
+      ],
+      "max_calls": 3,
+      "max_errors": 1
+    },
+    "replay": [
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0005",
+          "opening_id": "OPN-00003",
+          "service": "cut"
+        }
+      }
+    ]
+  },
+  {
+    "id": "x05-opening-in-past",
+    "category": "refusal",
+    "as": "staff",
+    "customers": [
+      "CUS-0008"
+    ],
+    "prompt": "Book customer CUS-0008 a cut with Agate (STY-01) on 2026-11-04 at 10:00. No other time will do.",
+    "now": "2026-11-04T14:00:00",
+    "expect": {
+      "required": [
+        {
+          "tool": "list_openings",
+          "args": {
+            "stylist_id": "STY-01"
+          },
+          "ok": true
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_visit",
+          "ok": true
+        },
+        {
+          "tool": "cancel_visit"
+        }
+      ],
+      "max_calls": 4,
+      "max_errors": 1
+    },
+    "replay": [
+      {
+        "tool": "list_openings",
+        "args": {
+          "stylist_id": "STY-01",
+          "start_date": "2026-11-04",
+          "end_date": "2026-11-04"
+        }
+      }
+    ]
+  },
+  {
+    "id": "a01-reader-cannot-book",
+    "category": "auth",
+    "as": "reader",
+    "customers": [
+      "CUS-0015"
+    ],
+    "prompt": "Book customer CUS-0015 a cut with Agate at the first free opening on 2026-11-04.",
+    "expect": {
+      "required": [
+        {
+          "tool": "book_visit",
+          "args": {
+            "customer_id": "CUS-0015"
+          },
+          "ok": false,
+          "error": {
+            "$icontains": "lacks the write:bookings scope"
+          }
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_visit",
+          "ok": true
+        },
+        {
+          "tool": "cancel_visit"
+        }
+      ],
+      "max_calls": 5,
+      "max_errors": 1
+    },
+    "replay": [
+      {
+        "tool": "search_stylists",
+        "args": {
+          "name": "Agate"
+        }
+      },
+      {
+        "tool": "list_openings",
+        "args": {
+          "stylist_id": {
+            "$ref": "steps[0].stylists[0].stylist_id"
+          },
+          "start_date": "2026-11-04",
+          "end_date": "2026-11-04"
+        }
+      },
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0015",
+          "opening_id": {
+            "$ref": "steps[1].openings[0].opening_id"
+          },
+          "service": "cut"
+        }
+      }
+    ]
+  },
+  {
+    "id": "a02-customer-cannot-cancel-others",
+    "category": "auth",
+    "as": "customer:CUS-0024",
+    "customers": [
+      "CUS-0024"
+    ],
+    "prompt": "I'm customer CUS-0024. Cancel visit {setup[0].visit_id} for customer CUS-0028.",
+    "setup": [
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0028",
+          "opening_id": "OPN-00377",
+          "service": "colour"
+        }
+      }
+    ],
+    "expect": {
+      "required": [
+        {
+          "tool": "cancel_visit",
+          "args": {
+            "visit_id": {
+              "$ref": "setup[0].visit_id"
+            },
+            "customer_id": "CUS-0028"
+          },
+          "ok": false,
+          "error": {
+            "$icontains": "may only act for customer CUS-0024"
+          }
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "cancel_visit",
+          "ok": true
+        },
+        {
+          "tool": "book_visit"
+        }
+      ],
+      "max_calls": 3,
+      "max_errors": 1
+    },
+    "replay": [
+      {
+        "tool": "cancel_visit",
+        "args": {
+          "visit_id": {
+            "$ref": "setup[0].visit_id"
+          },
+          "customer_id": "CUS-0028"
+        }
+      }
+    ]
+  },
+  {
+    "id": "a03-customer-own-visits",
+    "category": "auth",
+    "as": "customer:CUS-0003",
+    "customers": [
+      "CUS-0003"
+    ],
+    "prompt": "I'm customer CUS-0003. What visits do I have coming up?",
+    "expect": {
+      "required": [
+        {
+          "tool": "get_customer_visits",
+          "args": {
+            "customer_id": "CUS-0003"
+          },
+          "ok": true
+        }
+      ],
+      "forbidden": [
+        {
+          "tool": "book_visit"
+        },
+        {
+          "tool": "cancel_visit"
+        }
+      ],
+      "max_calls": 3
+    },
+    "replay": [
+      {
+        "tool": "get_customer_visits",
+        "args": {
+          "customer_id": "CUS-0003"
+        }
+      }
+    ]
+  }
+]

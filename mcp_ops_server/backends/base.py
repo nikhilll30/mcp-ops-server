@@ -1,5 +1,8 @@
 """The ``Backend`` protocol every data store implements, and the errors tools may show.
 
+The generic errors (``StoreError`` and its not-found, conflict, busy and timeout kinds) come
+from ``mcp_ops_kit.errors``; the clinic adds ``ReferralError`` and ``OutcomeUnknownError``.
+
 Tools depend on this module only. Each backend (SQLite, FHIR R4) enforces the same integrity
 rules and raises the same errors with the same messages; ``tests/test_tools.py`` runs every
 tool test against each backend to keep them identical.
@@ -8,6 +11,13 @@ tool test against each backend to keep them identical.
 from datetime import date, timedelta
 from typing import Protocol, TypedDict
 
+from mcp_ops_kit.errors import (
+    BusyError,
+    CallTimeoutError,
+    ConflictError,
+    NotFoundError,
+    StoreError,
+)
 from mcp_ops_server.models import (
     AppointmentResult,
     AppointmentStatus,
@@ -16,34 +26,17 @@ from mcp_ops_server.models import (
     SearchProvidersResult,
 )
 
+# Re-exported: the backends and tools import every error from here.
+__all__ = ["BusyError", "CallTimeoutError", "ConflictError", "NotFoundError", "StoreError"]
+
 MAX_SLOT_RANGE_DAYS = 31
 # Far wider than the 4-week schedule; keeps date arithmetic away from date.max.
 EARLIEST_DATE = date(2000, 1, 1)
 LATEST_DATE = date(2100, 12, 31)
 
 
-class StoreError(Exception):
-    """An anticipated failure whose message is safe and useful to show an agent."""
-
-
-class NotFoundError(StoreError):
-    pass
-
-
-class ConflictError(StoreError):
-    pass
-
-
 class ReferralError(StoreError):
     pass
-
-
-class BusyError(StoreError):
-    """The data store could not serve the call in time (lock held, contention, or offline)."""
-
-
-class CallTimeoutError(StoreError):
-    """A call ran past the per-call deadline and was cancelled. Nothing was written."""
 
 
 class OutcomeUnknownError(StoreError):

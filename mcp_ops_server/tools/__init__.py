@@ -1,16 +1,16 @@
-"""Tool modules. Each exposes ``register(server, store)`` and wraps the store thinly."""
+"""Tool modules. Each exposes ``register(server, store, guard)`` and wraps the store thinly.
 
-import inspect
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+The registration helpers (``tool``, ``store_errors``, ``READ_ONLY``) come from the kit; the
+clinic's ID types live here.
+"""
+
 from typing import Annotated
 
-from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
-from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from mcp_ops_server.backends.base import StoreError
+from mcp_ops_kit.server import READ_ONLY, store_errors, tool
+
+__all__ = ["READ_ONLY", "store_errors", "tool"]
 
 PatientId = Annotated[
     str, Field(pattern=r"^PAT-[0-9]{4}$", description="Patient ID, e.g. PAT-0001.")
@@ -27,27 +27,3 @@ ReferralId = Annotated[
 AppointmentId = Annotated[
     str, Field(pattern=r"^APT-[0-9]{5,18}$", description="Appointment ID from book_appointment.")
 ]
-
-READ_ONLY = ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHint=False)
-
-
-@contextmanager
-def store_errors() -> Iterator[None]:
-    """Turn anticipated store failures into ToolErrors the agent can read and act on."""
-    try:
-        yield
-    except StoreError as exc:
-        raise ToolError(str(exc)) from exc
-
-
-def tool(server: MCPServer, **kwargs: object) -> Callable[[Callable], Callable]:
-    """Register a tool whose description is its docstring, dedented the same on every Python.
-
-    Python 3.13 dedents docstrings at compile time and 3.12 does not, so a raw ``__doc__``
-    gives agents different (indented) descriptions depending on the interpreter.
-    """
-
-    def register(fn: Callable) -> Callable:
-        return server.tool(description=inspect.cleandoc(fn.__doc__ or ""), **kwargs)(fn)
-
-    return register

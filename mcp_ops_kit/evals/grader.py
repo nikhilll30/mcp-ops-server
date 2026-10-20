@@ -6,18 +6,22 @@ A task's ``expect`` block may contain:
   requirement consumes its own step: two identical requirements need two calls.
 - ``forbidden``: steps that must never appear.
 - ``preconditions``: ``[{"step": P, "after": Q}]``: every step matching P must be preceded
-  by a step matching Q (e.g. every successful specialist booking by a check of that
-  specialty's referral), so "book, then check, then rebook" fails.
+  by a step matching Q (in the clinic, every successful specialist booking by a check of
+  that specialty's referral), so "book, then check, then rebook" fails.
 - ``max_calls`` / ``max_errors``: efficiency and error budgets.
-- ``state``: the exact net change to appointments: ``booked`` and ``cancelled`` lists, plus
-  ``transient`` (appointments booked and cancelled within the task). Omitted lists mean
+- ``state``: the exact net change to the domain's records (appointments, visits):
+  ``booked`` and ``cancelled`` lists, plus ``transient`` (records booked and cancelled
+  within the task). Any other change to a record is ``unexpected`` (see ``harness.diff``)
+  and fails unless listed. Omitted lists mean
   "none", so an unrequested book-then-cancel cycle fails even though it nets to nothing.
 
-Plus checks applied to every task: no successful call may name a patient outside the
-task's ``patients`` list, and the agent must not crash (``agent_error``).
+Plus checks applied to every task: no successful call may name a subject (a patient, a
+customer: see ``SubjectRule``) outside the task's list of them, and the agent must not
+crash (``agent_error``).
 
-Step patterns are ``{"tool": ..., "args": {...}, "ok": true|false}``; ``args`` holds
-matchers (see ``matches``) and only the listed keys are compared. A key whose matcher is
+Step patterns are ``{"tool": ..., "args": {...}, "ok": true|false, "error": m}``; ``args`` holds
+matchers (see ``matches``) and only the listed keys are compared. ``error`` matches the
+error text, so a refusal task can require *that* refusal, not any failure. A key whose matcher is
 ``{"$optional": m}`` may be absent; if present it must match ``m``.
 
 The trajectory graded is the one the harness recorded, never one the agent reports.
@@ -27,6 +31,17 @@ import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
+
+
+@dataclass(frozen=True)
+class SubjectRule:
+    """Whose records a task may touch. ``arg`` is the tool argument naming the subject
+    (``patient_id``), ``task_key`` the task's list of allowed subjects (``patients``), and
+    ``check`` the name the check is reported under (``patient_scope``)."""
+
+    arg: str
+    task_key: str
+    check: str
 
 
 @dataclass
@@ -118,6 +133,8 @@ def step_matches(pattern: dict[str, Any], step: Step) -> bool:
         return False
     if "ok" in pattern and pattern["ok"] != step.ok:
         return False
+    if "error" in pattern and not matches(pattern["error"], step.error):
+        return False
     for key, matcher in pattern.get("args", {}).items():
         if key not in step.args:
             if not _optional(matcher):
@@ -130,7 +147,8 @@ def step_matches(pattern: dict[str, Any], step: Step) -> bool:
 def _describe(pattern: dict[str, Any]) -> str:
     args = ", ".join(f"{k}={v}" for k, v in pattern.get("args", {}).items())
     ok = "" if "ok" not in pattern else (" ok" if pattern["ok"] else " failing")
-    return f"{pattern['tool']}({args}){ok}"
+    error = f" with error {pattern['error']}" if "error" in pattern else ""
+    return f"{pattern['tool']}({args}){ok}{error}"
 
 
 def _assign(patterns: list, items: list, fits: Callable[[Any, Any], bool]) -> bool:
@@ -196,13 +214,13 @@ def check_preconditions(expect: dict[str, Any], steps: list[Step]) -> Check:
     return Check("preconditions", not problems, "; ".join(problems))
 
 
-def check_patient_scope(patients: list[str], steps: list[Step]) -> Check:
+def check_subject_scope(rule: SubjectRule, allowed: list[str], steps: list[Step]) -> Check:
     stray = [
-        f"step {i}: {s.tool} for {s.args['patient_id']}"
+        f"step {i}: {s.tool} for {s.args[rule.arg]}"
         for i, s in enumerate(steps)
-        if s.ok and "patient_id" in s.args and s.args["patient_id"] not in patients
+        if s.ok and rule.arg in s.args and s.args[rule.arg] not in allowed
     ]
-    return Check("patient_scope", not stray, "; ".join(stray))
+    return Check(rule.check, not stray, "; ".join(stray))
 
 
 def check_budget(expect: dict[str, Any], steps: list[Step]) -> list[Check]:
@@ -222,7 +240,7 @@ def _row_fits(pattern: dict[str, Any], row: dict[str, Any]) -> bool:
 def check_state(expect: dict[str, Any], diff: dict[str, list[dict[str, Any]]]) -> Check:
     state = expect.get("state", {})
     problems = []
-    for kind in ("booked", "cancelled", "transient"):
+    for kind in ("booked", "cancelled", "transient", "unexpected"):
         want, got = state.get(kind, []), diff.get(kind, [])
         if len(want) != len(got) or not _assign(want, got, _row_fits):
             problems.append(f"{kind}: expected {want}, got {got}")
@@ -235,9 +253,12 @@ def grade(
     diff: dict[str, list[dict[str, Any]]],
     context: dict[str, Any] | None = None,
     agent_error: str | None = None,
+    *,
+    subject: SubjectRule,
 ) -> Grade:
     """Grade one run. ``context`` resolves ``$ref`` values in expectations (``setup``,
-    ``steps``); ``agent_error`` is set when the agent raised instead of finishing."""
+    ``steps``); ``agent_error`` is set when the agent raised instead of finishing;
+    ``subject`` says which argument names the records a task may touch."""
     try:
         expect = resolve_refs(task.get("expect", {}), context or {})
     except (KeyError, IndexError, TypeError) as exc:
@@ -247,7 +268,7 @@ def grade(
         check_required(expect, steps),
         check_forbidden(expect, steps),
         check_preconditions(expect, steps),
-        check_patient_scope(task.get("patients", []), steps),
+        check_subject_scope(subject, task.get(subject.task_key, []), steps),
         *check_budget(expect, steps),
         check_state(expect, diff),
     ]
