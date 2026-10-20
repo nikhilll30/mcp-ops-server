@@ -9,6 +9,10 @@ where a subprocess per task costs seconds.
 
 The domain clock is pinned per task (``task["now"]``, default ``EvalDomain.default_now``)
 and is never read from the environment, so the caller's shell cannot change results.
+
+Evals run with the production safeguards on: each suite gets a fresh data key, so SQLite
+files are encrypted at rest, and each task's server writes its own audit log, whose chain
+is verified when the task ends.
 """
 
 import logging
@@ -29,7 +33,9 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from starlette.applications import Starlette
 
+from mcp_ops_kit import audit
 from mcp_ops_kit.auth import AuthConfig, issue
+from mcp_ops_kit.crypto import DataKey
 from mcp_ops_kit.evals.grader import Step, SubjectRule
 
 # The server runs in this process; keep its per-request INFO logs out of eval output.
@@ -50,11 +56,14 @@ class TaskSpec:
     tokens_file: str
     port: int
     now: datetime
+    data_key: DataKey  # this suite's key: encrypts database files and the audit log
+    audit_log: str  # this task's audit log
 
 
 @dataclass(frozen=True)
 class TaskData:
-    """One task's server app over fresh data, and how to read and release that data."""
+    """One task's server app over fresh data, and how to read and release that data.
+    ``close`` releases the data and the app's audit log (``app.state.audit``)."""
 
     app: Starlette
     snapshot: Callable[[], Snapshot]  # read through the store the server uses, not MCP
@@ -67,8 +76,9 @@ class EvalDomain:
 
     ``principals`` maps a principal name to its scopes (``staff`` must exist: setup steps run
     as staff). ``bound_prefix`` names principals created on demand, bound to one subject
-    with every scope: ``portal:PAT-0001``. ``prepare`` runs once per suite (seed a template,
-    load a FHIR server); ``start_task`` gives each task fresh data and its app.
+    with every scope: ``portal:PAT-0001``. ``prepare(workdir, data_key)`` runs once per
+    suite (seed an encrypted template, load a FHIR server); ``start_task`` gives each task
+    fresh data and its app.
     ``record_key``/``record_id`` name a changed record in diffs (``appointment_id``,
     ``APT-00001``). ``system_prompt`` is a template with ``{now}`` for live agents.
     """
@@ -83,7 +93,7 @@ class EvalDomain:
     default_now: datetime
     record_key: str
     record_id: Callable[[int], str]
-    prepare: Callable[[Path], None]
+    prepare: Callable[[Path, DataKey], None]
     start_task: Callable[[TaskSpec], TaskData]
     backend: str = "sqlite"
     system_prompt: str = ""
@@ -114,7 +124,8 @@ class Harness:
             self.tokens[name] = issue(
                 domain.auth, self._tokens_file, f"evals-{name}", scopes, subject
             )
-        domain.prepare(self._root)
+        self.data_key = DataKey.generate()
+        domain.prepare(self._root, self.data_key)
         self._count = 0
 
     def __enter__(self) -> "Harness":
@@ -127,8 +138,15 @@ class Harness:
     def task_server(self, now: datetime | None = None) -> Iterator["TaskServer"]:
         self._count += 1
         port = _free_port()
+        audit_log = str(self._root / f"audit-{self._count}.log")
         spec = TaskSpec(
-            self._root, self._count, self._tokens_file, port, now or self.domain.default_now
+            self._root,
+            self._count,
+            self._tokens_file,
+            port,
+            now or self.domain.default_now,
+            self.data_key,
+            audit_log,
         )
         data = self.domain.start_task(spec)
         server = uvicorn.Server(
@@ -147,6 +165,7 @@ class Harness:
             server.should_exit = True
             thread.join(timeout=10)
             data.close()
+        audit.verify(audit_log, self.data_key)  # raises if the server broke its own chain
 
 
 class TaskServer:

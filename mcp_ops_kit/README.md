@@ -12,10 +12,13 @@ It lives in this repo for now. Publishing it to PyPI is Part 11.
 
 | Kit module | Gives you | Your domain supplies |
 |---|---|---|
-| `auth` | Hashed bearer tokens, a token CLI, scopes and a subject binding, all checked in server code (`Guard`) | An `AuthConfig`: scope names, the subject claim (`patient_id`, `customer_id`), its ID pattern |
+| `auth` | Hashed bearer tokens in a versioned file: each names its audience and expiry and can be revoked; the file is re-read on change, so revocation needs no restart. A token CLI (`issue`, `revoke`, `list`, `migrate`), scopes and a subject binding, all checked in server code (`Guard`) | An `AuthConfig`: scope names, the subject claim (`patient_id`, `customer_id`), its ID pattern, the default audience |
+| `oauth` | OAuth 2.1 resource-server tokens: JWT access tokens (RFC 9068, RS256/ES256) checked against your authorization server's JWKS (file or URL), with a `jti` revocation file | Your issuer and JWKS location (settings) |
+| `audit` | One encrypted, HMAC-chained record per tool call (who, token, tool, scope, subject ID, outcome, time), never the arguments; `verify` and `show` CLIs | Nothing |
+| `crypto` | The data key (`new-key`), per-purpose subkeys, AES-256-GCM, atomic writes | The key, from your secret store |
 | `limits` | A per-client token-bucket rate limit, applied before argument validation | Nothing |
-| `server` | The rate-limit-first `OpsServer`, a `health` tool, `/mcp` with bearer auth, `/healthz`, env settings, a fail-closed `serve` | Your tools (`register(server, guard)`), your settings fields, your env prefix |
-| `sqlite` | One deadline per call: lock wait, busy wait and execution, with a late COMMIT rolled back | Your schema, seed and queries (subclass `SqliteStore`) |
+| `server` | The audit-and-rate-limit-first `OpsServer`, which also rebuilds every result's text from the validated output, so an agent sees only declared fields. A `health` tool, `/mcp` with bearer auth, `/healthz`, env settings, a fail-closed `serve` (no token source, audit log or data key: no start) | Your tools (`register(server, guard)`), your settings fields, your env prefix |
+| `sqlite` | One deadline per call: lock wait, busy wait and execution, with a late COMMIT rolled back. With a data key, the file on disk is encrypted (the database lives in memory; each committed write re-encrypts it atomically) | Your schema, seed and queries (subclass `SqliteStore`) |
 | `errors` | `StoreError` and its kinds. Tools turn them into messages an agent can act on (`store_errors`) | Your own rule errors, as subclasses |
 | `evals` | The harness (fresh data and a real server per task), the trajectory grader, the replay and OpenAI agents, the report and the CI gate | An `EvalDomain`, golden tasks and negative controls |
 | `smoke` | `/healthz`, 401 without a token, then an MCP session | Your tool round trip, with each write read back |
@@ -26,13 +29,17 @@ It lives in this repo for now. Publishing it to PyPI is Part 11.
    that subclasses `SqliteStore` (`salon_ops/store.py`). Enforce every rule in the store, and
    make the critical one a database constraint too. The salon keeps one booked visit per
    opening with a unique index.
-2. **Auth.** One `AuthConfig` (`salon_ops/auth.py`): three scopes, and tokens bound to
-   `customer_id` by the pattern `CUS-[0-9]{4}`. The token CLI is `kit.main(AUTH)`.
+2. **Auth.** One `AuthConfig` (`salon_ops/auth.py`): three scopes, tokens bound to
+   `customer_id` by the pattern `CUS-[0-9]{4}`, and the audience `salon-ops`. The token CLI
+   is `kit.main(AUTH)`.
 3. **Tools.** Thin wrappers (`salon_ops/tools.py`). Each calls `guard.check(scope, subject_id)`
    and then the store, inside `store_errors()`, and returns a `TypedDict` so it gets an output
    schema.
-4. **Server.** `kit.build_server(name, version, AUTH, register)`, `kit.build_http_app`, and
-   `serve` in `__main__` (`salon_ops/server.py`, `salon_ops/__main__.py`).
+4. **Server.** `kit.build_server(name, version, AUTH, register, audit=...)`, with
+   `kit.build_verifier(settings, AUTH)` and `kit.open_audit(settings)` in your
+   `build_http_app`, then `kit.build_http_app`, and `serve` in `__main__`
+   (`salon_ops/server.py`, `salon_ops/__main__.py`). A database file goes through
+   `require_key_for_file`, so it is never plaintext.
 5. **Evals.** An `EvalDomain` (`salon_ops/evals/run.py`) says who the principals are, which
    argument names the subject (`SubjectRule`), the default clock, and how to get fresh data
    per task. Then write golden tasks and **negative controls for every grader check**
@@ -52,9 +59,20 @@ The salon example has the following parts:
   a patient does not load in the salon as an unbound token with its `patient_id` silently
   dropped. Before the kit, the clinic's own loader ignored unknown keys in exactly this way.
   A token whose scopes another domain does not declare is refused too.
-  **Limit:** a tokens file names no domain. An *unbound* token loads in any domain that
-  declares the same scope names. The clinic and the salon share none. If you give two domains
-  overlapping scope names, give them separate tokens files (`tests/test_kit.py` pins this case).
+- **A token is for one server.** Every token names its audience (static tokens in the file,
+  JWTs in `aud`). A tokens file holding another audience's token does not load, and the
+  verifier checks the audience of each token again. This closes the Part 8 limit, where an
+  unbound token loaded in any domain declaring the same scope names (`tests/test_kit.py`).
+- **Tokens expire and can be revoked on a running server.** Static tokens by `revoke`, JWTs
+  by `jti`; both files are re-read on change. If either file becomes invalid, every token it
+  governs is refused until it is fixed, so a revocation is never skipped
+  (`tests/test_tokens.py`, `tests/test_oauth.py`).
+- **Every tool call is audited, or no call runs.** A record that cannot be written stops the
+  server from acting (the call already made still returns its real result). An edited,
+  deleted or reordered record fails `verify` at its line (`tests/test_audit.py`).
+- **No plaintext database on disk.** A server refuses a database file without a key, and a
+  plaintext SQLite file with one (`tests/test_encryption.py`).
+- **An agent sees only declared fields** (`tests/test_minimisation.py`), each pinned with a reason.
 - **The state check sees every change.** The record diff grades the booking lifecycle (booked,
   cancelled, booked-then-cancelled), and reports anything else (an edited, removed or
   odd-status record) as `unexpected`. That fails the task unless the task expects it.
@@ -67,6 +85,8 @@ The salon example has the following parts:
 
 ## Not in the kit (yet)
 
-- The FHIR backend is clinic-specific by nature, and stays in `mcp_ops_server`.
-- The audit log, OAuth 2.1 expiry and revocation, and encryption at rest are Part 9. They will
-  be built in the kit, so both domains get them.
+- The FHIR backend is clinic-specific by nature, and stays in `mcp_ops_server`. Encryption at
+  rest for FHIR data is the FHIR server's storage, not this code.
+- Key rotation: there is no re-encrypt command yet. A new data key means a fresh audit log
+  and database file (keep the old key to read the old ones).
+- Token introspection (RFC 7662) and a shared rate limit across replicas.

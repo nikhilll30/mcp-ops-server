@@ -16,6 +16,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import ValidationError
 
 from mcp_ops_kit import auth
+from mcp_ops_kit.errors import ConfigError
 from mcp_ops_kit.evals.openai_agent import OpenAIAgent
 from mcp_ops_kit.limits import RateLimiter
 from mcp_ops_kit.server import ServerSettings, make_clock
@@ -50,6 +51,7 @@ def test_one_domains_tokens_file_does_not_load_in_another(tmp_path: Path) -> Non
     with pytest.raises(ValidationError):
         SALON.verifier.from_file(path)
     bound_only = {"client_id": "x", "sha256": "0" * 64, "scopes": [], "patient_id": "PAT-0001"}
+    bound_only |= {"audience": SALON.audience, "expires_at": "2099-01-01T00:00:00Z"}
     with pytest.raises(ValidationError, match="Extra inputs"):
         SALON.token_entry.model_validate(bound_only)
 
@@ -64,8 +66,11 @@ def test_one_domains_tokens_file_does_not_load_in_another(tmp_path: Path) -> Non
     ],
 )
 def test_salon_token_entries_are_validated(bad: dict) -> None:
+    valid = {"audience": SALON.audience, "expires_at": "2099-01-01T00:00:00Z"}
+    ok = {"client_id": "c", "sha256": "0" * 64, "scopes": [], "customer_id": "CUS-0001"}
+    SALON.token_entry.model_validate(valid | ok)  # so each case fails for its own key
     with pytest.raises(ValidationError):
-        SALON.token_entry.model_validate(bad)
+        SALON.token_entry.model_validate(valid | bad)
 
 
 def test_tokens_file_keeps_the_domains_claim_name(tmp_path: Path) -> None:
@@ -78,7 +83,15 @@ def test_tokens_file_keeps_the_domains_claim_name(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "content", ['{"tokens": {}}', "[]", '{"tokens": [], "extra": 1}', "not json"]
+    "content",
+    [
+        '{"version": 2, "tokens": {}}',
+        "[]",
+        '{"version": 2, "tokens": [], "extra": 1}',
+        '{"version": 3, "tokens": []}',
+        '{"version": "2", "tokens": []}',
+        "not json",
+    ],
 )
 def test_malformed_tokens_files_are_refused(tmp_path: Path, content: str) -> None:
     path = tmp_path / "tokens.json"
@@ -89,9 +102,13 @@ def test_malformed_tokens_files_are_refused(tmp_path: Path, content: str) -> Non
 
 def test_auth_config_rejects_ambiguous_setups() -> None:
     with pytest.raises(ValueError, match="unique"):
-        auth.AuthConfig(("a", "a"), "customer_id", "C-[0-9]", "customer", "x")
+        auth.AuthConfig(("a", "a"), "customer_id", "C-[0-9]", "customer", "x", "aud")
     with pytest.raises(ValueError, match="collides"):
-        auth.AuthConfig(("a",), "scopes", "C-[0-9]", "customer", "x")
+        auth.AuthConfig(("a",), "scopes", "C-[0-9]", "customer", "x", "aud")
+    with pytest.raises(ValueError, match="collides"):
+        auth.AuthConfig(("a",), "expires_at", "C-[0-9]", "customer", "x", "aud")
+    with pytest.raises(ValueError, match="audience"):
+        auth.AuthConfig(("a",), "customer_id", "C-[0-9]", "customer", "x", "")
 
 
 def test_guard_refuses_a_scope_the_domain_never_declared() -> None:
@@ -133,19 +150,25 @@ def test_live_agent_needs_a_prompt_that_states_the_time() -> None:
         OpenAIAgent("m", "You book things.", salon_seed.SALON_NOW, client=object())
 
 
-def test_overlapping_scope_names_are_the_documented_limit(tmp_path: Path) -> None:
-    """Codex review, PR #18: a tokens file names no domain. With shared scope names, a token
-    *bound* in one domain is still refused by the other (its claim is unknown there), but an
-    unbound token loads in both. The kit README states this limit; this test pins it."""
-    a = auth.AuthConfig(("read:x",), "member_id", r"M-[0-9]{2}", "member", "a")
-    b = auth.AuthConfig(("read:x",), "guest_id", r"G-[0-9]{2}", "guest", "b")
-    bound, unbound = str(tmp_path / "bound.json"), str(tmp_path / "unbound.json")
+def test_audience_binding_closes_the_cross_domain_gap(tmp_path: Path) -> None:
+    """Codex review, PR #18: a format-1 tokens file named no domain, so with shared scope
+    names an *unbound* token loaded in both domains. Every format-2 token names its
+    audience: the file is refused at load, and a token that reaches the verifier any other
+    way is still refused for the wrong audience."""
+    a = auth.AuthConfig(("read:x",), "member_id", r"M-[0-9]{2}", "member", "a", "server-a")
+    b = auth.AuthConfig(("read:x",), "guest_id", r"G-[0-9]{2}", "guest", "b", "server-b")
+    unbound = str(tmp_path / "unbound.json")
+    token = auth.issue(a, unbound, "desk", ["read:x"], None)
+    assert asyncio.run(a.verifier.from_file(unbound).verify_token(token)) is not None
+    with pytest.raises(ConfigError, match="another audience: desk \\(server-a\\)"):
+        b.verifier.from_file(unbound)
+    entries = auth.load_tokens(b, unbound)  # no audience check at this level
+    assert asyncio.run(b.verifier(entries).verify_token(token)) is None
+    # A bound token is still refused for its unknown claim, before audience is looked at.
+    bound = str(tmp_path / "bound.json")
     auth.issue(a, bound, "app", ["read:x"], "M-01")
     with pytest.raises(ValidationError, match="Extra inputs"):
         b.verifier.from_file(bound)
-    token = auth.issue(a, unbound, "desk", ["read:x"], None)
-    verified = asyncio.run(b.verifier.from_file(unbound).verify_token(token))
-    assert verified is not None and verified.claims is None
 
 
 @pytest.mark.parametrize("var", ["PORT", "RATE_LIMIT_PER_MIN", "CALL_TIMEOUT_S", "MAX_SESSIONS"])

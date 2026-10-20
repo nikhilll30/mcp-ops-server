@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 from conftest import as_principal, call
@@ -16,6 +17,7 @@ from mcp.server.auth.provider import AccessToken
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
+from mcp_ops_kit.crypto import DataKey
 from salon_ops import seed
 from salon_ops.auth import ALL_SCOPES
 from salon_ops.server import build_server
@@ -47,9 +49,13 @@ def staff_principal() -> Iterator[None]:
         yield
 
 
-@pytest.fixture
-def store() -> Iterator[SalonStore]:
-    s = SalonStore()
+@pytest.fixture(params=["memory", "encrypted-file"])
+def store(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[SalonStore]:
+    """In memory, and in an encrypted file (Part 9), which must behave the same."""
+    if request.param == "memory":
+        s = SalonStore()
+    else:
+        s = SalonStore(str(tmp_path / "salon.db"), data_key=DataKey.generate())
     yield s
     s.close()
 

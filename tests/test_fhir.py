@@ -20,8 +20,10 @@ from typing import Any
 
 import httpx2
 import pytest
-from conftest import NO_REFERRAL_PATIENT, PRIMARY_PROVIDER, SECOND_FREE_PATIENT
+from conftest import NO_REFERRAL_PATIENT, PRIMARY_PROVIDER, SECOND_FREE_PATIENT, safeguard_env
 
+from mcp_ops_kit import audit
+from mcp_ops_kit.crypto import DataKey
 from mcp_ops_server import seed
 from mcp_ops_server.auth import ALL_SCOPES, issue
 from mcp_ops_server.backends import fhir_seed
@@ -465,7 +467,13 @@ def test_server_refuses_to_start_without_a_usable_fhir_server(
     extra = {k: v.format(port=_free_port()) for k, v in env.items()}
     proc = subprocess.run(  # noqa: S603 - fixed argv
         [sys.executable, "-m", "mcp_ops_server"],
-        env={**clean, "MCP_OPS_BACKEND": "fhir", "MCP_OPS_TOKENS_FILE": tokens, **extra},
+        env={
+            **clean,
+            **safeguard_env("MCP_OPS_", tmp_path),
+            "MCP_OPS_BACKEND": "fhir",
+            "MCP_OPS_TOKENS_FILE": tokens,
+            **extra,
+        },
         capture_output=True,
         text=True,
         timeout=30,
@@ -617,6 +625,7 @@ def test_server_on_fhir_passes_the_container_smoke_test(
         "MCP_OPS_TOKENS_FILE": tokens,
         "MCP_OPS_BACKEND": "fhir",
         "MCP_OPS_FHIR_URL": fhir_url,
+        **safeguard_env("MCP_OPS_", tmp_path),
     }
     proc = subprocess.Popen(  # noqa: S603 - fixed argv
         [sys.executable, "-m", "mcp_ops_server"],
@@ -629,6 +638,11 @@ def test_server_on_fhir_passes_the_container_smoke_test(
         monkeypatch.setenv("MCP_URL", f"http://127.0.0.1:{port}")
         monkeypatch.setenv("MCP_TOKEN", token)
         smoke_test.main()
+        # The audit trail is backend-independent: the smoke test's 7 calls, chain intact.
+        key = DataKey.from_text(env["MCP_OPS_DATA_KEY"])
+        records = list(audit.records(env["MCP_OPS_AUDIT_LOG"], key))
+        assert [r["outcome"] for r in records] == ["ok"] * 7
+        assert {r["tool"] for r in records} >= {"book_appointment", "cancel_appointment"}
     finally:
         proc.terminate()
         proc.wait(timeout=10)

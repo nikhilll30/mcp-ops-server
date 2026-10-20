@@ -5,9 +5,10 @@ from mcp.server.mcpserver import MCPServer
 from starlette.applications import Starlette
 
 from mcp_ops_kit import server as kit
+from mcp_ops_kit.audit import AuditLog
 from mcp_ops_kit.auth import Guard
 from mcp_ops_server import __version__
-from mcp_ops_server.auth import AUTH, StaticTokenVerifier
+from mcp_ops_server.auth import AUTH
 from mcp_ops_server.backends import make_backend
 from mcp_ops_server.backends.base import Backend
 from mcp_ops_server.backends.sqlite import SqliteBackend
@@ -21,6 +22,7 @@ def build_server(
     token_verifier: TokenVerifier | None = None,
     issuer_url: str = "http://127.0.0.1:8000",
     rate_limit_per_minute: int = 120,
+    audit: AuditLog | None = None,
 ) -> MCPServer:
     """Build and configure the MCP ops server.
 
@@ -43,22 +45,28 @@ def build_server(
         token_verifier=token_verifier,
         issuer_url=issuer_url,
         rate_limit_per_minute=rate_limit_per_minute,
+        audit=audit,
     )
 
 
 def build_http_app(settings: Settings, backend: Backend | None = None) -> Starlette:
     """The Streamable HTTP app exactly as ``python -m mcp_ops_server`` serves it.
 
-    Shared with the eval harness, so evals run the same auth, limits and clock wiring. The
-    harness passes its own ``backend`` (built with ``make_backend``) to snapshot it.
+    Shared with the eval harness, so evals run the same auth, audit, limits and clock
+    wiring. The harness passes its own ``backend`` (built with ``make_backend``) to
+    snapshot it. Raises ``ConfigError`` without a token source, an audit log or a data key.
     """
-    if not settings.tokens_file:
-        raise ValueError("settings.tokens_file is required: the server never runs without auth")
-    verifier = StaticTokenVerifier.from_file(settings.tokens_file)
-    server = build_server(
-        backend or make_backend(settings),
-        token_verifier=verifier,
-        issuer_url=f"http://{settings.host}:{settings.port}",
-        rate_limit_per_minute=settings.rate_limit_per_minute,
-    )
+    verifier = kit.build_verifier(settings, AUTH)
+    audit = kit.open_audit(settings)
+    try:
+        server = build_server(
+            backend or make_backend(settings),
+            token_verifier=verifier,
+            issuer_url=f"http://{settings.host}:{settings.port}",
+            rate_limit_per_minute=settings.rate_limit_per_minute,
+            audit=audit,
+        )
+    except BaseException:
+        audit.close()
+        raise
     return kit.build_http_app(server, settings, __version__)

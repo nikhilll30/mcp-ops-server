@@ -21,10 +21,12 @@ from pathlib import Path
 
 import httpx2
 import pytest
-from conftest import DERM_PATIENT, DERM_REFERRAL, WEEK_ONE, seeded_busy_starts
+from conftest import DERM_PATIENT, DERM_REFERRAL, WEEK_ONE, safeguard_env, seeded_busy_starts
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
+from mcp_ops_kit import audit
+from mcp_ops_kit.crypto import DataKey
 from mcp_ops_server import __version__
 from mcp_ops_server.auth import ALL_SCOPES, issue
 
@@ -57,6 +59,11 @@ class Running:
     reader: str  # read:schedule only
     portal: str  # all scopes, bound to DERM_PATIENT
     twin: str  # same client_id as portal, read:schedule only, bound to another patient
+    revokee: str  # read:schedule; test_revoking_a_token_needs_no_restart revokes it
+    tokens_file: str
+    audit_log: str
+    db_path: str  # an encrypted file database
+    data_key: DataKey
 
     @property
     def url(self) -> str:
@@ -70,8 +77,11 @@ def server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Running]:
     reader = issue(tokens_file, "kiosk", ["read:schedule"], None)
     portal = issue(tokens_file, "portal", list(ALL_SCOPES), DERM_PATIENT)
     twin = issue(tokens_file, "portal", ["read:schedule"], "PAT-0008")
+    revokee = issue(tokens_file, "revokee", ["read:schedule"], None)
     assert staff not in Path(tokens_file).read_text(), "raw tokens must never be stored"
 
+    root = Path(tokens_file).parent
+    key = DataKey.generate()
     port = _free_port()
     env = {
         **os.environ,
@@ -79,6 +89,9 @@ def server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Running]:
         "MCP_OPS_PORT": str(port),
         "MCP_OPS_TOKENS_FILE": tokens_file,
         "MCP_OPS_MAX_BODY_BYTES": str(MAX_BODY_BYTES),
+        "MCP_OPS_AUDIT_LOG": str(root / "audit.log"),
+        "MCP_OPS_DATA_KEY": key.to_text(),
+        "MCP_OPS_DB": str(root / "clinic.db"),
     }
     proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
         [sys.executable, "-m", "mcp_ops_server"],
@@ -88,7 +101,18 @@ def server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Running]:
     )
     try:
         _wait_for_port(port, proc)
-        yield Running(port, staff, reader, portal, twin)
+        yield Running(
+            port,
+            staff,
+            reader,
+            portal,
+            twin,
+            revokee,
+            tokens_file,
+            str(root / "audit.log"),
+            str(root / "clinic.db"),
+            key,
+        )
     finally:
         proc.terminate()
         try:
@@ -194,7 +218,12 @@ def test_server_refuses_to_start_when_tokens_file_is_missing(tmp_path: Path) -> 
     missing = tmp_path / "tokens.json"
     proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
         [sys.executable, "-m", "mcp_ops_server"],
-        env={**os.environ, "MCP_OPS_TOKENS_FILE": str(missing), "MCP_OPS_PORT": str(_free_port())},
+        env={
+            **os.environ,
+            **safeguard_env("MCP_OPS_", tmp_path),
+            "MCP_OPS_TOKENS_FILE": str(missing),
+            "MCP_OPS_PORT": str(_free_port()),
+        },
         capture_output=True,
         timeout=30,
         check=False,
@@ -359,3 +388,64 @@ def test_smoke_script_catches_writes_that_do_not_persist() -> None:
 
     with pytest.raises(SystemExit):
         asyncio.run(smoke_test.exercise(NonPersistingSession()))
+
+
+# ---- Part 9 safeguards on the real server ----------------------------------------------------
+
+
+def test_revoking_a_token_needs_no_restart(server: Running) -> None:
+    """The README used to say: remove the token's line, then restart every server. Now the
+    running server re-reads the tokens file and refuses a revoked token on the next request."""
+    assert _raw_post(server.url, INIT, server.revokee) == 200
+    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        [sys.executable, "-m", "mcp_ops_server.auth", "revoke", "--file", server.tokens_file]
+        + ["--client", "revokee"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    assert "revoked" in proc.stdout
+    assert _raw_post(server.url, INIT, server.revokee) == 401
+    assert _raw_post(server.url, INIT, server.staff) == 200  # the others are untouched
+
+
+async def _calls_to_audit(server: Running) -> str:
+    async with _session(server.url, server.portal) as session:
+        assert not (
+            await session.call_tool("get_referral_status", {"patient_id": DERM_PATIENT})
+        ).is_error
+        refused = await session.call_tool("get_referral_status", {"patient_id": "PAT-0008"})
+        assert refused.is_error
+        bad = await session.call_tool("search_providers", {"limit": 999})
+        assert bad.is_error
+    return DERM_PATIENT
+
+
+def test_every_call_is_audited_without_its_arguments(server: Running) -> None:
+    asyncio.run(_calls_to_audit(server))
+    raw = Path(server.audit_log).read_bytes()
+    assert b"PAT-" not in raw and b"get_referral_status" not in raw  # encrypted on disk
+    count, _ = audit.verify(server.audit_log, server.data_key)
+    records = list(audit.records(server.audit_log, server.data_key))
+    assert len(records) == count > 0
+    portal = [r for r in records if r["client_id"] == "portal" and r["tool"] != "health"]
+    last3 = [(r["tool"], r["scope"], r["subject"], r["outcome"]) for r in portal[-3:]]
+    assert last3 == [
+        ("get_referral_status", "read:referrals", DERM_PATIENT, "ok"),
+        ("get_referral_status", "read:referrals", "PAT-0008", "denied"),
+        ("search_providers", None, None, "invalid"),
+    ]
+    token_id = audit.hashlib.sha256(server.portal.encode()).hexdigest()[:12]
+    assert {r["token_id"] for r in portal} == {token_id}
+    assert all(set(r) == set(audit.RECORD_KEYS) for r in records)
+
+
+def test_the_database_file_holds_no_plaintext(server: Running) -> None:
+    asyncio.run(_booking_flow(server))  # writes, so the file was re-encrypted since start
+    raw = Path(server.db_path).read_bytes()
+    assert raw.startswith(b"MCPOPS-ENC-SQLITE-1")
+    for plaintext in (b"SQLite format 3", b"PAT-0", b"PRV-0", b"SLT-0", b"booked", b"primary_care"):
+        assert plaintext not in raw
+    assert not Path(server.db_path + "-journal").exists()
+    assert not Path(server.db_path + "-wal").exists()

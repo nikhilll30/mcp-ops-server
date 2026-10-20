@@ -9,6 +9,7 @@ from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from typing import TypedDict
 
+from mcp_ops_kit.crypto import DataKey
 from mcp_ops_kit.errors import ConflictError, NotFoundError, StoreError
 from mcp_ops_kit.sqlite import SqliteStore, escape_like, has_table, run_script
 from salon_ops import seed
@@ -91,9 +92,10 @@ class SalonStore(SqliteStore):
         seed_value: int = seed.SEED,
         timeout_s: float = 5.0,
         now: Callable[[], datetime] = lambda: seed.SALON_NOW,
+        data_key: DataKey | None = None,
     ) -> None:
         self._seed_value = seed_value
-        super().__init__(path, label="salon", timeout_s=timeout_s, now=now)
+        super().__init__(path, label="salon", timeout_s=timeout_s, now=now, data_key=data_key)
 
     def _is_seeded(self, c: sqlite3.Connection) -> bool:
         return has_table(c, "stylists")

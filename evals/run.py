@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from evals.agents_openai import SYSTEM_PROMPT  # imports no openai package
+from mcp_ops_kit.crypto import DataKey
 from mcp_ops_kit.evals import run as kit
 from mcp_ops_kit.evals.agents import Agent, ReplayAgent
 from mcp_ops_kit.evals.grader import SubjectRule
@@ -45,11 +46,12 @@ def domain(backend: str = "sqlite", fhir_url: str | None = None) -> EvalDomain:
     if backend == "fhir" and not fhir_url:
         raise ValueError("the fhir backend needs fhir_url")
 
-    def prepare(root: Path) -> None:
+    def prepare(root: Path, data_key: DataKey) -> None:
         if backend == "fhir":
             fhir_seed.load(fhir_url)  # type: ignore[arg-type] - checked above
         else:
-            SqliteBackend(str(root / "template.db")).close()  # seed once; tasks copy it
+            # seed once, encrypted; tasks copy the file
+            SqliteBackend(str(root / "template.db"), data_key=data_key).close()
 
     def start_task(spec: TaskSpec) -> TaskData:
         db_path = str(spec.workdir / f"task-{spec.number}.db")
@@ -66,10 +68,17 @@ def domain(backend: str = "sqlite", fhir_url: str | None = None) -> EvalDomain:
             tokens_file=spec.tokens_file,
             rate_limit_per_minute=100_000,  # evals measure agent behaviour, not the limiter
             now=spec.now,
+            audit_log=spec.audit_log,
+            data_key=spec.data_key,
         )
         store = make_backend(settings)
         app = build_http_app(settings, store)
-        return TaskData(app, store.snapshot_appointments, store.close)
+
+        def close() -> None:
+            store.close()
+            app.state.audit.close()
+
+        return TaskData(app, store.snapshot_appointments, close)
 
     return EvalDomain(
         name="clinic",

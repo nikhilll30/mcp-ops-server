@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from mcp_ops_kit.crypto import DataKey
 from mcp_ops_kit.evals import run as kit
 from mcp_ops_kit.evals.agents import Agent, ReplayAgent
 from mcp_ops_kit.evals.grader import SubjectRule
@@ -39,8 +40,9 @@ Act only through the tools. The current salon date and time is {now}.
 """
 
 
-def _prepare(root: Path) -> None:
-    SalonStore(str(root / "template.db")).close()  # seed once; each task copies this file
+def _prepare(root: Path, data_key: DataKey) -> None:
+    # seed once, encrypted; each task copies this file
+    SalonStore(str(root / "template.db"), data_key=data_key).close()
 
 
 def _start_task(spec: TaskSpec) -> TaskData:
@@ -52,9 +54,17 @@ def _start_task(spec: TaskSpec) -> TaskData:
         tokens_file=spec.tokens_file,
         rate_limit_per_minute=100_000,  # evals measure agent behaviour, not the limiter
         now=spec.now,
+        audit_log=spec.audit_log,
+        data_key=spec.data_key,
     )
     store = make_store(settings)
-    return TaskData(build_http_app(settings, store), store.snapshot_visits, store.close)
+    app = build_http_app(settings, store)
+
+    def close() -> None:
+        store.close()
+        app.state.audit.close()
+
+    return TaskData(app, store.snapshot_visits, close)
 
 
 DOMAIN = EvalDomain(
