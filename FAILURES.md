@@ -2,6 +2,29 @@
 
 What broke, what changed, what happened next. Newest first.
 
+## 2026-10-20 · Part 8: the clinic's token loader ignored unknown keys, so a binding typo meant no binding
+- **What I found:** while giving the kit a configurable subject claim, I checked what happens to a tokens file written for the other domain. On the committed clinic code, an entry with `"customer_id": "CUS-0001"` loaded fine, and the verified token had `claims = None`. That is an **unbound** token, able to act for every patient. Pydantic's default is to ignore extra keys, and `TokenEntry` never changed it. The same happens with a typo such as `"patientid"`. Nobody had hit it: the CLI always writes the right key. A hand-edited file, or a file from another domain, would fail open.
+- **What changed:** the kit's `TokenEntry` refuses unknown keys, refuses a literal `subject` key, and checks scopes against the domain's `AuthConfig`. **Tests:** a clinic file does not load in the salon; malformed files are refused. With `extra="ignore"` put back, the cross-domain test fails (checked).
+- **Lesson:** a security field that is optional and silently droppable is a default-allow. Validation has to reject what it does not understand, not only check what it does.
+
+## 2026-10-20 · Part 8: copy first, then extract. The copies' diff was the kit's whole interface
+- **What I did:** I built the salon by copying the clinic's auth, limits, server wiring, SQLite deadline code, harness, grader, runner and smoke test, then adapted each. Before extracting anything, I diffed each copy against its original:
+  - `limits.py`: 0 lines differed.
+  - The grader: only the subject differed (`patient_id`/`patients`/`patient_scope` vs `customer_id`/`customers`/`customer_scope`).
+  - Auth: the scope names and the binding claim.
+  - The harness: principals, how fresh data is made, the snapshot, the record ID, the clock.
+
+  Those differences became `AuthConfig`, `SubjectRule` and `EvalDomain`. Nothing else is configurable.
+- **What it bought:** the salon went from 2,150 lines as a copy to 954 on the kit. The clinic's tool schemas are byte-identical (the snapshot test did not move). Clinic tests changed only where code moved. Both domains' eval gates run on the kit, the clinic's on SQLite and FHIR (363 tests, identical trajectories).
+- **Two things the first draft got wrong:**
+  - The kit's record diff defaulted to the clinic's `APT-00001` IDs, a domain leak with a friendly default. It is now a required argument.
+  - The report title special-cased `clinic`. It is now one format for every domain.
+
+  `test_the_kit_never_imports_a_domain` guards the import side, not defaults like these, so I also read the kit for domain words.
+- **A negative control that proved less than it claimed:** the salon's `n10` (a hidden book-then-cancel cycle) also broke `c01`'s call budget. It was "caught", but not only by the state check it exists for. I raised `c01`'s budget to 4 calls, so `n10` now fails on the transient write alone.
+- **Mutations against the salon gate:** removing the late-cancel rule fails `x02`. Removing the visit limit fails `x03`, and its control `n07` goes uncaught. So the salon gate catches server regressions, not only grader ones.
+- **Disclosed:** this session's Docker build needed `--network host` and a scratch Dockerfile trusting the proxy's certificate, as in Part 6. The shipped Dockerfile has neither. CI's `container` job is the proof on GitHub's network.
+
 ## 2026-10-20 · Part 7: Codex review found 3x P1, 3x P2 (all reproduced, all fixed)
 - **P1 · Past slots crowded out upcoming ones.** Codex's case was clinic time 3 Nov at noon: FHIR returned 2 slots with `truncated` false, SQLite 20 with `truncated` true. This is the same defect Bugbot found. It was already fixed in cc91d98 (the review was of 5a003a6), and Codex's exact case now matches SQLite (20 slots, truncated).
 - **P1 · A write that timed out was reported "cancelled" but had committed.** **Reproduced:** a proxy in front of HAPI holds the transaction's answer for 1.5 s. With a 1 s budget the call said "took too long and was cancelled", and the booking was in HAPI. A sent write cannot be cancelled. **Fix:** when a write gets no answer in time, the backend reads the Appointment back once, with its own budget of at most 2 s. If it landed, the caller gets the real result. If not, a new `OutcomeUnknownError` says it "may or may not" have happened, gives the appointment ID it would have, and says a retry is safe. The guards make a second booking of the slot impossible, and a repeated cancel reports "already cancelled". A connection that was refused is still "unavailable, retry", because nothing was sent. **Tests:** fake servers that commit then hang, or just hang, for booking and for cancel.
