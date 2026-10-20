@@ -985,7 +985,7 @@ def part9() -> list:
         bl(
             "<b>Before pushing:</b> a 0600 tokens file the container could not read (found by replaying CI's container "
             "steps locally), a lock leaked on a refused database, an empty JWKS that raised a 500, and old tests that "
-            "passed for the wrong reason. Cursor Bugbot added two (a 500 on a malformed revocation file; a save failing after its rename). 14 of 15 mutations were caught."
+            "passed for the wrong reason. Cursor's bots added three (a 500 on a bad revocation file, a save failing after its rename, retired JWKS keys kept through an outage). 14/15 mutations caught."
         ),
         section("Verify it yourself"),
         codebox(

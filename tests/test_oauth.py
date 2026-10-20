@@ -280,9 +280,12 @@ def test_jwks_over_http_with_caching_and_rotation(
     assert _verify(v, signer.token()) is None and state["hits"] == 3
 
 
-def test_an_unreachable_jwks_keeps_the_cached_keys(
+def test_an_unreachable_jwks_keeps_the_cached_keys_for_an_hour_at_most(
     jwks_server: tuple[str, dict], signer: Signer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """An authorization-server outage keeps the last good keys, retried every 30 s, but not
+    forever: before Cursor Security Reviewer's finding (PR #20) every failed fetch renewed
+    the cache, so a key retired during a lasting outage stayed valid indefinitely."""
     monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
     url, state = jwks_server
     state["jwks"] = _jwks(signer)
@@ -290,8 +293,16 @@ def test_an_unreachable_jwks_keeps_the_cached_keys(
     source = JwksSource(url, clock=lambda: now["t"], timeout_s=1)
     v = JwtVerifier(AUTH, issuer=ISSUER, audience=AUDIENCE, jwks=source)
     assert _verify(v, signer.token()) is not None
-    source.location = "http://127.0.0.1:9/jwks.json"  # nothing listens on the discard port
-    now["t"] += 301
+    hits = state["hits"]
+    state["jwks"] = "not a jwks"  # the endpoint now answers garbage
+    for minute in range(6, 60, 6):  # failing fetches through the first hour
+        now["t"] = 1000.0 + minute * 60
+        assert _verify(v, signer.token()) is not None, minute
+    assert state["hits"] > hits + 5  # it kept retrying, not once per TTL
+    now["t"] = 1000.0 + 3600 + 31  # an hour after the last good fetch: refused
+    assert _verify(v, signer.token()) is None
+    state["jwks"] = _jwks(signer)  # recovered: accepted again on the next retry
+    now["t"] += 31
     assert _verify(v, signer.token()) is not None
 
 

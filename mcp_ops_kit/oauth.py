@@ -20,7 +20,9 @@ re-read whenever it changes, and short token lifetimes bound the rest.
 
 The JWKS is a file (re-read when it changes) or an ``https://`` URL (``http://`` only for
 localhost), cached for 5 minutes and re-fetched early, at most every 30 s, when a token
-names a key ID the cache lacks (the authorization server rotated its keys).
+names a key ID the cache lacks (the authorization server rotated its keys). If fetching
+fails, the last good keys are kept and the fetch retried every 30 s, but only for up to an
+hour after they were fetched; after that every JWT is refused until a fetch succeeds.
 """
 
 import argparse
@@ -53,6 +55,7 @@ ALGORITHMS = ("RS256", "ES256")
 LEEWAY_S = 30
 JWKS_TTL_S = 300.0
 JWKS_REFETCH_MIN_S = 30.0
+JWKS_MAX_AGE_S = 3600.0  # while fetches fail, keys older than this are dropped
 REQUIRED_CLAIMS = ("exp", "iat", "iss", "aud", "sub", "jti", "client_id")
 
 
@@ -92,6 +95,7 @@ class JwksSource:
         self._keys: dict[str, jwt.PyJWK] = {}
         self._signature: object = None
         self._fetched_at = -math.inf
+        self._loaded_at = -math.inf  # the last *successful* fetch
         self._lock = threading.Lock()
 
     def _load(self) -> dict[str, jwt.PyJWK]:
@@ -127,10 +131,23 @@ class JwksSource:
                     self._fetched_at = now
                     try:
                         self._keys = self._load()
-                    except Exception as exc:  # keep the cached keys on any failure
-                        logger.error("JWKS fetch from %s failed: %s", self.location, exc)
-                        # keep the cached keys: an outage at the authorization server must not
-                        # turn into an outage here before cached keys go stale
+                        self._loaded_at = now
+                    except Exception as exc:  # any failure: keep or drop by age, never a 500
+                        # An outage at the authorization server keeps the last good keys for
+                        # a while, but never indefinitely: a key retired during the outage
+                        # must stop verifying (Cursor Security Reviewer, PR #20).
+                        if now - self._loaded_at > JWKS_MAX_AGE_S:
+                            self._keys = {}
+                        logger.error(
+                            "JWKS fetch from %s failed (%s); %s",
+                            self.location,
+                            exc,
+                            "keeping keys fetched %.0f s ago" % (now - self._loaded_at)
+                            if self._keys
+                            else "refusing JWTs",
+                        )
+                        # retry in JWKS_REFETCH_MIN_S, not after a full TTL
+                        self._fetched_at = now - JWKS_TTL_S + JWKS_REFETCH_MIN_S
             else:
                 signature = _file_signature(self.location)
                 if signature != self._signature:
