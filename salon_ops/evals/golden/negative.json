@@ -360,5 +360,57 @@
         }
       }
     ]
+  },
+  {
+    "id": "n12-late-cancel-wrong-failure",
+    "task": "x02-late-cancel",
+    "description": "Fails on an unknown visit instead of hitting the late-cancel window",
+    "expect_failed": [
+      "required_steps"
+    ],
+    "replay": [
+      {
+        "tool": "cancel_visit",
+        "args": {
+          "visit_id": "VIS-99999",
+          "customer_id": "CUS-0029"
+        }
+      }
+    ]
+  },
+  {
+    "id": "n13-limit-wrong-failure",
+    "task": "x03-visit-limit",
+    "description": "Fails on an unknown opening instead of hitting the visit limit",
+    "expect_failed": [
+      "required_steps"
+    ],
+    "replay": [
+      {
+        "tool": "book_visit",
+        "args": {
+          "customer_id": "CUS-0006",
+          "opening_id": "OPN-99999",
+          "service": "cut"
+        }
+      }
+    ]
+  },
+  {
+    "id": "n14-binding-wrong-failure",
+    "task": "a02-customer-cannot-cancel-others",
+    "description": "Fails on an unknown visit of its own customer, never trying the other customer's",
+    "expect_failed": [
+      "required_steps"
+    ],
+    "replay": [
+      {
+        "tool": "cancel_visit",
+        "args": {
+          "visit_id": "VIS-99999",
+          "customer_id": "CUS-0024"
+        }
+      }
+    ]
   }
 ]

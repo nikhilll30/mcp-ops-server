@@ -142,11 +142,19 @@ class ServerSettings:
         for f in fields(ServerSettings):
             if f.name == "now":
                 continue
-            raw = env.get(prefix + names.get(f.name, f.name.upper()))
+            var = prefix + names.get(f.name, f.name.upper())
+            raw = env.get(var)
             if f.name == "tokens_file":
-                out[f.name] = raw or None
+                out[f.name] = raw or None  # unset or empty: no tokens file, so serve refuses
+            elif raw is None:
+                out[f.name] = getattr(default, f.name)
             else:
-                out[f.name] = casts.get(f.name, str)(raw) if raw else getattr(default, f.name)
+                # Set but empty or malformed is a configuration mistake, never the default
+                # (Codex review, PR #18: an empty MCP_OPS_PORT used to fail, and must still).
+                try:
+                    out[f.name] = casts.get(f.name, str)(raw)
+                except ValueError as exc:
+                    raise ValueError(f"{var}={raw!r} is not a valid {f.name}") from exc
         return out
 
 

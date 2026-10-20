@@ -1,6 +1,6 @@
 # Eval report: clinic
 
-Agent: **replay** · finished 2026-10-20T20:32:32+00:00 · backend: **sqlite** · server: `python -m mcp_ops_server` over Streamable HTTP with issued tokens.
+Agent: **replay** · finished 2026-10-20T21:56:20+00:00 · backend: **sqlite** · server: `python -m mcp_ops_server` over Streamable HTTP with issued tokens.
 
 **31/31 golden tasks passed** · **12/12 negative controls caught** · 66 tool calls, 8 tool errors, 0 agent errors (crashes or API failures).
 
@@ -73,11 +73,11 @@ Agent: **replay** · finished 2026-10-20T20:32:32+00:00 · backend: **sqlite** �
 
 | Tool | Calls | p50 ms | p95 ms | max ms |
 |---|---|---|---|---|
-| `book_appointment` | 18 | 17.2 | 20.7 | 20.8 |
-| `cancel_appointment` | 4 | 13.3 | 18.6 | 18.8 |
-| `get_referral_status` | 13 | 15.1 | 18.0 | 18.1 |
-| `health` | 1 | 10.1 | 10.1 | 10.1 |
-| `list_open_slots` | 16 | 15.5 | 16.5 | 16.6 |
-| `search_providers` | 14 | 14.5 | 41.2 | 81.0 |
+| `book_appointment` | 18 | 15.0 | 20.5 | 22.0 |
+| `cancel_appointment` | 4 | 12.0 | 14.9 | 14.9 |
+| `get_referral_status` | 13 | 13.4 | 16.6 | 16.7 |
+| `health` | 1 | 9.3 | 9.3 | 9.3 |
+| `list_open_slots` | 16 | 13.4 | 17.4 | 18.3 |
+| `search_providers` | 14 | 12.1 | 30.5 | 59.3 |
 
 Latency is from one local run and varies by machine; it is a baseline, not a benchmark.

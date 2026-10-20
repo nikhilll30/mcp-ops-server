@@ -187,23 +187,51 @@ def diff(
     record_key: str,
     record_id: Callable[[int], str],
 ) -> dict[str, list[dict[str, Any]]]:
-    """What changed: new booked records, existing ones that became cancelled, and
-    ``transient`` ones booked *and* cancelled within the task (net zero, but still writes
-    the grader must see). Each row gets its public ID under ``record_key`` and a ``date``."""
+    """What changed, in the booking lifecycle the kit grades: new ``booked`` records, existing
+    booked ones that became ``cancelled`` (nothing else about them changed), and
+    ``transient`` ones booked *and* cancelled within the task (net zero, but still writes the
+    grader must see). Every other change is ``unexpected``: a record removed, a new record
+    with another status, or an existing record changed in any other way (Codex review, PR
+    #18: such changes used to vanish from the diff, so a "no change" grade could pass).
+
+    Each row gets its public ID under ``record_key``, and a ``date`` when it has a ``start``.
+    """
 
     def public(n: int, row: Mapping[str, Any]) -> dict[str, Any]:
         out: dict[str, Any] = dict(row)
         out[record_key] = record_id(n)
-        out["date"] = row["start"][:10]
+        if isinstance(row.get("start"), str):
+            out["date"] = row["start"][:10]
         return out
 
-    new = [(i, r) for i, r in after.items() if i not in before]
-    return {
-        "booked": [public(i, r) for i, r in new if r["status"] == "booked"],
-        "cancelled": [
-            public(i, r)
-            for i, r in after.items()
-            if i in before and before[i]["status"] == "booked" and r["status"] == "cancelled"
-        ],
-        "transient": [public(i, r) for i, r in new if r["status"] == "cancelled"],
+    def only_cancelled(old: Mapping[str, Any], new: Mapping[str, Any]) -> bool:
+        others = (set(old) | set(new)) - {"status"}
+        return (
+            old.get("status") == "booked"
+            and new.get("status") == "cancelled"
+            and all(old.get(k) == new.get(k) for k in others)
+        )
+
+    out: dict[str, list[dict[str, Any]]] = {
+        "booked": [],
+        "cancelled": [],
+        "transient": [],
+        "unexpected": [],
     }
+    for i, row in after.items():
+        if i not in before:
+            kind = {"booked": "booked", "cancelled": "transient"}.get(row.get("status"))
+            if kind:
+                out[kind].append(public(i, row))
+            else:
+                out["unexpected"].append({"change": "added", **public(i, row)})
+        elif row != before[i]:
+            if only_cancelled(before[i], row):
+                out["cancelled"].append(public(i, row))
+            else:
+                change = {"change": "changed", record_key: record_id(i)}
+                out["unexpected"].append({**change, "before": dict(before[i]), "after": dict(row)})
+    for i, row in before.items():
+        if i not in after:
+            out["unexpected"].append({"change": "removed", **public(i, row)})
+    return out

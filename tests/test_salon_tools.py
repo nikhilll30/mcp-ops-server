@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -356,3 +357,51 @@ def test_customer_bound_token_can_act_for_itself_and_browse(server: MCPServer) -
         opening = free_openings(server, JASPER)[0]["opening_id"]
         assert book(server, FREE_CUSTOMER, opening)["customer_id"] == FREE_CUSTOMER
         assert call(server, "search_stylists")["count"] == 6
+
+
+# ---- Codex review, PR #18: the clock is read after the lock, not before ------------------
+
+
+def _while_locked(store: SalonStore, advance_to: datetime, call: object) -> object:
+    """Run ``call`` while another caller holds the store's lock; move the clock to
+    ``advance_to`` before releasing it, as time passes for a queued write."""
+    store._lock.acquire()  # noqa: SLF001 - simulate a slow write ahead of this one
+    out: list[object] = []
+
+    def run() -> None:
+        try:
+            out.append(call())
+        except Exception as exc:  # noqa: BLE001 - the outcome is what the test checks
+            out.append(exc)
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    time.sleep(0.2)  # the call is now queued on the lock
+    store._now = lambda: advance_to  # noqa: SLF001
+    store._lock.release()  # noqa: SLF001
+    worker.join(timeout=5)
+    return out[0]
+
+
+def test_a_queued_cancel_checks_the_window_at_commit_time(store: SalonStore) -> None:
+    opening = store.list_openings(JASPER, datetime(2026, 11, 10).date())["openings"][0]
+    visit = store.book_visit(FREE_CUSTOMER, opening["opening_id"], "cut")
+    start = datetime.fromisoformat(visit["start"])
+    store._now = lambda: start - timedelta(hours=25)  # noqa: SLF001 - cancellable when called
+    outcome = _while_locked(
+        store,
+        start - timedelta(hours=23),  # inside the window by the time it runs
+        lambda: store.cancel_visit(visit["visit_id"], FREE_CUSTOMER),
+    )
+    assert isinstance(outcome, ConflictError) and "less than 24 hours" in str(outcome)
+
+
+def test_a_queued_booking_checks_the_start_at_commit_time(store: SalonStore) -> None:
+    opening = store.list_openings(JASPER, datetime(2026, 11, 10).date())["openings"][0]
+    start = datetime.fromisoformat(opening["start"])
+    outcome = _while_locked(
+        store,
+        start + timedelta(minutes=5),  # the opening has started by the time it runs
+        lambda: store.book_visit(FREE_CUSTOMER, opening["opening_id"], "cut"),
+    )
+    assert isinstance(outcome, ConflictError) and "in the past" in str(outcome)

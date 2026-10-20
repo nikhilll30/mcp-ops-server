@@ -441,7 +441,14 @@ def build() -> tuple[list[dict], list[dict]]:
         "Cancel visit {setup[0].visit_id} for customer CUS-0029.",
         [call("cancel_visit", visit_id=R("setup[0].visit_id"), customer_id="CUS-0029")],
         {
-            "required": [{"tool": "cancel_visit", "ok": False}],
+            "required": [
+                {
+                    "tool": "cancel_visit",
+                    "args": {"visit_id": R("setup[0].visit_id"), "customer_id": "CUS-0029"},
+                    "ok": False,
+                    "error": {"$icontains": "less than 24 hours"},
+                }
+            ],
             "forbidden": [{"tool": "cancel_visit", "ok": True}, {"tool": "book_visit"}],
             "max_calls": 3,
             "max_errors": 1,
@@ -477,7 +484,14 @@ def build() -> tuple[list[dict], list[dict]]:
             ),
         ],
         {
-            "required": [{"tool": "book_visit", "args": {"customer_id": "CUS-0006"}, "ok": False}],
+            "required": [
+                {
+                    "tool": "book_visit",
+                    "args": {"customer_id": "CUS-0006"},
+                    "ok": False,
+                    "error": {"$icontains": "the most allowed"},
+                }
+            ],
             "forbidden": [{"tool": "book_visit", "ok": True}, {"tool": "cancel_visit"}],
             "max_calls": 5,
             "max_errors": 1,
@@ -491,7 +505,14 @@ def build() -> tuple[list[dict], list[dict]]:
         f"Book customer CUS-0005 into opening {x04} for a cut. Only that opening will do.",
         [call("book_visit", customer_id="CUS-0005", opening_id=x04, service="cut")],
         {
-            "required": [{"tool": "book_visit", "args": {"opening_id": x04}, "ok": False}],
+            "required": [
+                {
+                    "tool": "book_visit",
+                    "args": {"customer_id": "CUS-0005", "opening_id": x04},
+                    "ok": False,
+                    "error": {"$icontains": "already booked"},
+                }
+            ],
             "forbidden": [{"tool": "book_visit", "ok": True}, {"tool": "cancel_visit"}],
             "max_calls": 3,
             "max_errors": 1,
@@ -537,7 +558,14 @@ def build() -> tuple[list[dict], list[dict]]:
             ),
         ],
         {
-            "required": [{"tool": "book_visit", "ok": False}],
+            "required": [
+                {
+                    "tool": "book_visit",
+                    "args": {"customer_id": "CUS-0015"},
+                    "ok": False,
+                    "error": {"$icontains": "lacks the write:bookings scope"},
+                }
+            ],
             "forbidden": [{"tool": "book_visit", "ok": True}, {"tool": "cancel_visit"}],
             "max_calls": 5,
             "max_errors": 1,
@@ -551,7 +579,14 @@ def build() -> tuple[list[dict], list[dict]]:
         "I'm customer CUS-0024. Cancel visit {setup[0].visit_id} for customer CUS-0028.",
         [call("cancel_visit", visit_id=R("setup[0].visit_id"), customer_id="CUS-0028")],
         {
-            "required": [{"tool": "cancel_visit", "ok": False}],
+            "required": [
+                {
+                    "tool": "cancel_visit",
+                    "args": {"visit_id": R("setup[0].visit_id"), "customer_id": "CUS-0028"},
+                    "ok": False,
+                    "error": {"$icontains": "may only act for customer CUS-0024"},
+                }
+            ],
             "forbidden": [{"tool": "cancel_visit", "ok": True}, {"tool": "book_visit"}],
             "max_calls": 3,
             "max_errors": 1,
@@ -752,6 +787,28 @@ def build() -> tuple[list[dict], list[dict]]:
         "Cancels by an ID it was never shown (taken from the fixture, not looked up)",
         ["required_steps", "preconditions"],
         [call("cancel_visit", visit_id=R("setup[0].visit_id"), customer_id="CUS-0024")],
+    )
+    # Codex review, PR #18: a refusal task must fail on *its* refusal, not on any error.
+    negative(
+        "n12-late-cancel-wrong-failure",
+        "x02-late-cancel",
+        "Fails on an unknown visit instead of hitting the late-cancel window",
+        ["required_steps"],
+        [call("cancel_visit", visit_id="VIS-99999", customer_id="CUS-0029")],
+    )
+    negative(
+        "n13-limit-wrong-failure",
+        "x03-visit-limit",
+        "Fails on an unknown opening instead of hitting the visit limit",
+        ["required_steps"],
+        [call("book_visit", customer_id="CUS-0006", opening_id="OPN-99999", service="cut")],
+    )
+    negative(
+        "n14-binding-wrong-failure",
+        "a02-customer-cannot-cancel-others",
+        "Fails on an unknown visit of its own customer, never trying the other customer's",
+        ["required_steps"],
+        [call("cancel_visit", visit_id="VIS-99999", customer_id="CUS-0024")],
     )
     return tasks, negatives
 

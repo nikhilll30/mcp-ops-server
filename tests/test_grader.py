@@ -248,3 +248,37 @@ def test_agent_error_and_unresolvable_expectations_fail_cleanly() -> None:
     assert crashed.failed() == ["agent_error"]
     bad_ref = {"id": "t", "expect": {"state": {"booked": [{"slot_id": {"$ref": "steps[3].x"}}]}}}
     assert grade(bad_ref, [], {}, {"steps": []}, subject=PATIENTS).failed() == ["expectations"]
+
+
+def test_a_pattern_can_require_a_specific_error() -> None:
+    """Codex review, PR #18: a refusal task must fail on its own refusal, not on any error."""
+    pattern = {"tool": "book_visit", "ok": False, "error": {"$icontains": "the most allowed"}}
+    refused = Step(
+        "book_visit", {}, ok=False, error="... holds 3 upcoming visits, the most allowed"
+    )
+    unrelated = Step("book_visit", {}, ok=False, error="Opening OPN-99999 not found.")
+    assert step_matches(pattern, refused)
+    assert not step_matches(pattern, unrelated)
+    assert not step_matches(pattern, Step("book_visit", {}, ok=True))  # no error text at all
+
+
+def test_changes_outside_the_booking_lifecycle_fail_the_state_check() -> None:
+    """Codex review, PR #18: an edited, removed or odd-status record used to vanish from the
+    diff, so a task expecting no change passed."""
+    row = {"status": "booked", "start": "2026-11-10T10:00:00", "service": "cut"}
+    ids = {"record_key": "visit_id", "record_id": lambda n: f"VIS-{n:05d}"}
+    task = {"id": "t", "expect": {}}
+    cases = {
+        "edited": ({1: row}, {1: {**row, "service": "colour"}}),
+        "cancelled and edited": ({1: row}, {1: {**row, "status": "cancelled", "service": "x"}}),
+        "removed": ({1: row}, {}),
+        "added with another status": ({}, {1: {**row, "status": "pending"}}),
+    }
+    for name, (before, after) in cases.items():
+        change = diff(before, after, **ids)
+        assert len(change["unexpected"]) == 1, name
+        assert grade(task, [], change, subject=PATIENTS).failed() == ["final_state"], name
+    plain_cancel = diff({1: row}, {1: {**row, "status": "cancelled"}}, **ids)
+    assert plain_cancel["unexpected"] == [] and len(plain_cancel["cancelled"]) == 1
+    no_start = diff({}, {1: {"status": "booked"}}, **ids)  # no start field: no date, no crash
+    assert no_start["booked"] == [{"status": "booked", "visit_id": "VIS-00001"}]

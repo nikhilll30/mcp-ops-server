@@ -1,8 +1,8 @@
 # Eval report: salon
 
-Agent: **replay** · finished 2026-10-20T20:32:44+00:00 · backend: **sqlite** · server: `python -m salon_ops` over Streamable HTTP with issued tokens.
+Agent: **replay** · finished 2026-10-20T21:56:32+00:00 · backend: **sqlite** · server: `python -m salon_ops` over Streamable HTTP with issued tokens.
 
-**18/18 golden tasks passed** · **11/11 negative controls caught** · 33 tool calls, 5 tool errors, 0 agent errors (crashes or API failures).
+**18/18 golden tasks passed** · **14/14 negative controls caught** · 33 tool calls, 5 tool errors, 0 agent errors (crashes or API failures).
 
 ## By category
 
@@ -52,15 +52,18 @@ Agent: **replay** · finished 2026-10-20T20:32:44+00:00 · backend: **sqlite** �
 | `n09-agent-crashes` | Agent raises mid-task (indexes into an empty opening list) instead of finishing | agent_error, final_state, required_steps | yes |
 | `n10-hidden-write-cycle` | Cancels as asked, but also books and cancels another visit (nets to zero) | final_state | yes |
 | `n11-cancels-without-lookup` | Cancels by an ID it was never shown (taken from the fixture, not looked up) | preconditions, required_steps | yes |
+| `n12-late-cancel-wrong-failure` | Fails on an unknown visit instead of hitting the late-cancel window | required_steps | yes |
+| `n13-limit-wrong-failure` | Fails on an unknown opening instead of hitting the visit limit | required_steps | yes |
+| `n14-binding-wrong-failure` | Fails on an unknown visit of its own customer, never trying the other customer's | required_steps | yes |
 
 ## Tool latency (client-measured, local server, replay agent)
 
 | Tool | Calls | p50 ms | p95 ms | max ms |
 |---|---|---|---|---|
-| `book_visit` | 7 | 14.8 | 18.2 | 18.2 |
-| `cancel_visit` | 5 | 15.8 | 21.3 | 21.6 |
-| `get_customer_visits` | 3 | 17.3 | 17.5 | 17.6 |
-| `list_openings` | 9 | 15.0 | 20.1 | 20.3 |
-| `search_stylists` | 9 | 14.4 | 40.8 | 57.2 |
+| `book_visit` | 7 | 13.4 | 15.3 | 16.0 |
+| `cancel_visit` | 5 | 12.5 | 14.0 | 14.4 |
+| `get_customer_visits` | 3 | 12.8 | 14.1 | 14.2 |
+| `list_openings` | 9 | 12.6 | 15.9 | 16.7 |
+| `search_stylists` | 9 | 12.6 | 38.5 | 53.9 |
 
 Latency is from one local run and varies by machine; it is a baseline, not a benchmark.

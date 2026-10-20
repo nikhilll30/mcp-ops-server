@@ -43,15 +43,23 @@ The salon example has the following parts:
 - 6 tools;
 - 3 rules the clinic does not have: a stylist must offer the service, a 24-hour late-cancel
   window, and at most 3 upcoming visits per customer;
-- 18 golden tasks and 11 negative controls, gated in CI next to the clinic's.
+- 18 golden tasks and 14 negative controls, gated in CI next to the clinic's.
 
 ## Guarantees the kit enforces, with tests
 
 - **The kit never imports a domain.** `tests/test_kit.py` walks every import in `mcp_ops_kit/`.
-- **A tokens file from another domain does not load.** Unknown keys are refused. Without that,
-  a clinic token bound to a patient would load in the salon as an unbound token, its
-  `patient_id` silently dropped. Before the kit, the clinic's own loader ignored unknown keys
-  in exactly this way.
+- **A bound token never loads unbound.** Unknown keys are refused, so a clinic token bound to
+  a patient does not load in the salon as an unbound token with its `patient_id` silently
+  dropped. Before the kit, the clinic's own loader ignored unknown keys in exactly this way.
+  A token whose scopes another domain does not declare is refused too.
+  **Limit:** a tokens file names no domain. An *unbound* token loads in any domain that
+  declares the same scope names. The clinic and the salon share none. If you give two domains
+  overlapping scope names, give them separate tokens files (`tests/test_kit.py` pins this case).
+- **The state check sees every change.** The record diff grades the booking lifecycle (booked,
+  cancelled, booked-then-cancelled), and reports anything else (an edited, removed or
+  odd-status record) as `unexpected`. That fails the task unless the task expects it.
+- **A refusal can be pinned to its error.** A step pattern may carry `"error": {"$icontains": ...}`,
+  so a refusal task fails when the agent hits some other error.
 - **A scope a tool names but the domain never declared** raises an error. It is not quietly
   treated as "forbidden".
 - Everything else is held to both domains' full suites and eval gates: the clinic's (on SQLite

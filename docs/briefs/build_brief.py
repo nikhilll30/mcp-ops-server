@@ -825,7 +825,7 @@ def part8() -> list:
     return [
         Paragraph("Part 8 Brief · Salon example, then mcp-ops-kit", title),
         Paragraph(
-            "mcp-ops-server · 20 Oct 2026 · PR #18 · Status: CI green (push + PR runs); Bugbot and Cursor Security clean; awaiting Codex review",
+            "mcp-ops-server · 20 Oct 2026 · PR #18 · Status: Codex review fixed (1x P1, 5x P2); CI green expected",
             sub,
         ),
         Spacer(1, 4),
@@ -833,7 +833,7 @@ def part8() -> list:
         bl(
             f"<b>A second synthetic domain, a salon</b> ({cf}salon_ops/</font>): stylists, hourly openings, visits, "
             "customer-bound tokens, its own scopes, and rules the clinic lacks (service offered, 24 h late-cancel, "
-            "3 upcoming visits). Built first by <b>copying</b> the clinic's code. 18 golden tasks, 11 negative controls."
+            "3 upcoming visits). Built first by <b>copying</b> the clinic's code. 18 golden tasks, 14 negative controls."
         ),
         bl(
             f"<b>{cf}mcp_ops_kit/</font></b>, extracted from what the two copies shared: auth (scopes + subject as an "
@@ -874,7 +874,7 @@ def part8() -> list:
             "Nothing is configurable that a second user did not need."
         ),
         bl(
-            "<b>Clinic API kept, behaviour pinned</b> by the schema snapshot, the FHIR parity test (363 tests, "
+            "<b>Clinic API kept, behaviour pinned</b> by the schema snapshot, the FHIR parity test (374 tests, "
             "identical trajectories) and a test that the kit never imports a domain."
         ),
         section("What went wrong or surprised me (logged in FAILURES.md)"),
@@ -884,16 +884,17 @@ def part8() -> list:
             "fails if that is reverted."
         ),
         bl(
-            "<b>My own draft leaked the clinic</b> into the kit (APT IDs as a default, a clinic-only report title), and "
-            "one salon control was caught by the wrong check. Both fixed. Mutations: dropping the late-cancel rule or "
-            "the visit limit fails the salon gate."
+            "<b>Codex: 1x P1, 5x P2.</b> P1: a queued salon write read the clock before the lock, so a late cancel "
+            "could slip through (the clinic had it right; my copy did not). Also: refusal tasks passed on unrelated "
+            "errors (now pinned, 3 new controls), the diff hid edits (now 'unexpected'), empty env values became "
+            "defaults, --fhir-url=URL broke. The cross-domain token claim was narrowed and pinned, not redesigned."
         ),
         section("Verify it yourself"),
         codebox(
             [
-                "pytest -q                          # 286 passed",
+                "pytest -q                          # 297 passed",
                 "python -m evals.run                # clinic 31/31, 12/12",
-                "python -m salon_ops.evals.run      # salon 18/18, 11/11",
+                "python -m salon_ops.evals.run      # salon 18/18, 14/14",
             ]
         ),
         section("Interview talking point"),
@@ -905,7 +906,7 @@ def part8() -> list:
         ),
         section("Next (your actions)"),
         Paragraph(
-            "1) Paste the Codex prompt (STATUS.md). 2) Merge PR #18 once green. 3) Say <b>go</b> for Part 9.",
+            "1) Merge PR #18 once CI is green. 2) Optional: decide whether tokens files get a domain field. 3) Say <b>go</b> for Part 9.",
             body,
         ),
     ]

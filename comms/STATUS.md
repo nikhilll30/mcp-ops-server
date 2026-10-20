@@ -14,7 +14,7 @@
 |---|---|---|
 | P2 Planning | done (PR #15 merged) | docs/briefs/phase-2-plan.pdf |
 | 7 Backend protocol + FHIR R4 | done (PR #16 merged) | docs/briefs/part-7-fhir-backend.pdf |
-| 8 Booking example, then extract mcp-ops-kit | **in review** (PR #18): CI green, Bugbot + Cursor Security clean; awaiting Codex review | docs/briefs/part-8-mcp-ops-kit.pdf |
+| 8 Booking example, then extract mcp-ops-kit | **in review** (PR #18): Codex review fixed (1x P1, 5x P2); ready to merge once CI is green | docs/briefs/part-8-mcp-ops-kit.pdf |
 | 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation | next, after the owner's go | |
 | 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | planned | |
 | 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | planned | |
@@ -126,16 +126,16 @@ Built on branch `claude/youthful-hawking-h8wsdc` (the branch this session was as
 - **8a (2b76211):** `salon_ops/`, a synthetic salon built by copying the clinic's code:
   - its own scopes and customer binding, 6 tools;
   - rules the clinic lacks: service offered, 24 h late-cancel, 3 upcoming visits;
-  - 18 golden tasks and 11 negative controls, gated in the CI `evals` job.
+  - 18 golden tasks and 14 negative controls, gated in the CI `evals` job.
 - **8b (d2dd783):** `mcp_ops_kit/`, extracted from the diff between the copies:
   - `AuthConfig`, `SubjectRule`, `EvalDomain`;
   - limits, the SQLite deadline base, server wiring, harness, grader, agents, runner, smoke test.
 
   Both domains run on it, and the salon went from 2,150 lines to 954.
 - Local results:
-  - `pytest -q`: 286 passed;
-  - `sqlite,fhir` against HAPI: 363 passed, with identical eval trajectories on both backends;
-  - clinic 31/31, 12/12 on both backends; salon 18/18, 11/11;
+  - `pytest -q`: 297 passed;
+  - `sqlite,fhir` against HAPI: 374 passed, with identical eval trajectories on both backends;
+  - clinic 31/31, 12/12 on both backends; salon 18/18, 14/14;
   - Docker image built, and the smoke test passed.
 - **Found:** a fail-open in the clinic's token loader. Unknown keys were ignored, so a foreign or mistyped binding key gave an unbound token. Fixed in the kit, with a test (FAILURES.md).
 - The eval CLI flag is now `--backend-url`; `--fhir-url` is still accepted.
@@ -153,6 +153,15 @@ and anything that would embarrass this repo once public. List findings as P0/P1/
 line. Do not change code.
 ```
 
+Codex review (of e8cd861): 1x P1, 5x P2, all in FAILURES.md.
+- **Fixed with tests that fail without the fix:**
+  - the P1: a queued salon write read the clock before the lock;
+  - refusal tasks passed on unrelated errors (error matcher, 3 new controls);
+  - the diff hid edits (`unexpected`);
+  - empty env values became defaults;
+  - `--fhir-url=URL` stopped parsing.
+- **Narrowed, not redesigned:** the cross-domain token claim. The kit README states the limit and a test pins it. Owner's call: add a domain field to tokens files (a format change).
+
 ## Next action
-Owner: paste the Codex prompt above, then merge PR #18 once CI is green and findings are handled.
+Owner: merge PR #18 once CI is green. Optionally decide on the tokens-file domain field.
 Part 9 starts only after the owner says "go".

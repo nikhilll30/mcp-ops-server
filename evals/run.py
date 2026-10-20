@@ -127,7 +127,13 @@ def _make_domain(backend: str, backend_url: str | None) -> EvalDomain:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     # --fhir-url was this CLI's flag before the runner moved to the kit (Parts 7 docs use it).
-    argv = ["--backend-url" if a == "--fhir-url" else a for a in argv]
+    # Both argparse forms, "--fhir-url URL" and "--fhir-url=URL" (Codex review, PR #18).
+    argv = [
+        "--backend-url" + a.removeprefix("--fhir-url")
+        if a == "--fhir-url" or a.startswith("--fhir-url=")
+        else a
+        for a in argv
+    ]
     return kit.main(
         _make_domain,
         lambda args: _build_agent(args),  # late-bound, so tests can stub it

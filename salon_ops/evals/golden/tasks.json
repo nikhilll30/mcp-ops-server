@@ -639,7 +639,16 @@
       "required": [
         {
           "tool": "cancel_visit",
-          "ok": false
+          "args": {
+            "visit_id": {
+              "$ref": "setup[0].visit_id"
+            },
+            "customer_id": "CUS-0029"
+          },
+          "ok": false,
+          "error": {
+            "$icontains": "less than 24 hours"
+          }
         }
       ],
       "forbidden": [
@@ -681,7 +690,10 @@
           "args": {
             "customer_id": "CUS-0006"
           },
-          "ok": false
+          "ok": false,
+          "error": {
+            "$icontains": "the most allowed"
+          }
         }
       ],
       "forbidden": [
@@ -738,9 +750,13 @@
         {
           "tool": "book_visit",
           "args": {
+            "customer_id": "CUS-0005",
             "opening_id": "OPN-00003"
           },
-          "ok": false
+          "ok": false,
+          "error": {
+            "$icontains": "already booked"
+          }
         }
       ],
       "forbidden": [
@@ -820,7 +836,13 @@
       "required": [
         {
           "tool": "book_visit",
-          "ok": false
+          "args": {
+            "customer_id": "CUS-0015"
+          },
+          "ok": false,
+          "error": {
+            "$icontains": "lacks the write:bookings scope"
+          }
         }
       ],
       "forbidden": [
@@ -886,7 +908,16 @@
       "required": [
         {
           "tool": "cancel_visit",
-          "ok": false
+          "args": {
+            "visit_id": {
+              "$ref": "setup[0].visit_id"
+            },
+            "customer_id": "CUS-0028"
+          },
+          "ok": false,
+          "error": {
+            "$icontains": "may only act for customer CUS-0024"
+          }
         }
       ],
       "forbidden": [

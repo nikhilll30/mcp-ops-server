@@ -131,3 +131,34 @@ def test_make_clock_is_pinned_or_domain_local() -> None:
 def test_live_agent_needs_a_prompt_that_states_the_time() -> None:
     with pytest.raises(ValueError, match="now"):
         OpenAIAgent("m", "You book things.", salon_seed.SALON_NOW, client=object())
+
+
+def test_overlapping_scope_names_are_the_documented_limit(tmp_path: Path) -> None:
+    """Codex review, PR #18: a tokens file names no domain. With shared scope names, a token
+    *bound* in one domain is still refused by the other (its claim is unknown there), but an
+    unbound token loads in both. The kit README states this limit; this test pins it."""
+    a = auth.AuthConfig(("read:x",), "member_id", r"M-[0-9]{2}", "member", "a")
+    b = auth.AuthConfig(("read:x",), "guest_id", r"G-[0-9]{2}", "guest", "b")
+    bound, unbound = str(tmp_path / "bound.json"), str(tmp_path / "unbound.json")
+    auth.issue(a, bound, "app", ["read:x"], "M-01")
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        b.verifier.from_file(bound)
+    token = auth.issue(a, unbound, "desk", ["read:x"], None)
+    verified = asyncio.run(b.verifier.from_file(unbound).verify_token(token))
+    assert verified is not None and verified.claims is None
+
+
+@pytest.mark.parametrize("var", ["PORT", "RATE_LIMIT_PER_MIN", "CALL_TIMEOUT_S", "MAX_SESSIONS"])
+def test_an_empty_numeric_setting_is_an_error_not_the_default(
+    monkeypatch: pytest.MonkeyPatch, var: str
+) -> None:
+    """Codex review, PR #18: before the kit, an empty MCP_OPS_PORT failed to parse; the kit
+    briefly treated it as unset and served on the default port."""
+    from mcp_ops_server.config import Settings as ClinicSettings
+
+    monkeypatch.setenv(f"MCP_OPS_{var}", "")
+    with pytest.raises(ValueError, match=f"MCP_OPS_{var}=''"):
+        ClinicSettings.from_env()
+    monkeypatch.setenv(f"MCP_OPS_{var}", "12x")
+    with pytest.raises(ValueError, match=f"MCP_OPS_{var}='12x'"):
+        ClinicSettings.from_env()

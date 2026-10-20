@@ -201,8 +201,10 @@ class SalonStore(SqliteStore):
     # ---- writes ------------------------------------------------------------------------
 
     def book_visit(self, customer_id: str, opening_id: str, service: str) -> VisitResult:
-        now = self._now_iso()
         with self._write() as c:
+            # Read the clock inside the transaction: a write queued on the lock must judge
+            # "in the past" at the time it commits, not when it was called (Codex, PR #18).
+            now = self._now_iso()
             if not c.execute("SELECT 1 FROM customers WHERE id = ?", (customer_id,)).fetchone():
                 raise customer_not_found(customer_id)
             opening = c.execute(
@@ -273,8 +275,8 @@ class SalonStore(SqliteStore):
 
     def cancel_visit(self, visit: str, customer_id: str) -> VisitResult:
         n = parse_visit_id(visit)
-        cutoff = (self._now() + timedelta(hours=seed.LATE_CANCEL_HOURS)).isoformat()
         with self._write() as c:
+            cutoff = (self._now() + timedelta(hours=seed.LATE_CANCEL_HOURS)).isoformat()
             row = (
                 c.execute(_VISIT_SQL + " WHERE v.id = ?", (n,)).fetchone()
                 if n is not None

@@ -24,15 +24,15 @@ appear anywhere.
 | **A developer building an MCP server** | [`mcp-ops-kit`](mcp_ops_kit/README.md): scopes and a subject binding in code, per-client limits, a per-call deadline, a fail-closed server, a smoke test. Plus a schema-drift guard, a container smoke-tested in CI, and one `Backend` protocol with two stores held to the same tests | The kit on PyPI; signed images |
 | **An agent team** | A trajectory grader, negative controls that prove it can fail, a CI eval gate and measured live runs, with a harness any domain plugs into (`EvalDomain`) | Repeated runs with pass^k, a prompt-injection suite |
 | **Healthcare IT** | Studying a synthetic clinic with patient-bound tokens, and a FHIR R4 backend (Practitioner, Schedule/Slot, Appointment, ServiceRequest) tested against HAPI FHIR in CI, including concurrent booking; **not** for real patient data (see [below](#can-i-use-it-with-real-patient-data)) | Audit log, expiring/revocable tokens, encryption at rest, a Terraform blueprint, a HIPAA controls matrix |
-| **A booking business** (salon, tutor, repair) | A synthetic salon built on the kit (`salon_ops/`: 6 tools, its own scopes and customer-bound tokens, 18 golden tasks, 11 negative controls), and a [step-by-step guide](mcp_ops_kit/README.md) to building yours the same way | Audit log and expiring tokens from the kit, at no extra work per domain |
+| **A booking business** (salon, tutor, repair) | A synthetic salon built on the kit (`salon_ops/`: 6 tools, its own scopes and customer-bound tokens, 18 golden tasks, 14 negative controls), and a [step-by-step guide](mcp_ops_kit/README.md) to building yours the same way | Audit log and expiring tokens from the kit, at no extra work per domain |
 | **An evaluator or learner** | A build documented part by part: a failure log, one brief per part, every number linked to where it was measured | The same for Parts 9–12, including what "HIPAA-ready" does and does not mean |
 
 | | |
 |---|---|
 | **Server** | 6 MCP tools over Streamable HTTP · bearer tokens with scopes and patient binding · rate limit, body limit, per-call deadline |
-| **Evals** | Clinic: 31 golden tasks graded step by step, and on the exact database change, plus 12 negative controls the grader must fail · Salon: 18 tasks and 11 controls, on the same kit |
+| **Evals** | Clinic: 31 golden tasks graded step by step, and on the exact database change, plus 12 negative controls the grader must fail · Salon: 18 tasks and 14 controls, on the same kit |
 | **Backends** | SQLite (default) or FHIR R4 (`MCP_OPS_BACKEND=fhir`), behind one protocol; same tool results, byte for byte, on every eval task |
-| **CI** | lint · 286 tests · eval gates (clinic 31/31, 12/12; salon 18/18, 11/11) · a `fhir` job: 363 tests with every clinic tool test on both backends against HAPI FHIR, and the eval gate on FHIR · secret scan · the Docker image built and smoke-tested on every PR |
+| **CI** | lint · 297 tests · eval gates (clinic 31/31, 12/12; salon 18/18, 14/14) · a `fhir` job: 374 tests with every clinic tool test on both backends against HAPI FHIR, and the eval gate on FHIR · secret scan · the Docker image built and smoke-tested on every PR |
 | **Live models** | `gpt-6-luna` **30/31** for **$0.046** · `gpt-6.1-sol` **30/31** for **$0.339** (all 31 tasks, one run each) |
 
 ![Demo: issue a token, run the container, a real book and cancel over HTTP, then the eval gate](docs/demo/demo.gif)
@@ -98,7 +98,7 @@ docker run -d --name hapi -p 127.0.0.1:8080:8080 hapiproject/hapi:v8.4.0-2   # r
 python -m mcp_ops_server.backends.fhir_seed load --url http://127.0.0.1:8080/fhir
 MCP_OPS_BACKEND=fhir MCP_OPS_FHIR_URL=http://127.0.0.1:8080/fhir MCP_OPS_TOKENS_FILE=tokens.json \
   python -m mcp_ops_server
-MCP_OPS_TEST_BACKENDS=sqlite,fhir pytest -q                  # 363 tests, both backends
+MCP_OPS_TEST_BACKENDS=sqlite,fhir pytest -q                  # 374 tests, both backends
 python -m evals.run --backend fhir --backend-url http://127.0.0.1:8080/fhir
 ```
 
@@ -109,7 +109,7 @@ unreachable, is not R4, or has no seed loaded.
 
 ```bash
 pip install -e ".[dev]"
-ruff check . && ruff format --check . && pytest -q   # 286 tests (FHIR ones need the server above)
+ruff check . && ruff format --check . && pytest -q   # 297 tests (FHIR ones need the server above)
 python -m evals.run                                  # 31/31 tasks passed; 12/12 negative controls caught
 python -m mcp_ops_server                             # needs MCP_OPS_TOKENS_FILE; see .env.example
 ```
@@ -117,7 +117,7 @@ python -m mcp_ops_server                             # needs MCP_OPS_TOKENS_FILE
 **The salon example**, on the same kit (port 8100, `SALON_OPS_*` settings):
 
 ```bash
-python -m salon_ops.evals.run                        # 18/18 tasks passed; 11/11 negative controls caught
+python -m salon_ops.evals.run                        # 18/18 tasks passed; 14/14 negative controls caught
 python -m salon_ops.auth issue --file salon-tokens.json --client me \
   --scope read:catalog --scope write:bookings --scope read:customers
 SALON_OPS_TOKENS_FILE=salon-tokens.json python -m salon_ops   # http://127.0.0.1:8100/mcp
@@ -189,7 +189,7 @@ task generator. The map today:
 | **The domain itself** | Clinic: `seed.py`, `models.py`, `tools/`, `backends/`, `evals/golden/`. Salon: `seed.py`, `models.py`, `store.py`, `tools.py`, `evals/golden/` | Replace these for a new domain (the FHIR mapping is clinic-specific by nature) |
 
 Write golden tasks *and* negative controls for your domain before trusting the gate: the
-salon's 11 controls cover every grader check.
+salon's 14 controls cover every grader check, and three of them fail a refusal task that hit the wrong error.
 
 ## Can I use it with real patient data?
 
