@@ -1017,7 +1017,7 @@ def part10() -> list:
     return [
         Paragraph("Part 10 Brief · Terraform blueprint on HIPAA-eligible AWS", title),
         Paragraph(
-            "mcp-ops-server · 21 Oct 2026 · PR #PRNUM · Status: CI pending; Codex review pending · validated, never applied",
+            "mcp-ops-server · 21 Oct 2026 · PR #22 · Status: CI pending; Codex review pending · validated, never applied",
             sub,
         ),
         Spacer(1, 4),

@@ -16,7 +16,7 @@
 | 7 Backend protocol + FHIR R4 | done (PR #16 merged) | docs/briefs/part-7-fhir-backend.pdf |
 | 8 Booking example, then extract mcp-ops-kit | done (PR #18 merged) | docs/briefs/part-8-mcp-ops-kit.pdf |
 | 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation, audience binding | done (PR #20 merged) | docs/briefs/part-9-safeguards.pdf |
-| 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | **in review** (PR open; Codex review pending) | docs/briefs/part-10-terraform.pdf |
+| 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | **in review** (PR #22; Codex review pending) | docs/briefs/part-10-terraform.pdf |
 | 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | planned | |
 | 12 Repeated live runs, pass^k, prompt-injection suite | planned | |
 
@@ -34,7 +34,7 @@
 | 007 | Backend protocol, SqliteBackend, FhirBackend, HAPI in CI, parity | Claude | merged | #16 |
 | 008 | Salon example (copy), then mcp-ops-kit extracted from both domains | Claude | merged | #18 |
 | 009 | Safeguards in the kit: tokens v2 + audience, OAuth JWTs, audit log, encryption at rest, minimisation | Claude | merged | #20 |
-| 010 | Terraform blueprint (infra/aws), CI terraform job, check_infra.py, hardened container run | Claude | in review | PRNUM |
+| 010 | Terraform blueprint (infra/aws), CI terraform job, check_infra.py, hardened container run | Claude | in review | #22 |
 
 ## Workflow
 Claude builds each part in a fresh Claude Code session (rules in `CLAUDE.md`); Codex reviews each
@@ -276,7 +276,7 @@ ruleset's required checks. Part 11 starts after the owner's "go".
 
 Codex prompt for Part 10:
 ```
-Review PR #PRNUM in nikhilll30/mcp-ops-server (branch claude/nifty-ptolemy-l6whuk) as a senior
+Review PR #22 in nikhilll30/mcp-ops-server (branch claude/nifty-ptolemy-l6whuk) as a senior
 engineer. Focus: infra/aws as an AWS deployment of the clinic server: IAM least privilege (task
 vs execution vs admin roles, the EFS access-point conditions and file system policy), whether
 the VPC truly has no internet path and the endpoints and security groups are enough for a
