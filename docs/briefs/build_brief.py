@@ -918,7 +918,7 @@ def part9() -> list:
     return [
         Paragraph("Part 9 Brief · Safeguards in the kit", title),
         Paragraph(
-            "mcp-ops-server · 20 Oct 2026 · PR #20 · Status: Codex review fixed (6x P1, 3x P2); CI running; ready to merge when green",
+            "mcp-ops-server · 20 Oct 2026 · PR #20 · Status: merged 21 Oct 2026; Codex review fixed (6x P1, 3x P2); CI green",
             sub,
         ),
         Spacer(1, 4),
@@ -1005,7 +1005,7 @@ def part9() -> list:
         section("Next (your actions)"),
         Paragraph(
             "1) Note: the image now needs MCP_OPS_DATA_KEY, and old tokens files need migrate (README). "
-            "2) Merge PR #20 when CI is green. 3) Say <b>go</b> for Part 10.",
+            "2) Say <b>go</b> for Part 10.",
             body,
         ),
     ]
