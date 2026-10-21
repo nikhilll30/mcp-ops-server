@@ -6,7 +6,15 @@ domains**, not designed up front. The synthetic clinic (`mcp_ops_server`) came f
 synthetic salon (`salon_ops`) was built by copying the clinic's code. The kit is what the two
 copies turned out to share (Part 8, see [`FAILURES.md`](../FAILURES.md)).
 
-It lives in this repo for now. Publishing it to PyPI is Part 11.
+```bash
+pip install mcp-ops-kit            # add [live] for the OpenAI agent used in live eval runs
+```
+
+(Once the first release is tagged; until then, `pip install -e .` from this repo.)
+
+The source lives in this repo, next to the two domains built on it. Releases are published to
+PyPI from a `kit-vX.Y.Z` tag on `main` by trusted publishing, with attestations, after CI has
+built the wheel and used it from a fresh venv (`release-kit.yml`).
 
 ## What the kit owns, and what a domain supplies
 

@@ -14,8 +14,9 @@ because it has real multi-step tasks and real security stakes. It runs on SQLite
 **salon** (stylists, openings, visits), runs on the same [`mcp-ops-kit`](mcp_ops_kit/README.md):
 auth, limits, server wiring, harness, grader and CI gate, extracted from what the two domains
 share. Phase 2 (see [Roadmap](#roadmap)) is making the clinic **HIPAA-ready**; Part 9 added
-the technical safeguards in code, and Part 10 a [Terraform blueprint](infra/aws/README.md) for
-AWS, validated in CI and never applied.
+the technical safeguards in code, Part 10 a [Terraform blueprint](infra/aws/README.md) for
+AWS, validated in CI and never applied, and Part 11 a [controls matrix](docs/hipaa-controls.md),
+a [threat model](docs/threat-model.md), signed images and the kit on PyPI.
 
 All data is synthetic and generated from a fixed seed. No real names, patients or credentials
 appear anywhere.
@@ -24,18 +25,18 @@ appear anywhere.
 
 | You are | Use it today for | Coming in Phase 2 |
 |---|---|---|
-| **A developer building an MCP server** | [`mcp-ops-kit`](mcp_ops_kit/README.md): scopes and a subject binding in code; tokens with audience, expiry and live revocation, or OAuth 2.1 JWTs; an encrypted, hash-chained audit log; encrypted SQLite; outputs cut to declared fields; per-client limits, a per-call deadline, a fail-closed server, a smoke test. Plus a schema-drift guard, a container smoke-tested in CI, and one `Backend` protocol with two stores held to the same tests | The kit on PyPI; signed images |
+| **A developer building an MCP server** | [`mcp-ops-kit`](mcp_ops_kit/README.md): scopes and a subject binding in code; tokens with audience, expiry and live revocation, or OAuth 2.1 JWTs; an encrypted, hash-chained audit log; encrypted SQLite; outputs cut to declared fields; per-client limits, a per-call deadline, a fail-closed server, a smoke test. Plus a schema-drift guard, a container smoke-tested in CI, and one `Backend` protocol with two stores held to the same tests. The kit as its own package, `mcp-ops-kit`, released to PyPI by trusted publishing (the first release follows the owner's tag), and images signed with an SBOM you can verify (`scripts/supply_chain.sh verify`) | Nothing more planned |
 | **An agent team** | A trajectory grader, negative controls that prove it can fail, a CI eval gate and measured live runs, with a harness any domain plugs into (`EvalDomain`) | Repeated runs with pass^k, a prompt-injection suite |
-| **Healthcare IT** | Studying a synthetic clinic with patient-bound tokens, and a FHIR R4 backend (Practitioner, Schedule/Slot, Appointment, ServiceRequest) tested against HAPI FHIR in CI, including concurrent booking. The 164.312 technical safeguards in code: audit log, expiring and revocable tokens, encryption at rest, minimum-necessary outputs. A [Terraform blueprint](infra/aws/README.md) on HIPAA-eligible AWS services (private Fargate, KMS everywhere, no internet path, least-privilege IAM), validated in CI, never applied. **Not** for real patient data (see [below](#can-i-use-it-with-real-patient-data)) | A HIPAA controls matrix, a threat model |
+| **Healthcare IT** | Studying a synthetic clinic with patient-bound tokens, and a FHIR R4 backend (Practitioner, Schedule/Slot, Appointment, ServiceRequest) tested against HAPI FHIR in CI, including concurrent booking. The 164.312 technical safeguards in code: audit log, expiring and revocable tokens, encryption at rest, minimum-necessary outputs. A [Terraform blueprint](infra/aws/README.md) on HIPAA-eligible AWS services (private Fargate, KMS everywhere, no internet path, least-privilege IAM), validated in CI, never applied. A [controls matrix](docs/hipaa-controls.md) mapping each 164.312 specification to the test that proves it or to the adopter, and a STRIDE [threat model](docs/threat-model.md) including prompt injection through tool results, both checked against the code in CI. **Not** for real patient data (see [below](#can-i-use-it-with-real-patient-data)) | Nothing more planned; measured prompt-injection results come in Part 12 |
 | **A booking business** (salon, tutor, repair) | A synthetic salon built on the kit (`salon_ops/`: 6 tools, its own scopes and customer-bound tokens, 18 golden tasks, 14 negative controls), and a [step-by-step guide](mcp_ops_kit/README.md) to building yours the same way. It got the audit log, expiring tokens and encryption at rest from the kit, with no salon-specific code | Repeated live runs and a prompt-injection suite, from the kit |
-| **An evaluator or learner** | A build documented part by part: a failure log, one brief per part, every number linked to where it was measured, including what "HIPAA-ready" does and does not mean | The same for Parts 11–12 |
+| **An evaluator or learner** | A build documented part by part: a failure log, one brief per part, every number linked to where it was measured, including what "HIPAA-ready" does and does not mean, and a [security policy](SECURITY.md) | The same for Part 12 |
 
 | | |
 |---|---|
 | **Server** | 6 MCP tools over Streamable HTTP · bearer tokens (static or OAuth 2.1 JWT) with scopes, patient binding, audience, expiry and live revocation · encrypted, hash-chained audit log · encrypted SQLite at rest · rate limit, body limit, per-call deadline |
 | **Evals** | Clinic: 31 golden tasks graded step by step, and on the exact database change, plus 12 negative controls the grader must fail · Salon: 18 tasks and 14 controls, on the same kit |
 | **Backends** | SQLite (default) or FHIR R4 (`MCP_OPS_BACKEND=fhir`), behind one protocol; same tool results, byte for byte, on every eval task |
-| **CI** | lint · 547 tests · eval gates (clinic 31/31, 12/12; salon 18/18, 14/14) · a `fhir` job: 625 tests with every clinic tool test on both backends against HAPI FHIR, and the eval gate on FHIR · secret scan · the Docker image built, run read-only with no capabilities, smoke-tested and its audit log verified on every PR · a `terraform` job: fmt, validate, 21 `terraform test` runs on a mocked provider, tflint, checkov, and a HIPAA-eligible service check |
+| **CI** | lint · 594 tests · eval gates (clinic 31/31, 12/12; salon 18/18, 14/14) · a `fhir` job: 672 tests with every clinic tool test on both backends against HAPI FHIR, and the eval gate on FHIR · secret scan · the Docker image built, run read-only with no capabilities, smoke-tested and its audit log verified on every PR · a `terraform` job: fmt, validate, 21 `terraform test` runs on a mocked provider, tflint, checkov, and a HIPAA-eligible service check · a `package` job: the kit built, checked and used from a fresh venv · CodeQL · on `main`, the image signed keyless with a signed SBOM, verified before `latest` moves |
 | **Live models** | `gpt-6-luna` **30/31** for **$0.046** · `gpt-6.1-sol` **30/31** for **$0.339** (all 31 tasks, one run each) |
 
 ![Demo: issue a token, run the container, a real book and cancel over HTTP, then the eval gate](docs/demo/demo.gif)
@@ -221,9 +222,9 @@ salon's 14 controls cover every grader check, and three of them fail a refusal t
 
 ## Can I use it with real patient data?
 
-**Not by code alone.** Part 9 added the technical safeguards below and Part 10 an
-infrastructure blueprint, but the controls matrix (Part 11) is still to come, and above all the
-organisational half on the right. Phase 2 aims at **HIPAA-ready**, never "HIPAA compliant":
+**Not by code alone.** Part 9 added the technical safeguards below, Part 10 an
+infrastructure blueprint and Part 11 a [controls matrix](docs/hipaa-controls.md) that maps each
+to its test, but the organisational half on the right is yours. Phase 2 aims at **HIPAA-ready**, never "HIPAA compliant":
 compliance belongs to an organisation, not to a repository.
 
 | What Phase 2 code adds (45 CFR 164.312 technical safeguards) | What the adopter must still do |
@@ -233,7 +234,7 @@ compliance belongs to an organisation, not to a repository.
 | Encryption at rest for the SQLite store and the audit log, minimum-necessary tool outputs (Part 9, done; FHIR storage encryption is the FHIR server's) | Operate it in their own HIPAA-eligible accounts, with their own keys, backups, log retention and breach-notification process |
 | A FHIR R4 backend so the server fronts an existing record system (Part 7, done) | Decide who gets which tokens, review access regularly, and pen-test their deployment |
 | A [Terraform blueprint](infra/aws/README.md) on HIPAA-eligible AWS services, validated, never applied (Part 10, done) | Confirm each service against AWS's live list under their BAA, connect the private VPC to their network, run CloudTrail/GuardDuty at the account level, and decide on TLS for the last hop to the task |
-| A controls matrix, threat model and `SECURITY.md` (Part 11) | Map the controls matrix to their own environment; anything marked "adopter's responsibility" is theirs |
+| A [controls matrix](docs/hipaa-controls.md), a [threat model](docs/threat-model.md) and [`SECURITY.md`](SECURITY.md) (Part 11, done) | Map the controls matrix to their own environment; anything marked "adopter's responsibility" is theirs |
 
 The repo itself will only ever contain synthetic data. This section is engineering guidance, **not
 legal advice**; talk to your privacy officer or counsel.
@@ -247,7 +248,7 @@ legal advice**; talk to your privacy officer or counsel.
 | 8 | A salon booking example built by copying the clinic, then `mcp-ops-kit` extracted from what both share; both eval gates run on the kit in CI | Done |
 | 9 | Audit log, OAuth 2.1 expiry and revocation, audience binding, encryption at rest, data minimisation, in the kit | Done |
 | 10 | Terraform blueprint on HIPAA-eligible AWS (private Fargate, EFS, KMS, WAF, least-privilege IAM), validated in CI, never applied | Done |
-| 11 | HIPAA controls matrix (164.312), threat model, `SECURITY.md`, CodeQL, Dependabot, PyPI, signed images | Planned |
+| 11 | HIPAA controls matrix (164.312), STRIDE threat model, `SECURITY.md`, CodeQL, Dependabot, actions pinned by commit, `mcp-ops-kit` on PyPI by trusted publishing, images signed keyless with an SBOM | Done |
 | 12 | Repeated live runs with pass^k, a prompt-injection suite | Planned |
 
 The detailed plan is in [`comms/PLAN.md`](comms/PLAN.md).
@@ -288,6 +289,8 @@ has a test that fails without it.
   for localhost binds) is off. Every `/mcp` request still needs a bearer token. Publish the
   port on localhost, as above, unless you mean to expose it.
 - The live results are single runs, so they say nothing about run-to-run variance.
+- Images are signed from Part 11 on. Tags pushed before it (`sha-*` of older commits) have no
+  signature and fail `scripts/supply_chain.sh verify`.
 - **FHIR backend.** The synthetic clinic keeps one fixed UTC offset (UTC-05:00, no daylight
   saving); Slot times are stored as UTC instants and converted. Every booking moves one
   sequence resource, so bookings are serialised (as SQLite's are), which caps write throughput.
