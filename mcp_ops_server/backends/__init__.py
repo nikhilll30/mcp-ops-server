@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from datetime import datetime
+from urllib.parse import urlsplit
 
 from mcp_ops_kit.server import make_clock
 from mcp_ops_server import seed
@@ -17,15 +18,23 @@ def clock(settings: Settings) -> Callable[[], datetime]:
 
 def make_backend(settings: Settings) -> Backend:
     """The backend ``settings`` selects. A FHIR backend is checked before it is returned, so
-    the server fails closed (``fhir.BackendUnavailableError``) on an unusable FHIR URL. A
-    SQLite file is always encrypted with the data key (``ConfigError`` without one); a FHIR
-    server's storage encryption is that server's job (see the README)."""
+        the server fails closed (``fhir.BackendUnavailableError``) on an unusable FHIR URL, and on
+    one that is not ``https://`` (``http://`` only on this machine, as for a JWKS URL). A
+        SQLite file is always encrypted with the data key (``ConfigError`` without one); a FHIR
+        server's storage encryption is that server's job (see the README)."""
     now = clock(settings)
     if settings.backend == "fhir":
         from mcp_ops_server.backends.fhir import BackendUnavailableError, FhirBackend
 
         if not settings.fhir_url:
             raise BackendUnavailableError("MCP_OPS_BACKEND=fhir needs MCP_OPS_FHIR_URL.")
+        parts = urlsplit(settings.fhir_url)
+        local = parts.hostname in {"localhost", "127.0.0.1", "::1"}
+        if parts.scheme != "https" and not (parts.scheme == "http" and local):
+            raise BackendUnavailableError(
+                "MCP_OPS_FHIR_URL must be https:// (http:// only for localhost), "
+                f"not {parts.scheme}://{parts.hostname}"  # never userinfo or path
+            )
         backend = FhirBackend(settings.fhir_url, timeout_s=settings.call_timeout_s, now=now)
         try:
             backend.check()

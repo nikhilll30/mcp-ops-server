@@ -157,6 +157,13 @@ jobs:
           done
           echo "::error::container did not become healthy"
           exit 1
+      - name: No setuid or setgid binary in the image
+        run: |
+          # As root, so no directory is unreadable to the scan; find's own status is not the
+          # result (it is non-zero on /proc races), the list is. A failing docker run still fails.
+          FOUND=$(docker run --rm --user 0 --entrypoint sh mcp-ops-server:ci \
+            -c 'find / -xdev -perm /6000 -type f 2>/dev/null; true')
+          if [ -n "$FOUND" ]; then echo "::error::setuid/setgid binaries in the image: $FOUND"; exit 1; fi
       - name: Smoke test against the container
         env:
           MCP_URL: http://127.0.0.1:8000
@@ -254,7 +261,6 @@ jobs:
       TF_SHA256: 2bc2fcfff033265c9e02ca0351f01794eb122f62a9b2a49a3294b9e49eaab5e4
       TFLINT_VERSION: 0.64.0
       TFLINT_SHA256: cca9d13e2e1d7a2c627af60ff899a3c9b74212899416aeb96ec764d2ef954537
-      CHECKOV_VERSION: 3.3.30
     defaults:
       run:
         working-directory: infra/aws
@@ -290,7 +296,7 @@ jobs:
           tflint --format compact
       - name: checkov
         run: |
-          pip install "checkov==${CHECKOV_VERSION}"
+          pip install -r "$GITHUB_WORKSPACE/.github/requirements/terraform-checks.txt"
           checkov -d . --framework terraform --compact --quiet --skip-download
       - name: HIPAA-eligible services, no open CIDRs, settings and uid match the server
         working-directory: .
@@ -307,7 +313,7 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
-      - run: pip install "build==1.6.1" "twine==7.0.0"
+      - run: pip install -r .github/requirements/kit-release.txt
       - name: Build mcp-ops-kit
         run: python scripts/build_kit.py --out dist
       - name: Check the files, then install the wheel alone in a fresh venv and use it

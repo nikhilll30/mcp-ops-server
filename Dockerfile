@@ -17,8 +17,12 @@ RUN pip install . && rm -rf /app/mcp_ops_kit /app/mcp_ops_server /app/salon_ops 
 
 # Unprivileged user; /data holds the tokens file (mounted at run time, never baked in).
 # /audit holds the encrypted audit log: mount a volume there to keep it.
+# No setuid or setgid binary is left (the base image has 11, such as su and mount), so
+# nothing in the image can raise its privileges, whether or not the runtime sets
+# no-new-privileges (Fargate's task definition cannot; CI's container job checks this).
 RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin app \
-    && mkdir /data /audit && chown app /data /audit && chmod 700 /audit
+    && mkdir /data /audit && chown app /data /audit && chmod 700 /audit \
+    && find / -xdev -perm /6000 -type f -exec chmod a-s {} +
 USER app
 
 # Listen on all interfaces inside the container. Every /mcp request needs a bearer token.

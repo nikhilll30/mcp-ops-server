@@ -1,0 +1,4 @@
+# Builds and checks the mcp-ops-kit distribution (CI package job, release-kit.yml).
+# Pinned here, not in the workflows, so Dependabot updates them (.github/dependabot.yml).
+build==1.6.1
+twine==7.0.0

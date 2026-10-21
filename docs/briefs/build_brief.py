@@ -1120,7 +1120,7 @@ def part11() -> list:
     return [
         Paragraph("Part 11 Brief · Assurance and supply chain", title),
         Paragraph(
-            "mcp-ops-server · 21 Oct 2026 · PR #24 · Status: in review; CI green on the first push · HIPAA-ready, never compliant",
+            "mcp-ops-server · 21 Oct 2026 · PR #24 · Status: in review; Codex (2x P1, 7x P2) fixed · HIPAA-ready, never compliant",
             sub,
         ),
         Spacer(1, 4),
@@ -1158,7 +1158,7 @@ def part11() -> list:
                 ],
                 [
                     "release-kit.yml (kit-v* tag)",
-                    "tag must be on main and match __version__; OIDC only in the pypi environment; PEP 740 attestations",
+                    "tag on main, matching __version__, every CI job + CodeQL green on it; then your approval in the pypi environment",
                 ],
             ],
             [2.0 * inch, w - 2.0 * inch],
@@ -1181,10 +1181,16 @@ def part11() -> list:
             f"<b>v3 dropped {cf}--tlog-upload=false</font></b> (a signing config with no log replaces it). <b>The secret "
             f"scanner ran {cf}gitleaks:latest</font></b>; it is pinned by digest now, and a test fails on any unpinned action or image."
         ),
+        bl(
+            "<b>Codex found my guards inside what they guard:</b> a tag runs its own copy of the release workflow, so the "
+            "boundary is now your environment reviewer and tag ruleset; releases need CI green on the commit. It also "
+            "caught claims broader than their tests, plain-HTTP FHIR accepted by the server (now refused), setuid binaries "
+            "in the image (stripped, scanned in CI), and a restored database file passing silently (now a stated residual)."
+        ),
         section("Verify it yourself"),
         codebox(
             [
-                "python scripts/check_docs.py && pytest -q                     # 594 passed",
+                "python scripts/check_docs.py && pytest -q                     # 607 passed",
                 "pip install build && python scripts/build_kit.py --out /tmp/kit",
                 "python scripts/check_kit_dist.py check /tmp/kit",
                 "scripts/supply_chain.sh verify ghcr.io/nikhilll30/mcp-ops-server@sha256:&lt;digest&gt;  # after merge",
@@ -1199,8 +1205,8 @@ def part11() -> list:
         ),
         section("Next (your actions)"),
         Paragraph(
-            "Create the <b>pypi</b> environment, turn on private vulnerability reporting, add the PyPI pending publisher "
-            "(steps in STATUS.md), run the Codex review, merge, then tag <b>kit-v0.1.0</b>. Then say <b>go</b> for Part 12.",
+            "Create the <b>pypi</b> environment with yourself as required reviewer, a <b>kit-v*</b> tag ruleset, private "
+            "vulnerability reporting and the PyPI pending publisher (STATUS.md); merge; tag <b>kit-v0.1.0</b>. Then say <b>go</b> for Part 12.",
             body,
         ),
     ]

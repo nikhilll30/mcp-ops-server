@@ -2,10 +2,13 @@
 # FHIR parity job, the container and terraform jobs) like any other PR, and the owner merges.
 # Security updates arrive as they are published; version updates are weekly and grouped,
 # so the owner reviews a handful of PRs a week, not one per package.
+# Dependabot cannot see every pin (images run inside shell steps, cosign and syft, the
+# terraform binaries): docs/pinned-tools.md lists those, with who updates them and how, and
+# tests/test_workflows.py fails on a pin missing from that list.
 version: 2
 updates:
-  - package-ecosystem: pip  # pyproject.toml (the image) and the kit's packaging/ copy
-    directories: ["/", "/packaging/mcp-ops-kit"]
+  - package-ecosystem: pip  # the image's and the kit's pyproject.toml, and CI's tool pins
+    directories: ["/", "/packaging/mcp-ops-kit", "/.github/requirements"]
     schedule:
       interval: weekly
     groups:

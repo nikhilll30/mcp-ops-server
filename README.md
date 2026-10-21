@@ -36,7 +36,7 @@ appear anywhere.
 | **Server** | 6 MCP tools over Streamable HTTP · bearer tokens (static or OAuth 2.1 JWT) with scopes, patient binding, audience, expiry and live revocation · encrypted, hash-chained audit log · encrypted SQLite at rest · rate limit, body limit, per-call deadline |
 | **Evals** | Clinic: 31 golden tasks graded step by step, and on the exact database change, plus 12 negative controls the grader must fail · Salon: 18 tasks and 14 controls, on the same kit |
 | **Backends** | SQLite (default) or FHIR R4 (`MCP_OPS_BACKEND=fhir`), behind one protocol; same tool results, byte for byte, on every eval task |
-| **CI** | lint · 594 tests · eval gates (clinic 31/31, 12/12; salon 18/18, 14/14) · a `fhir` job: 672 tests with every clinic tool test on both backends against HAPI FHIR, and the eval gate on FHIR · secret scan · the Docker image built, run read-only with no capabilities, smoke-tested and its audit log verified on every PR · a `terraform` job: fmt, validate, 21 `terraform test` runs on a mocked provider, tflint, checkov, and a HIPAA-eligible service check · a `package` job: the kit built, checked and used from a fresh venv · CodeQL · on `main`, the image signed keyless with a signed SBOM, verified before `latest` moves |
+| **CI** | lint · 607 tests · eval gates (clinic 31/31, 12/12; salon 18/18, 14/14) · a `fhir` job: 685 tests with every clinic tool test on both backends against HAPI FHIR, and the eval gate on FHIR · secret scan · the Docker image built, run read-only with no capabilities, smoke-tested and its audit log verified on every PR · a `terraform` job: fmt, validate, 21 `terraform test` runs on a mocked provider, tflint, checkov, and a HIPAA-eligible service check · a `package` job: the kit built, checked and used from a fresh venv · CodeQL · on `main`, the image signed keyless with a signed SBOM, verified before `latest` moves |
 | **Live models** | `gpt-6-luna` **30/31** for **$0.046** · `gpt-6.1-sol` **30/31** for **$0.339** (all 31 tasks, one run each) |
 
 ![Demo: issue a token, run the container, a real book and cancel over HTTP, then the eval gate](docs/demo/demo.gif)
@@ -187,7 +187,7 @@ SALON_OPS_TOKENS_FILE=salon-tokens.json SALON_OPS_AUDIT_LOG=salon-audit.log \
 - Each token gets its own session identity, so one token cannot touch another's session.
 - Every tool call is written to an encrypted, hash-chained audit log (who, which token, tool,
   scope, subject ID, outcome, time), never the arguments. If a record cannot be written, the
-  server stops acting.
+  server refuses every later call (the call whose record failed has already happened).
 - The server refuses to start without a token source, an audit log and a data key, and never
   keeps its database in a plaintext file.
 
@@ -282,6 +282,8 @@ has a test that fails without it.
   happens after it and is not cut short, so a slow disk makes a write late, never falsely
   reported as failed.
 - No key rotation yet: a new data key means a new audit log and database file.
+- Encryption proves the database file is genuine, not current: putting back an older copy
+  reopens cleanly and silently undoes the writes since. Restrict who can write it.
 - The rate limit is per process. Several replicas would each allow the full rate.
 - The default database is in-memory and reseeds on every start. `MCP_OPS_DB=<path>` persists
   it, encrypted with `MCP_OPS_DATA_KEY`. With FHIR, encryption at rest is the FHIR server's job.

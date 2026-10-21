@@ -2,7 +2,11 @@ name: Release mcp-ops-kit
 
 # Publishes mcp-ops-kit to PyPI when a tag kit-vX.Y.Z is pushed, through PyPI trusted
 # publishing (OIDC): no API token exists anywhere. The tag must name the version in
-# mcp_ops_kit/__init__.py and point at a commit on main. The build job has no write access
+# mcp_ops_kit/__init__.py, point at a commit on main, and every CI job and CodeQL must have
+# passed on that commit. These checks run from the tag's own copy of this file, so they
+# are tripwires, not the boundary: the boundary is outside tag-controlled code, in the
+# `pypi` environment's required reviewer and tag rule, the repo's tag ruleset, and PyPI's
+# publisher config naming this file and that environment. The build job has no write access
 # and no OIDC token; only the publish job can mint one, only in the `pypi` environment, and
 # it uploads exactly the files the build job checked. The upload carries PEP 740
 # attestations (on by default in gh-action-pypi-publish), so PyPI shows which workflow
@@ -18,6 +22,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read  # to require that CI passed on this commit
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
@@ -32,7 +39,11 @@ jobs:
           git fetch --no-tags origin main
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::$GITHUB_SHA is not on main"; exit 1; }
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-      - run: pip install "build==1.6.1" "twine==7.0.0"
+      - name: Every CI job and CodeQL passed on this exact commit
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/check_release_ci.py "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+      - run: pip install -r .github/requirements/kit-release.txt
       - name: Build (fails unless mcp_ops_kit.__version__ is the tag's version)
         run: python scripts/build_kit.py --out dist --expect-version "$VERSION" --ref "$GITHUB_REF_NAME"
       - name: Check the files, then install the wheel alone in a fresh venv and use it

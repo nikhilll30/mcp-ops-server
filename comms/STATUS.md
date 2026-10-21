@@ -337,22 +337,48 @@ Built on branch `claude/gifted-brown-k8ak51` (the branch this session was assign
   pinned by SHA, gitleaks and the test registry by digest (`tests/test_workflows.py`).
 - **Found:** cosign v3's `verify` accepts an attestation-only image, and v3 dropped
   `--tlog-upload=false` (FAILURES.md).
-- **Local results:** `pytest -q` 594 passed; `sqlite,fhir` collects 672. The signing step was
+- **Local results:** `pytest -q` 607 passed after the Codex fixes (594 before); `sqlite,fhir` collects 685. The signing step was
   replayed from the workflow text and passed. The kit wheel's smoke test passed in a fresh venv.
 - **CI on the first push (decef40):** every job green, `package` and the new signing steps
   included.
 - **Not testable before merge:** keyless signing (first run: the merge commit's `publish`
   job) and the PyPI upload (needs the owner's setup below).
 
+Codex review (of 61a29f9, 2026-10-21): 2x P1, 7x P2, all checked against the code first, all
+accepted (FAILURES.md).
+- **P1 release boundary:** the workflow's own guards are tag-controlled. The boundary is now
+  the owner's settings (step 1 below: a required reviewer and a tag ruleset, plus PyPI's
+  environment binding).
+- **P1 CI gate:** `scripts/check_release_ci.py` refuses a release unless every CI job and
+  CodeQL passed on the tagged commit.
+- **P2 fixes in code, each with a test that fails without it:** the server now refuses a
+  non-local `http://` FHIR URL (reproduced: it started); the image has no setuid binaries,
+  and CI scans for them; the workflow tests read code without comments and catch inherited
+  grants (Codex's two mutations, and 4 more, are caught); every pin Dependabot cannot see is
+  in `docs/pinned-tools.md`, and the pip pins moved to `.github/requirements/`.
+- **P2 claims corrected:** integrity (rollback has exceptions, cited), audit (the failing
+  call is served), database snapshot replay (reproduced: 129 appointments back to 128, now a
+  residual), Fargate and `no-new-privileges`.
+
 ### Owner's steps for Part 11
-1. **Before merging:** Settings → Environments → New environment `pypi`. Under deployment
-   branches and tags, allow only tags matching `kit-v*`. A required reviewer is optional.
+1. **Before merging: the release boundary.** The release workflow's own checks (tag on
+   `main`, CI green on the commit) run from the tag's copy of the file, so anyone who can push
+   a tag could edit them out (Codex P1). These two settings are outside tag-controlled code:
+   - Settings → Environments → New environment `pypi`. Under **Deployment branches and
+     tags**, choose selected tags matching `kit-v*`. Under **Required reviewers**, add
+     yourself (required, not optional): every PyPI upload then waits for your approval in
+     the Actions UI, where you can check that the commit is on `main` and green.
+   - Settings → Rules → Rulesets → New **tag** ruleset, target `kit-v*`. Restrict
+     creations, updates and deletions, with only yourself (repository admin) on the bypass
+     list. Then no one else can create a release tag, or move one after you approve it.
 2. **Before merging:** Settings → Code security → turn on **Private vulnerability reporting**
    (SECURITY.md points at it). If CodeQL "default setup" is on, switch it to advanced, since
    this PR adds the workflow.
 3. **PyPI:** at https://pypi.org/manage/account/publishing/, add a *pending* trusted
    publisher: project `mcp-ops-kit`, owner `nikhilll30`, repository `mcp-ops-server`,
    workflow `release-kit.yml`, environment `pypi`. (The name was free on 2026-10-21.)
+   Do fill in the environment: PyPI then refuses a token from any job not running in `pypi`,
+   so a modified workflow that drops the environment (and its reviewer) cannot publish.
 4. **Merge PR #24.** Then check the merge commit's `publish` job (signed, verified). Add
    `package` (and CodeQL `analyze (python)`, `analyze (actions)` if wanted) to the ruleset's
    required checks.
