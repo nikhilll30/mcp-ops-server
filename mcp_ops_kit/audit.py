@@ -240,6 +240,7 @@ class AuditLog:
             blob = seal(self._keys.enc, _canonical(record), _aad(seq))
             ct = base64.urlsafe_b64encode(blob).decode().rstrip("=")
             line = json.dumps({"seq": seq, "ct": ct}, separators=(",", ":")).encode() + b"\n"
+            self._check_still_the_file()
             written = os.write(self._fd, line)
             if written != len(line):
                 raise OSError(f"short write to audit log ({written} of {len(line)} bytes)")
@@ -247,6 +248,19 @@ class AuditLog:
                 os.fsync(self._fd)
             self._seq, self._prev = seq, self._keys.chain(record)
             return seq
+
+    def _check_still_the_file(self) -> None:
+        """Writes go to the open file descriptor. If the log was deleted or replaced while
+        open, they would land in a file nobody can read, and another process could start a
+        new log at the path (the lock is on the old file). So refuse, and the server stops
+        acting (Codex review, PR #20)."""
+        open_file = os.fstat(self._fd)
+        try:
+            at_path = os.stat(self.path)
+        except FileNotFoundError as exc:
+            raise OSError(f"audit log {self.path} was deleted while in use") from exc
+        if (open_file.st_dev, open_file.st_ino) != (at_path.st_dev, at_path.st_ino):
+            raise OSError(f"audit log {self.path} was replaced while in use")
 
     # ---- one tool call ---------------------------------------------------------------------
 

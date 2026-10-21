@@ -395,3 +395,28 @@ def test_a_down_jwks_is_fetched_at_most_every_30_seconds(
     now["t"] += 2
     _verify(v, signer.token())
     assert state["hits"] == 2
+
+
+def test_a_revocation_file_that_disappears_refuses_every_jwt(
+    jwks_file: Path, signer: Signer, tmp_path: Path
+) -> None:
+    """Codex review, PR #20: deleting the file after start-up un-revoked every token (a
+    missing file read as "nothing revoked"). It may be missing only at start-up."""
+    revoked = tmp_path / "revoked.json"
+    v = _verifier(str(jwks_file), str(revoked))  # missing at start-up: fine
+    token = signer.token(jti="gone")
+    oauth.revoke_jti(str(revoked), "gone")
+    assert _verify(v, token) is None
+    revoked.unlink()
+    assert _verify(v, token) is None
+    assert _verify(v, signer.token()) is None  # every JWT, until the file is back
+    revoked.write_text(json.dumps({"version": 1, "revoked": []}))
+    assert _verify(v, signer.token()) is not None
+
+
+def test_a_long_client_id_is_refused_not_truncated(jwks_file: Path, signer: Signer) -> None:
+    """Codex review, PR #20: client IDs were cut to 64 characters, so two clients sharing
+    a 64-character prefix became one principal and could use each other's sessions."""
+    v = _verifier(str(jwks_file))
+    assert _verify(v, signer.token(client_id="a" * 64)).client_id == "a" * 64
+    assert _verify(v, signer.token(client_id="a" * 64 + "one")) is None

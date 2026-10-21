@@ -918,7 +918,7 @@ def part9() -> list:
     return [
         Paragraph("Part 9 Brief · Safeguards in the kit", title),
         Paragraph(
-            "mcp-ops-server · 20 Oct 2026 · PR #20 · Status: built, CI green (push + PR); waiting for Codex review",
+            "mcp-ops-server · 20 Oct 2026 · PR #20 · Status: Codex review fixed (6x P1, 3x P2); CI running; ready to merge when green",
             sub,
         ),
         Spacer(1, 4),
@@ -985,12 +985,12 @@ def part9() -> list:
         bl(
             "<b>Before pushing:</b> a 0600 tokens file the container could not read (found by replaying CI's container "
             "steps locally), a lock leaked on a refused database, an empty JWKS that raised a 500, and old tests that "
-            "passed for the wrong reason. Cursor's bots added three (a 500 on a bad revocation file, a save failing after its rename, retired JWKS keys kept through an outage). 14/15 mutations caught."
+            "passed for the wrong reason. Cursor's bots found 4 more, Codex 9 (3 already fixed; 5 fixed, e.g. a deleted audit log or revocation file did not fail closed; 1 documented). 14/15 mutations caught."
         ),
         section("Verify it yourself"),
         codebox(
             [
-                "pytest -q                                   # 512 passed",
+                "pytest -q                                   # 521 passed",
                 "python -m evals.run; python -m salon_ops.evals.run   # 31/31 12/12; 18/18 14/14",
                 "python -m mcp_ops_kit.audit verify --file audit.log --key-env MCP_OPS_DATA_KEY",
             ]
@@ -1004,8 +1004,8 @@ def part9() -> list:
         ),
         section("Next (your actions)"),
         Paragraph(
-            "1) Paste the Codex prompt (in STATUS). 2) Note: the image now needs MCP_OPS_DATA_KEY, and old tokens files "
-            "need migrate (README). 3) Merge when green. 4) Say <b>go</b> for Part 10.",
+            "1) Note: the image now needs MCP_OPS_DATA_KEY, and old tokens files need migrate (README). "
+            "2) Merge PR #20 when CI is green. 3) Say <b>go</b> for Part 10.",
             body,
         ),
     ]

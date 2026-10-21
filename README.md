@@ -34,7 +34,7 @@ appear anywhere.
 | **Server** | 6 MCP tools over Streamable HTTP · bearer tokens (static or OAuth 2.1 JWT) with scopes, patient binding, audience, expiry and live revocation · encrypted, hash-chained audit log · encrypted SQLite at rest · rate limit, body limit, per-call deadline |
 | **Evals** | Clinic: 31 golden tasks graded step by step, and on the exact database change, plus 12 negative controls the grader must fail · Salon: 18 tasks and 14 controls, on the same kit |
 | **Backends** | SQLite (default) or FHIR R4 (`MCP_OPS_BACKEND=fhir`), behind one protocol; same tool results, byte for byte, on every eval task |
-| **CI** | lint · 512 tests · eval gates (clinic 31/31, 12/12; salon 18/18, 14/14) · a `fhir` job: 590 tests with every clinic tool test on both backends against HAPI FHIR, and the eval gate on FHIR · secret scan · the Docker image built, smoke-tested and its audit log verified on every PR |
+| **CI** | lint · 521 tests · eval gates (clinic 31/31, 12/12; salon 18/18, 14/14) · a `fhir` job: 599 tests with every clinic tool test on both backends against HAPI FHIR, and the eval gate on FHIR · secret scan · the Docker image built, smoke-tested and its audit log verified on every PR |
 | **Live models** | `gpt-6-luna` **30/31** for **$0.046** · `gpt-6.1-sol` **30/31** for **$0.339** (all 31 tasks, one run each) |
 
 ![Demo: issue a token, run the container, a real book and cancel over HTTP, then the eval gate](docs/demo/demo.gif)
@@ -113,7 +113,7 @@ docker run -d --name hapi -p 127.0.0.1:8080:8080 hapiproject/hapi:v8.4.0-2   # r
 python -m mcp_ops_server.backends.fhir_seed load --url http://127.0.0.1:8080/fhir
 MCP_OPS_BACKEND=fhir MCP_OPS_FHIR_URL=http://127.0.0.1:8080/fhir MCP_OPS_TOKENS_FILE=tokens.json \
   MCP_OPS_AUDIT_LOG=audit.log MCP_OPS_DATA_KEY=<key> python -m mcp_ops_server
-MCP_OPS_TEST_BACKENDS=sqlite,fhir pytest -q                  # 590 tests, both backends
+MCP_OPS_TEST_BACKENDS=sqlite,fhir pytest -q                  # 599 tests, both backends
 python -m evals.run --backend fhir --backend-url http://127.0.0.1:8080/fhir
 ```
 
@@ -124,7 +124,7 @@ unreachable, is not R4, or has no seed loaded.
 
 ```bash
 pip install -e ".[dev]"
-ruff check . && ruff format --check . && pytest -q   # 512 tests (FHIR ones need the server above)
+ruff check . && ruff format --check . && pytest -q   # 521 tests (FHIR ones need the server above)
 python -m evals.run                                  # 31/31 tasks passed; 12/12 negative controls caught
 python -m mcp_ops_server                             # needs a tokens file, audit log, key: .env.example
 ```
@@ -273,6 +273,9 @@ has a test that fails without it.
 - One process per audit log and per encrypted database file (each takes an exclusive lock).
   The encrypted database lives in memory and is rewritten in full on each committed write:
   about 3 ms for the clinic's 400 KB, but not a design for a large database.
+- The per-call deadline covers everything up to COMMIT. Saving an encrypted database file
+  happens after it and is not cut short, so a slow disk makes a write late, never falsely
+  reported as failed.
 - No key rotation yet: a new data key means a new audit log and database file.
 - The rate limit is per process. Several replicas would each allow the full rate.
 - The default database is in-memory and reseeds on every start. `MCP_OPS_DB=<path>` persists

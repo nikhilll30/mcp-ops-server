@@ -100,6 +100,9 @@ class OpsServer(MCPServer):
             call.error = type(_store_cause(exc) or exc).__name__
             raise
         else:
+            if getattr(result, "is_error", False):  # an error returned, not raised
+                call.outcome = call.outcome or ("error" if call.checked else "invalid")
+                call.error = call.error or "ErrorResult"
             call.outcome = call.outcome or "ok"
             return _declared_only(result)
         finally:

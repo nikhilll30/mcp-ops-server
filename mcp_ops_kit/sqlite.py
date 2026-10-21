@@ -18,7 +18,9 @@ re-encrypts the whole database and replaces the file atomically before the call 
 If that save fails before the new file is in place, the in-memory database goes back to the
 last saved state and the call fails; if it fails after (fsyncing the folder), the file
 already holds the new state, so it is kept. Either way, what a caller is told matches the
-file. Nothing plaintext touches the disk: no journal, no WAL, temp tables in memory. The
+file. The save starts only after COMMIT, so it is not bounded by the per-call deadline: a
+slow disk makes the call late, never falsely failed, because the write has happened.
+Nothing plaintext touches the disk: no journal, no WAL, temp tables in memory. The
 cost is a full rewrite per write (fine for an ops database of a few MB, not for a large
 one) and one process per file, enforced with an exclusive lock.
 """
@@ -79,7 +81,9 @@ class SqliteStore:
                 if image is not None:
                     self._conn.deserialize(image)
                 self._saved_image = image
-                self._conn.execute("PRAGMA temp_store = MEMORY")
+            # Temp tables and sort spills in memory for every store, not only an encrypted
+            # file: SQLite's default can write them to /tmp in plaintext (Codex review, PR #20).
+            self._conn.execute("PRAGMA temp_store = MEMORY")
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA foreign_keys = ON")
             self._lock = threading.Lock()

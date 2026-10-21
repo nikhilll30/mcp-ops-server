@@ -199,3 +199,37 @@ def test_a_save_that_fails_after_the_rename_is_kept(
     assert b.snapshot_appointments()[n]["status"] == "booked"
     b.close()
     assert SqliteBackend(str(path), data_key=key).snapshot_appointments()[n]["status"] == "booked"
+
+
+@pytest.mark.parametrize("kind", ["memory", "plaintext-file", "encrypted-file"])
+def test_temp_tables_never_spill_to_disk(tmp_path: Path, key: DataKey, kind: str) -> None:
+    """Codex review, PR #20: only the encrypted file mode kept temp storage in memory; an
+    in-memory store could spill a temp table to /tmp in plaintext."""
+    path = ":memory:" if kind == "memory" else str(tmp_path / "c.db")
+    b = SqliteBackend(path, data_key=key if kind == "encrypted-file" else None)
+    assert b._read("PRAGMA temp_store")[0][0] == 2  # MEMORY
+    b.close()
+
+
+def test_an_encrypted_save_that_overruns_the_deadline_still_reports_the_write(
+    tmp_path: Path, key: DataKey, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Codex review, PR #20 (pushed back, documented): the save starts only after COMMIT,
+    so the write has happened. Failing the call when the save is slow would claim a
+    rollback that never took place, so the true result is returned, late."""
+    import time
+
+    path = tmp_path / "clinic.db"
+    b = SqliteBackend(str(path), data_key=key, timeout_s=0.1)
+    slot = _first_slot(b)
+    real_write = kit_sqlite.atomic_write
+
+    def slow_write(*args: object, **kwargs: object) -> None:
+        time.sleep(0.2)
+        real_write(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(kit_sqlite, "atomic_write", slow_write)
+    booked = b.book_appointment(NO_REFERRAL_PATIENT, slot)
+    b.close()
+    n = int(booked["appointment_id"].removeprefix("APT-"))
+    assert SqliteBackend(str(path), data_key=key).snapshot_appointments()[n]["status"] == "booked"

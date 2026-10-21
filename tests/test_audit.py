@@ -277,3 +277,47 @@ def test_a_cancelled_call_is_still_recorded_with_an_outcome(log_path: str, key: 
         "error",
         "CancelledError",
     )
+
+
+@pytest.mark.parametrize("change", ["deleted", "replaced"])
+def test_a_log_deleted_or_replaced_while_open_stops_the_server(
+    log_path: str, key: DataKey, change: str
+) -> None:
+    """Codex review, PR #20: writes went on to the unlinked file, nobody could read them,
+    and calls kept succeeding. Now the next call is the last one."""
+    server, log = _audited_server(log_path, key)
+    call(server, "health")
+    Path(log_path).unlink()
+    if change == "replaced":
+        Path(log_path).write_text("")
+    assert call(server, "health")["status"] == "ok"  # it happened; its record could not land
+    assert log.failed is not None and change in log.failed
+    with pytest.raises(ToolError, match="audit log is unavailable"):
+        asyncio.run(server.call_tool("health", {}))
+
+
+def test_an_error_result_returned_by_a_tool_is_audited_as_an_error(
+    log_path: str, key: DataKey
+) -> None:
+    """Codex review, PR #20: a tool may return CallToolResult(is_error=True) instead of
+    raising; that was recorded as ok."""
+    from mcp.types import CallToolResult, TextContent
+
+    from mcp_ops_kit import server as kit
+    from mcp_ops_server.auth import AUTH
+
+    def register(server: object, guard: object) -> None:
+        @kit.tool(server)  # type: ignore[arg-type]
+        def refuses() -> CallToolResult:
+            """Checks a scope, then returns an error result."""
+            guard.check("read:schedule")  # type: ignore[attr-defined]
+            return CallToolResult(content=[TextContent(type="text", text="no")], is_error=True)
+
+    log = AuditLog(log_path, key)
+    result = asyncio.run(
+        kit.build_server("t", "0", AUTH, register, audit=log).call_tool("refuses", {})
+    )
+    log.close()
+    assert result.is_error
+    (record,) = audit.records(log_path, key)
+    assert (record["outcome"], record["error"]) == ("error", "ErrorResult")

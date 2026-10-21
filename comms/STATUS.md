@@ -15,7 +15,7 @@
 | P2 Planning | done (PR #15 merged) | docs/briefs/phase-2-plan.pdf |
 | 7 Backend protocol + FHIR R4 | done (PR #16 merged) | docs/briefs/part-7-fhir-backend.pdf |
 | 8 Booking example, then extract mcp-ops-kit | done (PR #18 merged) | docs/briefs/part-8-mcp-ops-kit.pdf |
-| 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation, audience binding | **built** (PR #20), CI green, waiting for Codex review | docs/briefs/part-9-safeguards.pdf |
+| 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation, audience binding | **built** (PR #20), Codex review fixed (6x P1, 3x P2), waiting for CI and merge | docs/briefs/part-9-safeguards.pdf |
 | 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | planned | |
 | 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | planned | |
 | 12 Repeated live runs, pass^k, prompt-injection suite | planned | |
@@ -172,7 +172,7 @@ data minimisation, all in the kit). Added by the owner, 2026-10-20:
   and revocation in one migration. Files without a version are refused with a message naming the
   fix. This closes the Part 8 Codex P2 on cross-domain unbound tokens.
 
-## Part 9 (built, PR #20, CI green, waiting for Codex review)
+## Part 9 (built, PR #20, Codex review fixed)
 Built on branch `claude/happy-lovelace-rdq5e6` (the branch this session was assigned). The owner's
 "start the next part" on 2026-10-20 was the go. Everything is in `mcp_ops_kit`, so the clinic and
 the salon both have it with no domain-specific code.
@@ -199,9 +199,9 @@ the salon both have it with no domain-specific code.
 - One new dependency, `cryptography`: AES-GCM and HKDF, plus the RSA/EC signatures PyJWT
   needs. PyJWT itself was already required by `mcp`.
 - **Local results:**
-  - `pytest -q`: 512 passed. This includes every clinic tool test on encrypted SQLite
+  - `pytest -q`: 521 passed. This includes every clinic tool test on encrypted SQLite
     too, and the salon tool tests in memory and in an encrypted file.
-  - `sqlite,fhir` against HAPI: 590 passed.
+  - `sqlite,fhir` against HAPI: 599 passed.
   - Eval gates: clinic 31/31, 12/12 on SQLite and on FHIR; salon 18/18, 14/14.
   - Each eval task's audit chain is verified.
   - The Docker image was built from the real context, and every CI `container` step was
@@ -211,6 +211,16 @@ CI on PR #20 (head e461104): every job green on the push and pull_request runs (
 evals, fhir, container, secrets). Cursor Bugbot found 3 defects and Cursor Security 1, all
 reproduced, fixed with tests that fail without the fix, and logged in FAILURES.md; both bots
 pass on the final head.
+
+Codex review (of a378fd0, 2026-10-21): 6x P1, 3x P2, each checked against the current head first.
+- **Already fixed by later commits:** 3 (JWKS stale keys, save after rename, CI key).
+- **Fixed now, each with a test that fails without the fix:** 5:
+  - a deleted revocation file un-revoked tokens;
+  - truncated JWT client IDs merged principals;
+  - a deleted or replaced audit log did not stop the server;
+  - an in-memory store could spill temp tables to `/tmp`;
+  - returned error results were audited as `ok`.
+- **Documented, not changed:** 1. The encrypted save runs after COMMIT, so it is outside the deadline; failing the call would claim a rollback that never happened.
 
 Codex prompt for Part 9:
 ```
@@ -227,5 +237,4 @@ repo once public. List findings as P0/P1/P2 with file and line. Do not change co
 ```
 
 ## Next action
-The owner pastes the Codex prompt above and pastes the findings back. Merge when CI is green.
-Then say "go" for Part 10.
+The owner merges PR #20 once CI is green on the latest head, then says "go" for Part 10.

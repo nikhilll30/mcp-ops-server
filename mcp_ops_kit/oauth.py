@@ -56,6 +56,7 @@ LEEWAY_S = 30
 JWKS_TTL_S = 300.0
 JWKS_REFETCH_MIN_S = 30.0
 JWKS_MAX_AGE_S = 3600.0  # while fetches fail, keys older than this are dropped
+MAX_CLIENT_ID = 64  # the same limit as a tokens-file client_id
 REQUIRED_CLAIMS = ("exp", "iat", "iss", "aud", "sub", "jti", "client_id")
 
 
@@ -166,21 +167,26 @@ class JwksSource:
 
 class RevocationList:
     """Revoked ``jti`` values from a file, re-read whenever it changes. If the file becomes
-    invalid, every JWT is refused until it is fixed (a revocation is never skipped)."""
+    invalid, or disappears after start-up, every JWT is refused until it is fixed: a
+    revocation is never skipped. (It may be missing at start-up: nothing revoked yet.)"""
 
     def __init__(self, path: str) -> None:
         self.path = path
         self._signature: object = None
         self._revoked: frozenset[str] | None = frozenset()
         self._lock = threading.Lock()
+        self._missing_ok = True
         self._refresh()
+        self._missing_ok = False  # from now on, a vanished file would un-revoke tokens
         if self._revoked is None:
             raise ConfigError(f"JWT revocation file {path} is not valid; see the log")
 
     @staticmethod
-    def read(path: str) -> list[dict[str, str]]:
+    def read(path: str, missing_ok: bool = True) -> list[dict[str, str]]:
         if not Path(path).exists():
-            return []
+            if missing_ok:
+                return []
+            raise FileNotFoundError(f"{path} disappeared")
         data = json.loads(Path(path).read_text())
         if (
             not isinstance(data, dict)
@@ -202,7 +208,8 @@ class RevocationList:
             if signature == self._signature:
                 return
             try:
-                self._revoked = frozenset(r["jti"] for r in self.read(self.path))
+                revoked = self.read(self.path, missing_ok=self._missing_ok)
+                self._revoked = frozenset(r["jti"] for r in revoked)
             except Exception as exc:  # any failure refuses, never a 500
                 self._revoked = None
                 logger.error("JWT revocation file %s rejected; refusing JWTs: %s", self.path, exc)
@@ -285,6 +292,11 @@ class JwtVerifier:
         sub, client_id, jti = claims["sub"], claims["client_id"], claims["jti"]
         if not all(isinstance(v, str) and v for v in (sub, client_id, jti)):
             return None
+        if len(client_id) > MAX_CLIENT_ID:
+            # Refused, not truncated: a cut ID would merge two clients into one principal,
+            # sharing Streamable HTTP sessions (Codex review, PR #20).
+            logger.info("JWT refused: client_id longer than %d characters", MAX_CLIENT_ID)
+            return None
         if self._revocations is not None and self._revocations.is_revoked(jti):
             logger.info("JWT refused: jti %s is revoked", jti)
             return None
@@ -301,7 +313,7 @@ class JwtVerifier:
             out_claims[self.config.subject_claim] = bound
         return AccessToken(
             token=token,
-            client_id=client_id[:64],
+            client_id=client_id,
             scopes=scopes,
             expires_at=int(claims["exp"]),
             # (client_id, iss, subject) owns a Streamable HTTP session. Folding the binding
