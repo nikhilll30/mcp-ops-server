@@ -1,0 +1,65 @@
+name: Release mcp-ops-kit
+
+# Publishes mcp-ops-kit to PyPI when a tag kit-vX.Y.Z is pushed, through PyPI trusted
+# publishing (OIDC): no API token exists anywhere. The tag must name the version in
+# mcp_ops_kit/__init__.py and point at a commit on main. The build job has no write access
+# and no OIDC token; only the publish job can mint one, only in the `pypi` environment, and
+# it uploads exactly the files the build job checked. The upload carries PEP 740
+# attestations (on by default in gh-action-pypi-publish), so PyPI shows which workflow
+# built each file. Steps for the owner: comms/STATUS.md (Part 11).
+
+on:
+  push:
+    tags: ["kit-v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          fetch-depth: 0  # to check the tag is on main
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: The tag is on main and names a version
+        run: |
+          VERSION="${GITHUB_REF_NAME#kit-v}"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::tag $GITHUB_REF_NAME is not kit-vX.Y.Z"; exit 1; }
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::$GITHUB_SHA is not on main"; exit 1; }
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - run: pip install "build==1.6.1" "twine==7.0.0"
+      - name: Build (fails unless mcp_ops_kit.__version__ is the tag's version)
+        run: python scripts/build_kit.py --out dist --expect-version "$VERSION" --ref "$GITHUB_REF_NAME"
+      - name: Check the files, then install the wheel alone in a fresh venv and use it
+        run: |
+          python scripts/check_kit_dist.py check dist
+          twine check --strict dist/*
+          python -m venv "$RUNNER_TEMP/kit"
+          "$RUNNER_TEMP/kit/bin/pip" install dist/*.whl
+          cd "$RUNNER_TEMP" && "$RUNNER_TEMP/kit/bin/python" -I "$GITHUB_WORKSPACE/scripts/check_kit_dist.py" smoke
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: kit-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/mcp-ops-kit/
+    permissions:
+      id-token: write  # trusted publishing and attestations; nothing else
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: kit-dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2

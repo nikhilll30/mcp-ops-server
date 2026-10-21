@@ -1,0 +1,56 @@
+# The mcp-ops-kit distribution (PyPI), built from the repo's mcp_ops_kit/ package.
+# Not built in place: scripts/build_kit.py copies this file, mcp_ops_kit/, LICENSE and the
+# kit's README (links made absolute) into a staging folder, so the sdist is self-contained
+# and the wheel is built from it. The repo root's pyproject.toml is the mcp-ops-server
+# distribution (the image), which carries its own copy of the kit.
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-ops-kit"
+dynamic = ["version"]
+description = "Hardening and trajectory evals for MCP servers that let agents act on booking systems: scoped, audience-bound tokens, OAuth JWTs, an encrypted audit log, encryption at rest, rate limits and a CI eval gate."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Nikhil" }]
+keywords = ["mcp", "model-context-protocol", "agents", "evals", "audit-log", "oauth"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries",
+    "Typing :: Typed",
+]
+# The same two as the repo's pyproject.toml (tests/test_kit_dist.py keeps them equal). The
+# kit's other imports (pydantic, PyJWT, httpx2, anyio, starlette, uvicorn) come with mcp,
+# and the same test checks that every one of them is a requirement of mcp.
+dependencies = [
+    "mcp>=2.3,<3",
+    "cryptography>=42",
+]
+
+[project.optional-dependencies]
+live = ["openai>=3.35,<4"]  # only for mcp_ops_kit.evals.openai_agent (live eval runs)
+
+[project.urls]
+Homepage = "https://github.com/nikhilll30/mcp-ops-server/tree/main/mcp_ops_kit"
+Source = "https://github.com/nikhilll30/mcp-ops-server"
+Changelog = "https://github.com/nikhilll30/mcp-ops-server/blob/main/FAILURES.md"
+Security = "https://github.com/nikhilll30/mcp-ops-server/blob/main/SECURITY.md"
+
+[tool.hatch.version]
+path = "mcp_ops_kit/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mcp_ops_kit"]
+exclude = ["mcp_ops_kit/README.md"]  # it is the project's readme, not package data
+
+[tool.hatch.build.targets.sdist]
+include = ["mcp_ops_kit", "README.md", "LICENSE", "pyproject.toml"]
+exclude = ["mcp_ops_kit/README.md"]
