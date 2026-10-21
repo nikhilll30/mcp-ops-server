@@ -286,6 +286,10 @@ Built on branch `claude/nifty-ptolemy-l6whuk` (the branch this session was assig
   `.tf.json`/override files and assembled open CIDRs; Fargate is the cluster default and the
   README has a complete `run-task` helper; audience/JWKS outputs; rate limit must be a whole
   number >= 1.
+- **Cursor Bugbot (of 7251173): 2 test holes, both fixed.** An empty-list `alltrue` let a
+  deleted logs-key grant pass, and one mock ARN per type hid swapped roles and log groups.
+  Each role and log group now has its own ARN in the tests, and each grant is asserted
+  exactly. Both mutations passed the old tests (checked).
 
 ## Next action
 Owner: Codex's review is addressed. Merge once CI is green on the new head, then add `terraform`

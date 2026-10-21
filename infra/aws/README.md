@@ -118,7 +118,7 @@ first deployment that cannot start would trip the circuit breaker and stop). The
 ## How CI checks it
 
 The `terraform` job: `terraform fmt`, `init` against the committed lock file, `validate`,
-`terraform test` (21 runs: 49 assertions and 10 refused inputs, against a **mocked** AWS provider: the hardening, the IAM split,
+`terraform test` (21 runs: 50 assertions and 10 refused inputs, against a **mocked** AWS provider: the hardening, the IAM split,
 the rendered IAM and EFS policies, the network and encryption settings, and inputs that must be refused), `tflint` with the
 AWS ruleset, `checkov` (every skip carries its reason next to the resource), and
 [`scripts/check_infra.py`](../../scripts/check_infra.py): every resource type mapped to a

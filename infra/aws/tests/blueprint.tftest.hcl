@@ -6,6 +6,44 @@ mock_provider "aws" {
   source = "./tests/mocks"
 }
 
+# Distinct ARNs for resources the policy assertions tell apart: with the mocks' one ARN per
+# type, a swapped role or log group compared equal (Cursor Bugbot, PR #22).
+
+override_resource {
+  target = aws_iam_role.execution
+  values = { arn = "arn:aws:iam::123456789012:role/mock-execution" }
+}
+
+override_resource {
+  target = aws_iam_role.service_task
+  values = { arn = "arn:aws:iam::123456789012:role/mock-service" }
+}
+
+override_resource {
+  target = aws_iam_role.admin_task
+  values = { arn = "arn:aws:iam::123456789012:role/mock-admin" }
+}
+
+override_resource {
+  target = aws_iam_role.flow_logs
+  values = { arn = "arn:aws:iam::123456789012:role/mock-flow-logs" }
+}
+
+override_resource {
+  target = aws_cloudwatch_log_group.app
+  values = { arn = "arn:aws:logs:us-east-1:123456789012:log-group:/mcp-ops/app" }
+}
+
+override_resource {
+  target = aws_cloudwatch_log_group.flow
+  values = { arn = "arn:aws:logs:us-east-1:123456789012:log-group:/mcp-ops/vpc-flow" }
+}
+
+override_resource {
+  target = aws_cloudwatch_log_group.waf
+  values = { arn = "arn:aws:logs:us-east-1:123456789012:log-group:aws-waf-logs-mcp-ops" }
+}
+
 variables {
   image_digest          = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
   certificate_arn       = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
@@ -287,6 +325,15 @@ run "log_writers_may_use_the_logs_key_only_for_their_group" {
       if contains(try(tolist(st.Action), [st.Action]), "kms:GenerateDataKey")
     ] == [aws_cloudwatch_log_group.flow.arn]
     error_message = "The flow-log role may use the logs key for the flow log group only."
+  }
+  assert {
+    # Exactly one logs-key grant, for the app log group: an empty list must fail, not pass.
+    condition = [
+      for st in jsondecode(aws_iam_role_policy.execution.policy).Statement :
+      st.Condition.StringEquals["kms:EncryptionContext:aws:logs:arn"]
+      if contains(try(tolist(st.Action), [st.Action]), "kms:GenerateDataKey")
+    ] == [aws_cloudwatch_log_group.app.arn]
+    error_message = "The execution role must be able to use the logs key, for the app log group only."
   }
   assert {
     condition     = output.token_audience == "mcp-ops-server" && output.jwks_path == "/data/jwks.json"
