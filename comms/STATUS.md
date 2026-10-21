@@ -361,6 +361,15 @@ accepted (FAILURES.md).
   residual), Fargate and `no-new-privileges`.
 
 ### Owner's steps for Part 11
+Done by the owner, 2026-10-21 (reported, not yet verified by me):
+- Environment `pypi`: required reviewer nikhilll30 (self-review allowed), one deployment rule
+  for tags `kit-v*`, no secrets or variables. "Allow administrators to bypass" is on.
+- Tag ruleset `release-tags`: active, targets `kit-v*`, restricts creations, updates and
+  deletions; bypass: Repository admin only. The `main` ruleset is unchanged.
+- Private vulnerability reporting: enabled. CodeQL: already on advanced setup.
+- **Still open:** the PyPI pending publisher (step 3); pypi.org returned 503. It is needed
+  before the first `kit-v*` tag, not before merging.
+
 1. **Before merging: the release boundary.** The release workflow's own checks (tag on
    `main`, CI green on the commit) run from the tag's copy of the file, so anyone who can push
    a tag could edit them out (Codex P1). These two settings are outside tag-controlled code:
