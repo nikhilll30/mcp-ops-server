@@ -456,6 +456,9 @@ def _free_port() -> int:
     [
         ({"MCP_OPS_FHIR_URL": "http://127.0.0.1:{port}/fhir"}, "is unreachable"),
         ({}, "MCP_OPS_BACKEND=fhir needs MCP_OPS_FHIR_URL."),
+        # Plain HTTP to a record system is refused before any request (Codex, PR #24).
+        ({"MCP_OPS_FHIR_URL": "http://records.example/fhir"}, "must be https://"),
+        ({"MCP_OPS_FHIR_URL": "ftp://127.0.0.1/fhir"}, "must be https://"),
     ],
 )
 def test_server_refuses_to_start_without_a_usable_fhir_server(

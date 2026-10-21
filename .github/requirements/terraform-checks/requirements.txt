@@ -1,0 +1,2 @@
+# The terraform job's checkov (CI). Pinned here so Dependabot updates it.
+checkov==3.3.30

@@ -1,7 +1,10 @@
 name: CI
 
+# Branches only: a kit-v* tag must not start a second CI run on a commit that
+# release-kit.yml is checking for green CI (Cursor Bugbot, PR #24).
 on:
   push:
+    branches: ["**"]
   pull_request:
 
 permissions:
@@ -11,8 +14,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
@@ -22,8 +25,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
       # live: the real OpenAI SDK, so its tests run against a local fake endpoint (no key)
@@ -36,8 +39,8 @@ jobs:
     # and deterministic (no model, no secrets). Both suites run even if the first fails.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
@@ -51,7 +54,7 @@ jobs:
         run: |
           test -f eval-report.md && cat eval-report.md >> "$GITHUB_STEP_SUMMARY" || true
           test -f salon-eval-report.md && cat salon-eval-report.md >> "$GITHUB_STEP_SUMMARY" || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: always()
         with:
           name: eval-results
@@ -77,8 +80,8 @@ jobs:
       MCP_OPS_TEST_BACKENDS: sqlite,fhir
       MCP_OPS_TEST_FHIR_URL: http://127.0.0.1:8080/fhir
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev,live]"
@@ -102,7 +105,7 @@ jobs:
       - name: Publish report to the job summary
         if: always()
         run: test -f fhir-eval-report.md && cat fhir-eval-report.md >> "$GITHUB_STEP_SUMMARY" || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: always()
         with:
           name: fhir-eval-results
@@ -118,8 +121,8 @@ jobs:
     # to the publish job; nothing is rebuilt between testing and publishing.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev]"  # the smoke test's MCP client
@@ -157,6 +160,13 @@ jobs:
           done
           echo "::error::container did not become healthy"
           exit 1
+      - name: No setuid or setgid binary in the image
+        run: |
+          # As root, so no directory is unreadable to the scan; find's own status is not the
+          # result (it is non-zero on /proc races), the list is. A failing docker run still fails.
+          FOUND=$(docker run --rm --user 0 --entrypoint sh mcp-ops-server:ci \
+            -c 'find / -xdev -perm /6000 -type f 2>/dev/null; true')
+          if [ -n "$FOUND" ]; then echo "::error::setuid/setgid binaries in the image: $FOUND"; exit 1; fi
       - name: Smoke test against the container
         env:
           MCP_URL: http://127.0.0.1:8000
@@ -180,6 +190,52 @@ jobs:
           done
           echo "::error::container on port 9000 did not become healthy ($status)"
           exit 1
+      - name: Cache cosign and syft (built from the pinned versions in the install script)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: ~/.local/supply-chain
+          key: supply-chain-${{ hashFiles('scripts/install_supply_chain_tools.sh') }}
+      - name: Install cosign and syft
+        run: |
+          scripts/install_supply_chain_tools.sh "$HOME/.local/supply-chain"
+          echo "$HOME/.local/supply-chain" >> "$GITHUB_PATH"
+      - name: SBOM, signature and SBOM attestation, verified (throwaway key, local registry)
+        # The same script and commands the publish job runs keyless on main, on this image.
+        # No transparency log and no OIDC token: nothing from a PR reaches Sigstore.
+        run: |
+          docker run -d --name registry -p 5000:5000 \
+            registry:3@sha256:ddf754342cfc8acc51a56d5d0ab6af06826461864460636d8bd5c546dab2a7b8
+          for i in $(seq 1 30); do curl -sf http://localhost:5000/v2/ -o /dev/null && break; sleep 1; done
+          push() {  # tag, push, print IMAGE@DIGEST (the digest the registry stored)
+            docker tag "$1" "$2" && docker push "$2" | tee /dev/stderr \
+              | sed -nE 's/.*digest: (sha256:[0-9a-f]{64}).*/\1/p' | tail -1 | sed "s|^|${2%:*}@|"
+          }
+          REF=$(push mcp-ops-server:ci localhost:5000/mcp-ops-server:ci)
+          scripts/supply_chain.sh sbom "$REF" sbom.spdx.json
+          export COSIGN_PASSWORD=""
+          KEYS="$RUNNER_TEMP/keys" && mkdir -p "$KEYS"
+          cosign generate-key-pair --output-key-prefix "$KEYS/ci"
+          cosign generate-key-pair --output-key-prefix "$KEYS/other"
+          COSIGN_KEY="$KEYS/ci.key" scripts/supply_chain.sh sign "$REF" sbom.spdx.json
+          COSIGN_PUBLIC_KEY="$KEYS/ci.pub" scripts/supply_chain.sh verify "$REF"
+          # Verification must be able to fail: another key, and an image that has only the
+          # SBOM attestation (cosign v3's own `verify` accepts that one; ours must not).
+          if COSIGN_PUBLIC_KEY="$KEYS/other.pub" scripts/supply_chain.sh verify "$REF"; then
+            echo "::error::verify accepted a signature made with another key"; exit 1
+          fi
+          printf 'FROM mcp-ops-server:ci\nLABEL attest-only=1\n' | docker build -q -t attest-only -
+          ONLY=$(push attest-only localhost:5000/attest-only:ci)
+          SC=$(mktemp) && cosign signing-config create --out "$SC"
+          cosign attest --yes --key "$KEYS/ci.key" --signing-config "$SC" \
+            --type spdxjson --predicate sbom.spdx.json "$ONLY"
+          if COSIGN_PUBLIC_KEY="$KEYS/ci.pub" scripts/supply_chain.sh verify "$ONLY"; then
+            echo "::error::verify accepted an image with an attestation but no signature"; exit 1
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: sbom
+          path: sbom.spdx.json
+          if-no-files-found: error
       - name: Container logs
         if: always()
         run: docker logs mcpops || true
@@ -188,13 +244,14 @@ jobs:
         run: |
           docker image inspect -f '{{.Id}}' mcp-ops-server:ci > image-id.txt
           docker save mcp-ops-server:ci | gzip > image.tar.gz
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           name: tested-image
           path: |
             image.tar.gz
             image-id.txt
+            sbom.spdx.json
           retention-days: 1
 
   terraform:
@@ -207,13 +264,12 @@ jobs:
       TF_SHA256: 2bc2fcfff033265c9e02ca0351f01794eb122f62a9b2a49a3294b9e49eaab5e4
       TFLINT_VERSION: 0.64.0
       TFLINT_SHA256: cca9d13e2e1d7a2c627af60ff899a3c9b74212899416aeb96ec764d2ef954537
-      CHECKOV_VERSION: 3.3.30
     defaults:
       run:
         working-directory: infra/aws
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
       - name: Install terraform and tflint (pinned, hash-checked)
@@ -243,19 +299,43 @@ jobs:
           tflint --format compact
       - name: checkov
         run: |
-          pip install "checkov==${CHECKOV_VERSION}"
+          pip install -r "$GITHUB_WORKSPACE/.github/requirements/terraform-checks/requirements.txt"
           checkov -d . --framework terraform --compact --quiet --skip-download
       - name: HIPAA-eligible services, no open CIDRs, settings and uid match the server
         working-directory: .
         run: python scripts/check_infra.py
 
+  package:
+    # mcp-ops-kit as PyPI would get it: built from a staged copy (sdist, then the wheel from
+    # the sdist), the files checked (only the kit, the right version and dependencies),
+    # twine's metadata check, then the wheel alone in a fresh venv, used as a domain would.
+    # The release workflow (release-kit.yml) runs the same steps before it publishes.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.12"
+      - run: pip install -r .github/requirements/kit-release/requirements.txt
+      - name: Build mcp-ops-kit
+        run: python scripts/build_kit.py --out dist
+      - name: Check the files, then install the wheel alone in a fresh venv and use it
+        run: |
+          python scripts/check_kit_dist.py check dist
+          twine check --strict dist/*
+          python -m venv "$RUNNER_TEMP/kit"
+          "$RUNNER_TEMP/kit/bin/pip" install dist/*.whl
+          cd "$RUNNER_TEMP" && "$RUNNER_TEMP/kit/bin/python" -I "$GITHUB_WORKSPACE/scripts/check_kit_dist.py" smoke
+
   publish:
     # Pushes the image that the container job tested (loaded from its artifact, ID checked)
-    # to GitHub Container Registry. Only from main, only after every check passed, and the
-    # only job with write access to packages; PRs never reach it. Runs one at a time, and
-    # only the run for the current head of main moves `latest`.
+    # to GitHub Container Registry, then signs it keyless (Sigstore, this workflow's OIDC
+    # identity), attests the tested image's SBOM, and verifies both before it moves
+    # `latest`. Only from main, only after every check passed, and the only job with write
+    # access to packages or an OIDC token; PRs never reach it. Runs one at a time, and only
+    # the run for the current head of main moves `latest`.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [lint, test, evals, fhir, container, terraform, secrets]
+    needs: [lint, test, evals, fhir, container, terraform, package, secrets]
     runs-on: ubuntu-latest
     concurrency:
       group: publish-ghcr
@@ -263,22 +343,39 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write  # keyless signing: a short-lived certificate for this workflow on main
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: tested-image
       - name: Load the tested image and check it is the same one
         run: |
           gunzip -c image.tar.gz | docker load
           test "$(docker image inspect -f '{{.Id}}' mcp-ops-server:ci)" = "$(cat image-id.txt)"
-      - name: Push sha tag, and latest if this commit is still the head of main
+      - name: Cache cosign and syft (built from the pinned versions in the install script)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: ~/.local/supply-chain
+          key: supply-chain-${{ hashFiles('scripts/install_supply_chain_tools.sh') }}
+      - name: Install cosign and syft
+        run: |
+          scripts/install_supply_chain_tools.sh "$HOME/.local/supply-chain"
+          echo "$HOME/.local/supply-chain" >> "$GITHUB_PATH"
+      - name: Push the sha tag, sign it and attest its SBOM, verify, then move latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
           echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           docker tag mcp-ops-server:ci "$IMAGE:sha-${GITHUB_SHA::7}"
-          docker push "$IMAGE:sha-${GITHUB_SHA::7}"
+          DIGEST=$(docker push "$IMAGE:sha-${GITHUB_SHA::7}" | tee /dev/stderr \
+            | sed -nE 's/.*digest: (sha256:[0-9a-f]{64}).*/\1/p' | tail -1)
+          test -n "$DIGEST"
+          # Signed by digest; `latest` and the sha tag both name this digest.
+          scripts/supply_chain.sh sign "$IMAGE@$DIGEST" sbom.spdx.json
+          scripts/supply_chain.sh verify "$IMAGE@$DIGEST"
+          echo "::notice::signed $IMAGE@$DIGEST"
           HEAD_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)
           if [ "$HEAD_SHA" = "$GITHUB_SHA" ]; then
             docker tag mcp-ops-server:ci "$IMAGE:latest"
@@ -293,10 +390,11 @@ jobs:
     # pull_request event gives fork code a read-only token with no repo secrets.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           fetch-depth: 0
       - name: Scan full git history for secrets
         run: >
           docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo"
-          ghcr.io/gitleaks/gitleaks:latest git /repo --no-banner --redact --exit-code 1
+          ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+          git /repo --no-banner --redact --exit-code 1

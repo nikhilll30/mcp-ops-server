@@ -1114,6 +1114,104 @@ def part10() -> list:
     ]
 
 
+def part11() -> list:
+    w = 7.0 * inch
+    cf = "<font face='Courier'>"
+    return [
+        Paragraph("Part 11 Brief · Assurance and supply chain", title),
+        Paragraph(
+            "mcp-ops-server · 21 Oct 2026 · PR #24 · Status: in review; Codex (2x P1, 7x P2) fixed · HIPAA-ready, never compliant",
+            sub,
+        ),
+        Spacer(1, 4),
+        section("What was built"),
+        bl(
+            f"<b>A controls matrix</b> ({cf}docs/hipaa-controls.md</font>): all 12 standards and specifications of 45 CFR "
+            "164.312, each with a status (Addressed, Partly, Adopter), the tests that prove it, and what stays with the "
+            f"adopter. <b>A STRIDE threat model</b> ({cf}docs/threat-model.md</font>): 17 threats on the agent, server and backend "
+            f"path, including prompt injection through tool results. <b>{cf}SECURITY.md</font></b>."
+        ),
+        bl(
+            "<b>mcp-ops-kit as its own package</b>, released to PyPI from a tag on main by trusted publishing (no API "
+            "token anywhere). <b>Signed images</b> with a signed SPDX SBOM. <b>CodeQL, Dependabot</b>, and every action "
+            "pinned by commit."
+        ),
+        section("How it works"),
+        table(
+            [
+                ["Piece", "What runs, and where"],
+                [
+                    "check_docs.py (CI test job)",
+                    "every test, file and terraform run the docs cite must exist; every spec and STRIDE category present; no 'compliant' claim",
+                ],
+                [
+                    "package job (every PR)",
+                    "build sdist, then wheel from it; only the kit inside; twine --strict; the wheel alone in a fresh venv, used",
+                ],
+                [
+                    "container job (every PR)",
+                    "local registry + throwaway key: SBOM, sign, attest, verify; another key and an attest-only image must fail",
+                ],
+                [
+                    "publish job (main only)",
+                    f"keyless signature as {cf}ci.yml@refs/heads/main</font>, SBOM attested, both verified before latest moves",
+                ],
+                [
+                    "release-kit.yml (kit-v* tag)",
+                    "tag on main, matching __version__, every CI job + CodeQL green on it; then your approval in the pypi environment",
+                ],
+            ],
+            [2.0 * inch, w - 2.0 * inch],
+        ),
+        section("Why it was done this way"),
+        bl(
+            "<b>Docs that CI checks.</b> A matrix that cites tests goes stale the day a test is renamed; now that fails "
+            "the build. <b>The PR tests the signing plumbing</b> with a key, because a keyless identity exists only on main."
+        ),
+        bl(
+            "<b>cosign and syft built by go install</b>, checked against Go's checksum database: this session could not "
+            "reach GitHub releases, and the same commands then run identically here and in CI."
+        ),
+        section("What went wrong or surprised me (logged in FAILURES.md)"),
+        bl(
+            f"<b>cosign v3's {cf}verify</font> passed an image that was never signed</b>, only attested. My script now "
+            "requires the image-signature payload for that digest, and CI proves an attest-only image is refused."
+        ),
+        bl(
+            f"<b>v3 dropped {cf}--tlog-upload=false</font></b> (a signing config with no log replaces it). <b>The secret "
+            f"scanner ran {cf}gitleaks:latest</font></b>; it is pinned by digest now, and a test fails on any unpinned action or image."
+        ),
+        bl(
+            "<b>Codex found my guards inside what they guard:</b> a tag runs its own copy of the release workflow, so the "
+            "boundary is now your environment reviewer and tag ruleset; releases need CI green on the commit. It also "
+            "caught claims broader than their tests, plain-HTTP FHIR accepted by the server (now refused), setuid binaries "
+            "in the image (stripped, scanned in CI), and a restored database file passing silently (now a stated residual)."
+        ),
+        section("Verify it yourself"),
+        codebox(
+            [
+                "python scripts/check_docs.py && pytest -q                     # 610 passed",
+                "pip install build && python scripts/build_kit.py --out /tmp/kit",
+                "python scripts/check_kit_dist.py check /tmp/kit",
+                "scripts/supply_chain.sh verify ghcr.io/nikhilll30/mcp-ops-server@sha256:&lt;digest&gt;  # after merge",
+            ]
+        ),
+        section("Interview talking point"),
+        Paragraph(
+            '"I wrote a test where the image was only attested, never signed, and cosign said it was signed. So my verify '
+            "checks the payload type, and CI runs that must-fail case on every PR. A security check you have not seen "
+            'fail is a guess."',
+            body,
+        ),
+        section("Next (your actions)"),
+        Paragraph(
+            "Create the <b>pypi</b> environment with yourself as required reviewer, a <b>kit-v*</b> tag ruleset, private "
+            "vulnerability reporting and the PyPI pending publisher (STATUS.md); merge; tag <b>kit-v0.1.0</b>. Then say <b>go</b> for Part 12.",
+            body,
+        ),
+    ]
+
+
 def phase2() -> list:
     w = 7.0 * inch
     return [
@@ -1231,6 +1329,7 @@ PARTS = {
     8: (part8, "part-8-mcp-ops-kit", "Part 8 Brief: Salon example + mcp-ops-kit"),
     9: (part9, "part-9-safeguards", "Part 9 Brief: Safeguards in the kit"),
     10: (part10, "part-10-terraform", "Part 10 Brief: Terraform blueprint on HIPAA-eligible AWS"),
+    11: (part11, "part-11-assurance", "Part 11 Brief: Assurance and supply chain"),
 }
 
 

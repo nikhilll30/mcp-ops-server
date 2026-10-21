@@ -1,0 +1,40 @@
+# Dependabot opens PRs for updates; each one runs the full CI (tests, both eval gates, the
+# FHIR parity job, the container and terraform jobs) like any other PR, and the owner merges.
+# Security updates arrive as they are published; version updates are weekly and grouped,
+# so the owner reviews a handful of PRs a week, not one per package.
+# Dependabot cannot see every pin (images run inside shell steps, cosign and syft, the
+# terraform binaries): docs/pinned-tools.md lists those, with who updates them and how, and
+# tests/test_workflows.py fails on a pin missing from that list.
+version: 2
+updates:
+  - package-ecosystem: pip  # the image's and the kit's pyproject.toml, and CI's tool pins
+    directories:
+      - "/"
+      - "/packaging/mcp-ops-kit"
+      # one requirements.txt per folder: the file name Dependabot's pip updater looks for
+      - "/.github/requirements/kit-release"
+      - "/.github/requirements/terraform-checks"
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions  # every action is pinned by SHA; this bumps the SHA
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker  # the Dockerfile's base image, pinned by digest
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform  # infra/aws provider (lock file)
+    directory: /infra/aws
+    schedule:
+      interval: weekly
