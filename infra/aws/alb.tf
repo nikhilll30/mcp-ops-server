@@ -132,6 +132,29 @@ resource "aws_cloudwatch_log_group" "waf" {
   kms_key_id        = aws_kms_key.logs.arn
 }
 
+# WAF delivers logs through CloudWatch Logs' delivery service, which needs this resource
+# policy on the group. WAF would otherwise create a broader one itself at apply time, if the
+# applying principal may (Cursor Bugbot, PR #22). Encryption with the logs key is done by
+# CloudWatch Logs, which the key policy already allows.
+resource "aws_cloudwatch_log_resource_policy" "waf" {
+  policy_name = "${var.name}-waf-log-delivery"
+
+  policy_document = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "WafLogDelivery"
+      Effect    = "Allow"
+      Principal = { Service = "delivery.logs.amazonaws.com" }
+      Action    = ["logs:CreateLogStream", "logs:PutLogEvents"]
+      Resource  = "${aws_cloudwatch_log_group.waf.arn}:*"
+      Condition = {
+        StringEquals = { "aws:SourceAccount" = local.account_id }
+        ArnLike      = { "aws:SourceArn" = "arn:${local.partition}:logs:${local.region}:${local.account_id}:*" }
+      }
+    }]
+  })
+}
+
 resource "aws_wafv2_web_acl_logging_configuration" "this" {
   resource_arn            = aws_wafv2_web_acl.this.arn
   log_destination_configs = [aws_cloudwatch_log_group.waf.arn]
@@ -141,6 +164,8 @@ resource "aws_wafv2_web_acl_logging_configuration" "this" {
       name = "authorization"
     }
   }
+
+  depends_on = [aws_cloudwatch_log_resource_policy.waf]
 }
 
 # Load balancer access logs. They hold client IPs, paths and status codes, never request

@@ -66,12 +66,15 @@ with your LLM provider), your risk analysis, policies and people.
 cd infra/aws
 terraform init                       # with your own backend configuration
 terraform plan -var-file=prod.tfvars # image_digest, certificate_arn, allowed_ingress_cidrs, fhir_url, fhir_cidrs
-terraform apply -var-file=prod.tfvars
+terraform apply -var-file=prod.tfvars # start_service = false (the default): no task yet
 ```
 
-Then, once:
-1. Copy the CI-tested image (`ghcr.io/nikhilll30/mcp-ops-server`, by digest) into the
-   `ecr_repository_url` output, and use that digest as `image_digest`.
+`image_digest` is the digest of the CI-tested GHCR image. The first apply creates
+everything but starts no task, because the image, key and tokens file do not exist yet (a
+first deployment that cannot start would trip the circuit breaker and stop). Then, once:
+1. Copy the image into the `ecr_repository_url` output with a tool that keeps the digest,
+   e.g. `crane copy ghcr.io/nikhilll30/mcp-ops-server@<digest> <ecr_repository_url>:<tag>`
+   (`docker pull`/`push` can re-compress layers and change it).
 2. Set the data key: `aws secretsmanager put-secret-value --secret-id <data_key_secret_arn>
    --secret-string "$(python -m mcp_ops_kit.crypto new-key)"`. Keep no other copy.
 3. Make a token **on your own machine** and register only its hash with the admin task, so
@@ -86,11 +89,12 @@ Then, once:
    (without `--sha256`) in the admin task: it prints the token, into a log kept 400 days.
 4. With JWTs: put the issuer's JWKS at `/data/jwks.json` and create `/data/revoked.json`
    (`python -m mcp_ops_kit.oauth init --file /data/revoked.json`) the same way.
+5. Set `start_service = true` and apply again. The service starts one task.
 
 ## How CI checks it
 
 The `terraform` job: `terraform fmt`, `init` against the committed lock file, `validate`,
-`terraform test` (17 runs: 36 assertions and 8 refused inputs, against a **mocked** AWS provider: the hardening, the IAM split,
+`terraform test` (18 runs: 38 assertions and 8 refused inputs, against a **mocked** AWS provider: the hardening, the IAM split,
 the network and encryption settings, and 8 inputs that must be refused), `tflint` with the
 AWS ruleset, `checkov` (every skip carries its reason next to the resource), and
 [`scripts/check_infra.py`](../../scripts/check_infra.py): every resource type mapped to a

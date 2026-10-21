@@ -252,7 +252,7 @@ Built on branch `claude/nifty-ptolemy-l6whuk` (the branch this session was assig
   days. No internet gateway, NAT or Elastic IP. IAM: the server cannot write its own tokens
   file; the admin task cannot write the audit log.
 - **CI `terraform` job** (new; no AWS credentials anywhere): fmt, init against the committed
-  lock file, validate, `terraform test` (17 runs on a mocked provider), tflint with the AWS
+  lock file, validate, `terraform test` (18 runs on a mocked provider), tflint with the AWS
   ruleset, checkov (196 passed, 8 skips each with its reason), and `scripts/check_infra.py`.
   Terraform and tflint are pinned by version and SHA-256. `publish` now also needs `terraform`.
 - **`scripts/check_infra.py`** (15 pytest tests): every resource type maps to a service in
@@ -264,7 +264,7 @@ Built on branch `claude/nifty-ptolemy-l6whuk` (the branch this session was assig
 - **HIPAA eligibility was checked through web search only** (aws.amazon.com is blocked from
   this session). The catalog marks each service `official`, `secondary` or `unverified` (S3).
   Owner: check it against the live AWS page.
-- **Local results:** `pytest -q` 539 passed; `terraform test` 17/17; tflint clean; checkov 0
+- **Local results:** `pytest -q` 539 passed; `terraform test` 18/18; tflint clean; checkov 0
   failed; `check_infra.py` ok; the image built and run with the task's hardening (smoke test,
   audit verify, revoke from an admin-style container, all passed); CI's `container` steps
   replayed from the workflow text.
@@ -273,6 +273,11 @@ Built on branch `claude/nifty-ptolemy-l6whuk` (the branch this session was assig
   sampling kept bearer tokens unredacted, so sampling is now off and a test pins it. The admin
   `issue` path printed tokens into CloudWatch, so the kit's `issue --sha256` registers a hash
   of a token the operator made, and a duplicate hash is refused. Details in FAILURES.md.
+- **Cursor Bugbot (of ef652d0): 2 findings.** First deploy could never start: fixed with
+  `start_service` (default false, zero tasks) and a second apply after bootstrap. WAF log
+  delivery: fixed with a managed log resource policy; the claim that the KMS key policy also
+  needs `delivery.logs.amazonaws.com` is pushed back (CloudWatch Logs encrypts; unverified
+  here, and named in the Codex prompt).
 
 ## Next action
 Owner: wait for CI, paste the Codex prompt below, then merge and add `terraform` to the `main`
@@ -288,7 +293,8 @@ Fargate task to start, KMS key policies (CloudWatch Logs, Secrets Manager, ECR, 
 single-task deployment and the audit log's exclusive lock on EFS, the data key never entering
 state, settings the server would reject or misread (MCP_OPS_NOW, empty values, JWT files),
 whether the terraform tests and scripts/check_infra.py could pass while a safeguard is broken,
-the checkov skips and their reasons, the CI job's supply chain (pinned binaries, lock file,
+the checkov skips and their reasons, whether a KMS-encrypted WAF log group needs
+delivery.logs.amazonaws.com in the key policy (I say no; unverified), the CI job's supply chain (pinned binaries, lock file,
 tflint plugin), and any wording that claims compliance rather than HIPAA-ready. Also check test
 quality and anything that would embarrass this repo once public. List findings as P0/P1/P2 with
 file and line. Do not change code.

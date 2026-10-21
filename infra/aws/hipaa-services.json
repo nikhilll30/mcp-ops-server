@@ -24,6 +24,7 @@
     "aws_partition": "Account metadata",
     "aws_region": "Account metadata",
     "aws_cloudwatch_log_group": "Amazon CloudWatch Logs",
+    "aws_cloudwatch_log_resource_policy": "Amazon CloudWatch Logs",
     "aws_flow_log": "Amazon VPC",
     "aws_vpc": "Amazon VPC",
     "aws_subnet": "Amazon VPC",

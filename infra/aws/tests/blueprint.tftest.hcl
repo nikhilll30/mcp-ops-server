@@ -102,8 +102,21 @@ run "server_cannot_write_its_own_tokens" {
   }
 }
 
+run "first_apply_starts_no_task" {
+  command = apply # against the mock provider only: nothing leaves this machine
+
+  assert {
+    condition     = aws_ecs_service.this.desired_count == 0
+    error_message = "The first apply must start no task: the image, key and tokens file come after it."
+  }
+}
+
 run "one_writer_at_a_time" {
   command = apply # against the mock provider only: nothing leaves this machine
+
+  variables {
+    start_service = true
+  }
 
   assert {
     condition     = aws_ecs_service.this.desired_count == 1 && aws_ecs_service.this.deployment_maximum_percent == 100 && aws_ecs_service.this.deployment_minimum_healthy_percent == 0
@@ -181,6 +194,13 @@ run "tls_and_encryption" {
       [for r in aws_wafv2_web_acl.this.rule : alltrue([for v in r.visibility_config : !v.sampled_requests_enabled])],
     ))
     error_message = "WAF request sampling must be off: samples keep the Authorization header, unredacted."
+  }
+  assert {
+    condition = (
+      jsondecode(aws_cloudwatch_log_resource_policy.waf.policy_document).Statement[0].Principal.Service == "delivery.logs.amazonaws.com"
+      && jsondecode(aws_cloudwatch_log_resource_policy.waf.policy_document).Statement[0].Resource == "${aws_cloudwatch_log_group.waf.arn}:*"
+    )
+    error_message = "WAF log delivery must be allowed on the WAF log group only."
   }
 }
 

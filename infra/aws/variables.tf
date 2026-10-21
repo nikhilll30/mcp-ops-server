@@ -162,6 +162,12 @@ variable "log_retention_days" {
   }
 }
 
+variable "start_service" {
+  description = "Run the service's task. Leave false for the first apply: the image, the data key and a tokens file must exist first (README.md), or the first deployment fails and stops."
+  type        = bool
+  default     = false
+}
+
 variable "cpu" {
   description = "Fargate task CPU units."
   type        = number

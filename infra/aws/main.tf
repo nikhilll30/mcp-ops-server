@@ -123,9 +123,11 @@ resource "aws_ecs_service" "this" {
   platform_version = "LATEST" # 1.4.0 or later: EFS volumes need it
   propagate_tags   = "SERVICE"
 
-  # Exactly one task, and the old one stops before the new one starts: the audit log and the
+  # At most one task, and the old one stops before the new one starts: the audit log and the
   # database each take an exclusive lock (README Known limits), so two tasks cannot overlap.
-  desired_count                      = 1
+  # Zero until start_service: a first deployment with no image, key or tokens file yet would
+  # fail, and the circuit breaker would then stop launching (Cursor Bugbot, PR #22).
+  desired_count                      = var.start_service ? 1 : 0
   deployment_minimum_healthy_percent = 0
   deployment_maximum_percent         = 100
   enable_execute_command             = false # no shell into a task that holds PHI
