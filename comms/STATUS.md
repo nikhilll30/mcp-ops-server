@@ -16,7 +16,7 @@
 | 7 Backend protocol + FHIR R4 | done (PR #16 merged) | docs/briefs/part-7-fhir-backend.pdf |
 | 8 Booking example, then extract mcp-ops-kit | done (PR #18 merged) | docs/briefs/part-8-mcp-ops-kit.pdf |
 | 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation, audience binding | done (PR #20 merged) | docs/briefs/part-9-safeguards.pdf |
-| 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | **next**, waiting for owner's go | |
+| 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | **in review** (PR open; Codex review pending) | docs/briefs/part-10-terraform.pdf |
 | 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | planned | |
 | 12 Repeated live runs, pass^k, prompt-injection suite | planned | |
 
@@ -34,6 +34,7 @@
 | 007 | Backend protocol, SqliteBackend, FhirBackend, HAPI in CI, parity | Claude | merged | #16 |
 | 008 | Salon example (copy), then mcp-ops-kit extracted from both domains | Claude | merged | #18 |
 | 009 | Safeguards in the kit: tokens v2 + audience, OAuth JWTs, audit log, encryption at rest, minimisation | Claude | merged | #20 |
+| 010 | Terraform blueprint (infra/aws), CI terraform job, check_infra.py, hardened container run | Claude | in review | PRNUM |
 
 ## Workflow
 Claude builds each part in a fresh Claude Code session (rules in `CLAUDE.md`); Codex reviews each
@@ -240,6 +241,51 @@ Owner, 2026-10-21: merged PR #20. The final head (106a11d) was green on every CI
 pull_request) and on both Cursor reviewers, with all review threads resolved. That head also
 carries one later Bugbot fix: the JWT revocation file must exist at start-up.
 
-## Next action: Part 10, after the owner says "go"
-Not started. Scope is in `comms/PLAN.md`: a Terraform blueprint on HIPAA-eligible AWS, validated
-in CI, never applied.
+## Part 10 (in review)
+Built on branch `claude/nifty-ptolemy-l6whuk` (the branch this session was assigned). The owner's
+"start the next part" on 2026-10-21 was the go. Everything is in `infra/aws/` (README there).
+- **The blueprint:** one Fargate task in private subnets (image by digest from an immutable,
+  scanned ECR repo; uid 10001, read-only root, no capabilities, no ECS Exec, no public IP),
+  an internal ALB with TLS 1.2+ behind a WAF, EFS access points for tokens (read-only to the
+  server), the audit log and SQLite, the data key in Secrets Manager (value set out of band,
+  never in state), two rotated KMS keys, VPC endpoints, flow/WAF/ALB/container logs kept 400+
+  days. No internet gateway, NAT or Elastic IP. IAM: the server cannot write its own tokens
+  file; the admin task cannot write the audit log.
+- **CI `terraform` job** (new; no AWS credentials anywhere): fmt, init against the committed
+  lock file, validate, `terraform test` (17 runs on a mocked provider), tflint with the AWS
+  ruleset, checkov (196 passed, 8 skips each with its reason), and `scripts/check_infra.py`.
+  Terraform and tflint are pinned by version and SHA-256. `publish` now also needs `terraform`.
+- **`scripts/check_infra.py`** (15 pytest tests): every resource type maps to a service in
+  `infra/aws/hipaa-services.json` (HIPAA-eligible, or no PHI with a reason); forbidden types
+  (IGW, NAT, EIP, secret values, IAM users) and `0.0.0.0/0` fail; `MCP_OPS_*` settings must be
+  in `.env.example`; the uid must match the Dockerfile.
+- **The `container` job** now runs the image with `--read-only --cap-drop ALL
+  --security-opt no-new-privileges`, as the task definition does.
+- **HIPAA eligibility was checked through web search only** (aws.amazon.com is blocked from
+  this session). The catalog marks each service `official`, `secondary` or `unverified` (S3).
+  Owner: check it against the live AWS page.
+- **Local results:** `pytest -q` 536 passed; `terraform test` 17/17; tflint clean; checkov 0
+  failed; `check_infra.py` ok; the image built and run with the task's hardening (smoke test,
+  audit verify, revoke from an admin-style container, all passed); CI's `container` steps
+  replayed from the workflow text.
+- **No new Python dependency.** checkov is installed only inside the CI job, pinned.
+
+## Next action
+Owner: wait for CI, paste the Codex prompt below, then merge and add `terraform` to the `main`
+ruleset's required checks. Part 11 starts after the owner's "go".
+
+Codex prompt for Part 10:
+```
+Review PR #PRNUM in nikhilll30/mcp-ops-server (branch claude/nifty-ptolemy-l6whuk) as a senior
+engineer. Focus: infra/aws as an AWS deployment of the clinic server: IAM least privilege (task
+vs execution vs admin roles, the EFS access-point conditions and file system policy), whether
+the VPC truly has no internet path and the endpoints and security groups are enough for a
+Fargate task to start, KMS key policies (CloudWatch Logs, Secrets Manager, ECR, EFS), the
+single-task deployment and the audit log's exclusive lock on EFS, the data key never entering
+state, settings the server would reject or misread (MCP_OPS_NOW, empty values, JWT files),
+whether the terraform tests and scripts/check_infra.py could pass while a safeguard is broken,
+the checkov skips and their reasons, the CI job's supply chain (pinned binaries, lock file,
+tflint plugin), and any wording that claims compliance rather than HIPAA-ready. Also check test
+quality and anything that would embarrass this repo once public. List findings as P0/P1/P2 with
+file and line. Do not change code.
+```
