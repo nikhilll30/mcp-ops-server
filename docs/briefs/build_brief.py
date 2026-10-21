@@ -1190,7 +1190,7 @@ def part11() -> list:
         section("Verify it yourself"),
         codebox(
             [
-                "python scripts/check_docs.py && pytest -q                     # 607 passed",
+                "python scripts/check_docs.py && pytest -q                     # 610 passed",
                 "pip install build && python scripts/build_kit.py --out /tmp/kit",
                 "python scripts/check_kit_dist.py check /tmp/kit",
                 "scripts/supply_chain.sh verify ghcr.io/nikhilll30/mcp-ops-server@sha256:&lt;digest&gt;  # after merge",

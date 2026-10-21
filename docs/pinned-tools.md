@@ -13,7 +13,7 @@ page does not list, so a new pin cannot slip past both.
 |---|---|
 | GitHub Actions (every `uses:`) | `.github/workflows/*.yml`, by commit SHA with the version in a comment |
 | Python dependencies of the image and the kit | `pyproject.toml`, `packaging/mcp-ops-kit/pyproject.toml` |
-| CI's Python tools: build, twine, checkov | `.github/requirements/*.txt` |
+| CI's Python tools: build, twine, checkov | `.github/requirements/*/requirements.txt` |
 | The image's base (`python:3.12-slim`) | `Dockerfile`, by digest |
 | The Terraform AWS provider | `infra/aws/.terraform.lock.hcl` |
 

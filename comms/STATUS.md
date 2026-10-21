@@ -337,7 +337,7 @@ Built on branch `claude/gifted-brown-k8ak51` (the branch this session was assign
   pinned by SHA, gitleaks and the test registry by digest (`tests/test_workflows.py`).
 - **Found:** cosign v3's `verify` accepts an attestation-only image, and v3 dropped
   `--tlog-upload=false` (FAILURES.md).
-- **Local results:** `pytest -q` 607 passed after the Codex fixes (594 before); `sqlite,fhir` collects 685. The signing step was
+- **Local results:** `pytest -q` 610 passed after the review fixes (594 before); `sqlite,fhir` collects 688. The signing step was
   replayed from the workflow text and passed. The kit wheel's smoke test passed in a fresh venv.
 - **CI on the first push (decef40):** every job green, `package` and the new signing steps
   included.

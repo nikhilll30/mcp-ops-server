@@ -43,7 +43,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python scripts/check_release_ci.py "$GITHUB_REPOSITORY" "$GITHUB_SHA"
-      - run: pip install -r .github/requirements/kit-release.txt
+      - run: pip install -r .github/requirements/kit-release/requirements.txt
       - name: Build (fails unless mcp_ops_kit.__version__ is the tag's version)
         run: python scripts/build_kit.py --out dist --expect-version "$VERSION" --ref "$GITHUB_REF_NAME"
       - name: Check the files, then install the wheel alone in a fresh venv and use it

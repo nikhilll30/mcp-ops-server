@@ -8,7 +8,12 @@
 version: 2
 updates:
   - package-ecosystem: pip  # the image's and the kit's pyproject.toml, and CI's tool pins
-    directories: ["/", "/packaging/mcp-ops-kit", "/.github/requirements"]
+    directories:
+      - "/"
+      - "/packaging/mcp-ops-kit"
+      # one requirements.txt per folder: the file name Dependabot's pip updater looks for
+      - "/.github/requirements/kit-release"
+      - "/.github/requirements/terraform-checks"
     schedule:
       interval: weekly
     groups:

@@ -8,6 +8,8 @@ Checks of what a workflow does read its code with comments removed, so a guard t
 commented out does not count (Codex, PR #24).
 """
 
+import io
+import json
 import re
 from pathlib import Path
 
@@ -209,3 +211,54 @@ def test_the_image_has_no_setuid_binaries_and_ci_checks_it() -> None:
     scan = container.index("docker run --rm --user 0 --entrypoint sh mcp-ops-server:ci")
     assert "find / -xdev -perm /6000 -type f" in container[scan : scan + 200]
     assert scan < container.index("Smoke test against the container")
+
+
+def test_a_release_tag_does_not_start_ci_again() -> None:
+    """CI runs on branch pushes only, so a kit-v* tag cannot start runs on the commit the
+    release is checking (they would be in progress and block it, or race it)."""
+    ci = _code((ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    assert re.search(r'^on:\n  push:\n    branches: \["\*\*"\]\n  pull_request:\n', ci, re.M)
+
+
+def test_the_release_ci_check_asks_for_every_run_and_pages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """filter=all, or GitHub's default (latest) can hide a run still in progress."""
+    seen = []
+    pages = {1: [_run("lint")] * 100, 2: [_run("test", status="in_progress", conclusion=None)]}
+
+    class Response(io.BytesIO):
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            pass
+
+    def urlopen(req: object, timeout: float) -> Response:
+        url = req.full_url  # type: ignore[attr-defined]
+        seen.append(url)
+        page = int(re.search(r"[?&]page=(\d+)", url).group(1))
+        body = {"total_count": 101, "check_runs": pages[page]}
+        return Response(json.dumps(body).encode())
+
+    monkeypatch.setattr(check_release_ci.urllib.request, "urlopen", urlopen)
+    runs = check_release_ci.fetch_runs("o/r", "a" * 40, "token")
+    assert len(runs) == 101 and all("filter=all" in u for u in seen) and len(seen) == 2
+    assert check_release_ci.problems(runs, ["lint", "test"]) == ["test: still in_progress"]
+
+
+def test_dependabot_reads_every_requirements_file_ci_installs() -> None:
+    """Each pip directory in dependabot.yml holds a file its pip updater reads, and every
+    requirements file a workflow installs from is in one of those directories."""
+    config = (ROOT / ".github" / "dependabot.yml").read_text()
+    pip = config.split("package-ecosystem: pip", 1)[1].split("package-ecosystem:", 1)[0]
+    dirs = re.findall(r'^\s+- "(/[^"]*)"', pip, re.M)
+    assert dirs
+    for d in dirs:
+        folder = ROOT / d.lstrip("/")
+        assert (folder / "requirements.txt").exists() or (folder / "pyproject.toml").exists(), d
+    text = "".join(p.read_text() for p in WORKFLOWS)
+    used = set(re.findall(r"\.github/requirements/[\w/-]+\.txt", text))
+    assert used
+    for path in used:
+        assert path.endswith("/requirements.txt") and f'"/{path.rsplit("/", 1)[0]}"' in pip, path

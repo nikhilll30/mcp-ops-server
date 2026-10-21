@@ -63,7 +63,9 @@ def fetch_runs(repo: str, sha: str, token: str) -> list[dict]:
     runs: list[dict] = []
     page = 1
     while True:
-        url = f"{API}/repos/{repo}/commits/{sha}/check-runs?per_page=100&page={page}"
+        # filter=all: the default (latest) can leave out a run still in progress, which would
+        # let an older success decide (Cursor Bugbot, PR #24).
+        url = f"{API}/repos/{repo}/commits/{sha}/check-runs?filter=all&per_page=100&page={page}"
         req = urllib.request.Request(  # noqa: S310 - fixed https API host
             url,
             headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
