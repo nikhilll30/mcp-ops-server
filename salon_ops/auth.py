@@ -24,7 +24,7 @@ AUTH = kit.AuthConfig(
 
 def issue(
     path: str, client_id: str, scopes: list[str], customer_id: str | None, **kwargs: Any
-) -> str:
+) -> str | None:
     """Add a new token's hash to ``path`` and return the raw token (shown once)."""
     return kit.issue(AUTH, path, client_id, scopes, customer_id, **kwargs)
 

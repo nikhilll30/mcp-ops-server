@@ -23,6 +23,46 @@ def _v1_file(path: Path, entries: list[dict]) -> None:
     path.write_text(json.dumps({"tokens": entries}))
 
 
+# ---- registering a hash (the token never passes through the host; Part 10) ------------------
+
+
+def test_issue_sha256_registers_a_token_made_elsewhere(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """An admin task's stdout goes to CloudWatch, so it must never print a token (Cursor
+    Security, PR #22). The operator makes the token; the host sees only its hash."""
+    path = str(tmp_path / "tokens.json")
+    token = "made-on-the-operators-machine-" + "x" * 20
+    digest = kit.hash_token(token)
+    main(["issue", "--file", path, "--client", "portal", "--scope", "read:schedule",
+          "--sha256", digest])  # fmt: skip
+    out = capsys.readouterr().out
+    assert out == f"registered {digest[:12]} (portal)\n"
+    assert token not in out and digest not in out
+    assert _verify(StaticTokenVerifier.from_file(path), token)
+
+
+def test_issue_sha256_refuses_a_duplicate_and_leaves_the_file_loadable(tmp_path: Path) -> None:
+    """Two entries with one hash make the whole file refuse every token (fail closed), so a
+    repeated registration must be refused before it is written."""
+    path = str(tmp_path / "tokens.json")
+    digest = kit.hash_token("t" * 43)
+    issue(path, "a", ["read:schedule"], None, sha256=digest)
+    before = Path(path).read_text()
+    with pytest.raises(ValueError, match="already in the tokens file"):
+        issue(path, "b", ["read:schedule"], None, sha256=digest)
+    assert Path(path).read_text() == before
+    assert _verify(StaticTokenVerifier.from_file(path), "t" * 43)
+
+
+def test_issue_sha256_refuses_a_malformed_hash(tmp_path: Path) -> None:
+    path = str(tmp_path / "tokens.json")
+    with pytest.raises(SystemExit):
+        main(["issue", "--file", path, "--client", "a", "--scope", "read:schedule",
+              "--sha256", "not-a-hash"])  # fmt: skip
+    assert not Path(path).exists()
+
+
 # ---- format and migration ------------------------------------------------------------------
 
 

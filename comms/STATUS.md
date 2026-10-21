@@ -264,11 +264,15 @@ Built on branch `claude/nifty-ptolemy-l6whuk` (the branch this session was assig
 - **HIPAA eligibility was checked through web search only** (aws.amazon.com is blocked from
   this session). The catalog marks each service `official`, `secondary` or `unverified` (S3).
   Owner: check it against the live AWS page.
-- **Local results:** `pytest -q` 536 passed; `terraform test` 17/17; tflint clean; checkov 0
+- **Local results:** `pytest -q` 539 passed; `terraform test` 17/17; tflint clean; checkov 0
   failed; `check_infra.py` ok; the image built and run with the task's hardening (smoke test,
   audit verify, revoke from an admin-style container, all passed); CI's `container` steps
   replayed from the workflow text.
 - **No new Python dependency.** checkov is installed only inside the CI job, pinned.
+- **Cursor Security (of ef652d0): 2 medium findings, both real and fixed.** WAF request
+  sampling kept bearer tokens unredacted, so sampling is now off and a test pins it. The admin
+  `issue` path printed tokens into CloudWatch, so the kit's `issue --sha256` registers a hash
+  of a token the operator made, and a duplicate hash is refused. Details in FAILURES.md.
 
 ## Next action
 Owner: wait for CI, paste the Codex prompt below, then merge and add `terraform` to the `main`

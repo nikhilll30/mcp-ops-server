@@ -61,6 +61,10 @@ resource "aws_wafv2_web_acl" "this" {
     allow {}
   }
 
+  # Request sampling is off on the ACL and every rule: samples keep full headers, and log
+  # redaction does not apply to them, so they would hold bearer tokens (Cursor Security,
+  # PR #22). Metrics stay on.
+
   # Log4j and other known-bad request patterns. Not the common rule set: its 8 KB body rule
   # would block MCP requests the server allows (MCP_OPS_MAX_BODY_BYTES is 64 KB).
   rule {
@@ -81,7 +85,7 @@ resource "aws_wafv2_web_acl" "this" {
     visibility_config {
       cloudwatch_metrics_enabled = true
       metric_name                = "${var.name}-known-bad-inputs"
-      sampled_requests_enabled   = true
+      sampled_requests_enabled   = false
     }
   }
 
@@ -104,14 +108,14 @@ resource "aws_wafv2_web_acl" "this" {
     visibility_config {
       cloudwatch_metrics_enabled = true
       metric_name                = "${var.name}-rate-per-ip"
-      sampled_requests_enabled   = true
+      sampled_requests_enabled   = false
     }
   }
 
   visibility_config {
     cloudwatch_metrics_enabled = true
     metric_name                = var.name
-    sampled_requests_enabled   = true
+    sampled_requests_enabled   = false
   }
 }
 
@@ -121,7 +125,7 @@ resource "aws_wafv2_web_acl_association" "this" {
 }
 
 # WAF logs record request metadata. The Authorization header is redacted, so a bearer token
-# never reaches the log.
+# never reaches the log (and sampling, which redaction does not cover, is off above).
 resource "aws_cloudwatch_log_group" "waf" {
   name              = "aws-waf-logs-${var.name}" # WAF requires this prefix
   retention_in_days = var.log_retention_days

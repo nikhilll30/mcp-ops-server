@@ -1017,7 +1017,7 @@ def part10() -> list:
     return [
         Paragraph("Part 10 Brief · Terraform blueprint on HIPAA-eligible AWS", title),
         Paragraph(
-            "mcp-ops-server · 21 Oct 2026 · PR #22 · Status: CI pending; Codex review pending · validated, never applied",
+            "mcp-ops-server · 21 Oct 2026 · PR #22 · Status: Cursor Security fixed (2x medium); Codex review pending · validated, never applied",
             sub,
         ),
         Spacer(1, 4),
@@ -1085,14 +1085,16 @@ def part10() -> list:
         bl(
             "<b>This session could not reach</b> the Terraform registry, AWS's site or Docker Hub. The provider came from "
             "HashiCorp's release server, and the base image from Google's mirror at the same digest. AWS's HIPAA list was "
-            "checked through search only, so the catalog marks each service official, secondary or (S3) unverified."
+            "checked through search only, so the catalog marks each service official, secondary or (S3) unverified. "
+            "<b>Cursor Security found 2 token leaks:</b> WAF samples skip redaction (sampling now off), and admin "
+            f"{cf}issue</font> printed tokens into CloudWatch ({cf}issue --sha256</font> now registers a hash you made)."
         ),
         section("Verify it yourself"),
         codebox(
             [
                 "cd infra/aws && terraform init -backend=false && terraform test   # 17 passed",
                 "tflint --init && tflint; checkov -d . --framework terraform --skip-download",
-                "cd ../.. && python scripts/check_infra.py && pytest -q          # 536 passed",
+                "cd ../.. && python scripts/check_infra.py && pytest -q          # 539 passed",
             ]
         ),
         section("Interview talking point"),

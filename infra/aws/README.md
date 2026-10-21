@@ -31,7 +31,7 @@ with your LLM provider), your risk analysis, policies and people.
 | Safeguard (45 CFR 164.312) | Where |
 |---|---|
 | Access control (a)(1): least privilege | `iam.tf`: the server can read the tokens file but not write it; the admin task can write tokens but not the audit log. `storage.tf`: EFS refuses non-TLS, root and any other principal |
-| Audit controls (b) | The server's own audit log on `/audit` (Part 9), plus VPC flow logs, WAF logs (Authorization header redacted), ALB access logs, container logs |
+| Audit controls (b) | The server's own audit log on `/audit` (Part 9), plus VPC flow logs, WAF logs (Authorization header redacted; request sampling off, since samples are not redacted), ALB access logs, container logs |
 | Integrity (c)(1) | The audit log's HMAC chain (Part 9); image pinned by digest in an immutable, scanned ECR repository |
 | Transmission security (e)(1) | TLS 1.2+ at the ALB; TLS to EFS and to FHIR (`https://` enforced); private subnets only |
 | Encryption at rest (a)(2)(iv) | KMS on EFS, Secrets Manager, ECR and every log group; the audit log and database are also encrypted by the server itself |
@@ -74,17 +74,23 @@ Then, once:
    `ecr_repository_url` output, and use that digest as `image_digest`.
 2. Set the data key: `aws secretsmanager put-secret-value --secret-id <data_key_secret_arn>
    --secret-string "$(python -m mcp_ops_kit.crypto new-key)"`. Keep no other copy.
-3. Issue a token with the admin task (`aws ecs run-task` with `admin_task_definition`,
-   the `admin_network` output, and a command override such as
-   `python -m mcp_ops_server.auth issue --file /data/tokens.json --client portal --scope ...`).
-   The token is printed once to the admin task's log stream; the file keeps only its hash.
+3. Make a token **on your own machine** and register only its hash with the admin task, so
+   the token never reaches AWS (the admin task's output goes to CloudWatch):
+   ```bash
+   TOKEN=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')   # give it to the client
+   HASH=$(printf %s "$TOKEN" | sha256sum | cut -d" " -f1)
+   ```
+   Then `aws ecs run-task` with `admin_task_definition`, the `admin_network` output and the
+   command override `python -m mcp_ops_server.auth issue --file /data/tokens.json --client
+   portal --scope ... --sha256 $HASH`. It prints only the token ID. Never run plain `issue`
+   (without `--sha256`) in the admin task: it prints the token, into a log kept 400 days.
 4. With JWTs: put the issuer's JWKS at `/data/jwks.json` and create `/data/revoked.json`
    (`python -m mcp_ops_kit.oauth init --file /data/revoked.json`) the same way.
 
 ## How CI checks it
 
 The `terraform` job: `terraform fmt`, `init` against the committed lock file, `validate`,
-`terraform test` (17 runs against a **mocked** AWS provider: the hardening, the IAM split,
+`terraform test` (17 runs: 36 assertions and 8 refused inputs, against a **mocked** AWS provider: the hardening, the IAM split,
 the network and encryption settings, and 8 inputs that must be refused), `tflint` with the
 AWS ruleset, `checkov` (every skip carries its reason next to the resource), and
 [`scripts/check_infra.py`](../../scripts/check_infra.py): every resource type mapped to a

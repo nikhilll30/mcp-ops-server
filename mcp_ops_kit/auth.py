@@ -392,14 +392,20 @@ def issue(
     *,
     audience: str | None = None,
     expires_in: timedelta = timedelta(days=DEFAULT_LIFETIME_DAYS),
-) -> str:
+    sha256: str | None = None,
+) -> str | None:
     """Add a new token's hash to ``path`` (created if missing) and return the raw token,
-    which is shown once and never stored."""
+    which is shown once and never stored. With ``sha256``, register that hash instead: the
+    token was made elsewhere (by the operator), so it never passes through this process or
+    its logs, and None is returned."""
     if expires_in <= timedelta(0):
         raise ValueError("a token must expire in the future")
-    token = secrets.token_urlsafe(32)
+    token = None if sha256 is not None else secrets.token_urlsafe(32)
     entries = load_tokens(config, path) if Path(path).exists() else []
-    fields: dict[str, Any] = {"client_id": client_id, "sha256": hash_token(token)}
+    digest = sha256 if sha256 is not None else hash_token(token or "")
+    if any(e.sha256 == digest for e in entries):
+        raise ValueError("that token is already in the tokens file")
+    fields: dict[str, Any] = {"client_id": client_id, "sha256": digest}
     fields |= {"scopes": scopes, "audience": audience or config.audience}
     fields["expires_at"] = _now_utc() + expires_in
     if subject is not None:
@@ -467,6 +473,12 @@ def main(config: AuthConfig, argv: list[str] | None = None) -> None:
     p.add_argument(f"--{config.subject_label}", dest="subject", default=None)
     p.add_argument("--audience", default=config.audience)
     p.add_argument("--expires-in-days", type=float, default=DEFAULT_LIFETIME_DAYS)
+    p.add_argument(
+        "--sha256",
+        default=None,
+        help="Register this hash of a token you made yourself; nothing secret is printed "
+        "(for hosts whose output is logged, such as a cloud admin task).",
+    )
     r = sub.add_parser("revoke", help="Revoke tokens; a running server refuses them at once.")
     r.add_argument("--file", required=True)
     who = r.add_mutually_exclusive_group(required=True)
@@ -489,8 +501,12 @@ def main(config: AuthConfig, argv: list[str] | None = None) -> None:
                 args.subject,
                 audience=args.audience,
                 expires_in=timedelta(days=args.expires_in_days),
+                sha256=args.sha256,
             )
-            print(token)  # noqa: T201 - the CLI's output is the token itself
+            if token is None:
+                print(f"registered {args.sha256[:TOKEN_ID_CHARS]} ({args.client})")  # noqa: T201
+            else:
+                print(token)  # noqa: T201 - the CLI's output is the token itself
         elif args.command == "revoke":
             for e in revoke(config, args.file, client_id=args.client, token_id=args.token_id):
                 print(f"revoked {e.token_id} ({e.client_id})")  # noqa: T201

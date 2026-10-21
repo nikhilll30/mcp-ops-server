@@ -175,6 +175,13 @@ run "tls_and_encryption" {
     condition     = one(one(aws_wafv2_web_acl_logging_configuration.this.redacted_fields).single_header).name == "authorization"
     error_message = "WAF logs must redact the bearer token."
   }
+  assert {
+    condition = alltrue(concat(
+      [for v in aws_wafv2_web_acl.this.visibility_config : !v.sampled_requests_enabled],
+      [for r in aws_wafv2_web_acl.this.rule : alltrue([for v in r.visibility_config : !v.sampled_requests_enabled])],
+    ))
+    error_message = "WAF request sampling must be off: samples keep the Authorization header, unredacted."
+  }
 }
 
 run "sqlite_demo_mode" {

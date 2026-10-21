@@ -152,7 +152,9 @@ resource "aws_ecs_service" "this" {
 }
 
 # The admin task: run on demand with a command override (README.md), e.g.
-#   python -m mcp_ops_server.auth issue --file /data/tokens.json --client ... --scope ...
+#   python -m mcp_ops_server.auth issue --file /data/tokens.json --client ... --scope ... \
+#     --sha256 <hash of a token made on your machine>
+# Never plain "issue" here: it prints the token, and this task's output goes to CloudWatch.
 #   python -m mcp_ops_server.auth revoke --file /data/tokens.json --client ...
 #   python -m mcp_ops_kit.audit verify --file /audit/audit.log --key-env MCP_OPS_DATA_KEY
 # It mounts /data read-write and /audit read-only, has no inbound network and no service.

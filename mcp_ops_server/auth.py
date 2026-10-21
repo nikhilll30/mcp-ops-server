@@ -36,9 +36,9 @@ StaticTokenVerifier = AUTH.verifier
 
 def issue(
     path: str, client_id: str, scopes: list[Scope], patient_id: str | None, **kwargs: Any
-) -> str:
+) -> str | None:
     """Add a new token's hash to ``path`` and return the raw token (shown once). Keyword
-    arguments (``audience``, ``expires_in``) go to ``mcp_ops_kit.auth.issue``."""
+    arguments (``audience``, ``expires_in``, ``sha256``) go to ``mcp_ops_kit.auth.issue``."""
     return kit.issue(AUTH, path, client_id, list(scopes), patient_id, **kwargs)
 
 
