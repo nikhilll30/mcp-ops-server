@@ -19,3 +19,9 @@ evals/results/*.json
 
 # Local auth tokens file (holds hashes, but keep it out of git anyway)
 tokens.json
+
+# Terraform: provider cache, state and plans (the blueprint is never applied from here)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
