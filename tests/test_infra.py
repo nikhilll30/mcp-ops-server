@@ -79,15 +79,26 @@ def test_a_forbidden_type_fails_even_if_listed(repo: Path) -> None:
     assert any("aws_internet_gateway.x: forbidden" in p for p in run(repo))
 
 
-@pytest.mark.parametrize("cidr", ["0.0.0.0/0", "::/0"])
-def test_an_open_cidr_fails(repo: Path, cidr: str) -> None:
+@pytest.mark.parametrize(
+    "value", ['"0.0.0.0/0"', '"::/0"', 'join("/", ["0.0.0.0", "0"])', '"${"0.0.0.0"}/0"']
+)
+def test_an_open_cidr_fails(repo: Path, value: str) -> None:
+    """Literal or assembled (Codex review, PR #22: join() passed the old literal match)."""
     append(
         repo,
         "security_groups.tf",
-        f'resource "aws_vpc_security_group_ingress_rule" "open" {{\n  cidr_ipv4 = "{cidr}"\n}}',
+        f'resource "aws_vpc_security_group_ingress_rule" "open" {{\n  cidr_ipv4 = {value}\n}}',
     )
     problems = run(repo)
-    assert len(problems) == 1 and "opens the blueprint to everyone" in problems[0]
+    assert len(problems) == 1 and "can open the blueprint to everyone" in problems[0]
+
+
+@pytest.mark.parametrize("name", ["extra.tf.json", "override.tf", "network_override.tf"])
+def test_json_and_override_files_fail(repo: Path, name: str) -> None:
+    """Codex review, PR #22: an internet gateway in a .tf.json file passed unseen."""
+    (repo / "infra" / "aws" / name).write_text('{"resource": {"aws_internet_gateway": {"x": {}}}}')
+    problems = run(repo)
+    assert any(f"infra/aws/{name}: Terraform JSON and override files" in p for p in problems)
 
 
 def test_an_undocumented_setting_fails(repo: Path) -> None:
@@ -123,3 +134,12 @@ def test_main_exit_codes(
     monkeypatch.setattr(check_infra, "check", lambda: ["a problem"])
     assert check_infra.main() == 1
     assert capsys.readouterr().out == "a problem\n"
+
+
+def test_only_a_marked_bind_address_may_name_0_0_0_0(repo: Path) -> None:
+    path = repo / "infra" / "aws" / "main.tf"
+    text = path.read_text()
+    assert "# check_infra: bind address" in text
+    path.write_text(text.replace(" # check_infra: bind address", "", 1))
+    problems = run(repo)
+    assert len(problems) == 1 and "main.tf" in problems[0] and "in a string can open" in problems[0]

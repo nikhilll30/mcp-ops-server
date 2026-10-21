@@ -77,25 +77,49 @@ first deployment that cannot start would trip the circuit breaker and stop). The
    (`docker pull`/`push` can re-compress layers and change it).
 2. Set the data key: `aws secretsmanager put-secret-value --secret-id <data_key_secret_arn>
    --secret-string "$(python -m mcp_ops_kit.crypto new-key)"`. Keep no other copy.
-3. Make a token **on your own machine** and register only its hash with the admin task, so
-   the token never reaches AWS (the admin task's output goes to CloudWatch):
+3. Define a helper that runs one admin command on Fargate, waits for it, and fails unless
+   it exited 0 (its output is in the app log group, stream prefix `admin`):
+   ```bash
+   admin() {
+     local net task
+     net=$(terraform output -json admin_network | python3 -c 'import json,sys; n=json.load(sys.stdin)
+   print("awsvpcConfiguration={subnets=[%s],securityGroups=[%s],assignPublicIp=DISABLED}" % (",".join(n["subnets"]), ",".join(n["security_groups"])))')
+     task=$(aws ecs run-task --cluster "$(terraform output -raw cluster_name)" \
+       --launch-type FARGATE --task-definition "$(terraform output -raw admin_task_definition)" \
+       --network-configuration "$net" \
+       --overrides "$(python3 -c 'import json,sys; print(json.dumps({"containerOverrides": [{"name": "admin", "command": sys.argv[1:]}]}))' "$@")" \
+       --query 'tasks[0].taskArn' --output text) || return 1
+     aws ecs wait tasks-stopped --cluster "$(terraform output -raw cluster_name)" --tasks "$task"
+     test "$(aws ecs describe-tasks --cluster "$(terraform output -raw cluster_name)" --tasks "$task" \
+       --query 'tasks[0].containers[0].exitCode' --output text)" = 0
+   }
+   ```
+4. Make a token **on your own machine** and register only its hash, so the token never
+   reaches AWS (the admin task's output goes to CloudWatch). Use the server's audience, or
+   the tokens file will be refused at start-up:
    ```bash
    TOKEN=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')   # give it to the client
    HASH=$(printf %s "$TOKEN" | sha256sum | cut -d" " -f1)
+   admin python -m mcp_ops_server.auth issue --file /data/tokens.json --client portal \
+     --scope read:schedule --scope write:schedule --scope read:referrals \
+     --audience "$(terraform output -raw token_audience)" --sha256 "$HASH"
    ```
-   Then `aws ecs run-task` with `admin_task_definition`, the `admin_network` output and the
-   command override `python -m mcp_ops_server.auth issue --file /data/tokens.json --client
-   portal --scope ... --sha256 $HASH`. It prints only the token ID. Never run plain `issue`
-   (without `--sha256`) in the admin task: it prints the token, into a log kept 400 days.
-4. With JWTs: put the issuer's JWKS at `/data/jwks.json` and create `/data/revoked.json`
-   (`python -m mcp_ops_kit.oauth init --file /data/revoked.json`) the same way.
+   Never run plain `issue` (without `--sha256`) in the admin task: it prints the token,
+   into a log kept 400 days. Changes to the tokens file hold a lock, so two admin tasks
+   cannot undo each other's revocations.
+   With JWTs, also write the issuer's (public) JWKS and an empty revocation file:
+   ```bash
+   admin python -c 'import pathlib, sys; pathlib.Path(sys.argv[1]).write_text(sys.argv[2])' \
+     "$(terraform output -raw jwks_path)" "$(cat jwks.json)"
+   admin python -m mcp_ops_kit.oauth init --file /data/revoked.json
+   ```
 5. Set `start_service = true` and apply again. The service starts one task.
 
 ## How CI checks it
 
 The `terraform` job: `terraform fmt`, `init` against the committed lock file, `validate`,
-`terraform test` (18 runs: 38 assertions and 8 refused inputs, against a **mocked** AWS provider: the hardening, the IAM split,
-the network and encryption settings, and 8 inputs that must be refused), `tflint` with the
+`terraform test` (21 runs: 49 assertions and 10 refused inputs, against a **mocked** AWS provider: the hardening, the IAM split,
+the rendered IAM and EFS policies, the network and encryption settings, and inputs that must be refused), `tflint` with the
 AWS ruleset, `checkov` (every skip carries its reason next to the resource), and
 [`scripts/check_infra.py`](../../scripts/check_infra.py): every resource type mapped to a
 HIPAA-eligible or no-PHI service, forbidden types (internet gateway, NAT, Elastic IP,

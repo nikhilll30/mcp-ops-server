@@ -47,3 +47,7 @@ mock_resource "aws_cloudwatch_log_group" {
 mock_resource "aws_wafv2_web_acl" {
   defaults = { arn = "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/mcp-ops/00000000-0000-0000-0000-000000000000" }
 }
+
+mock_resource "aws_efs_file_system" {
+  defaults = { arn = "arn:aws:elasticfilesystem:us-east-1:123456789012:file-system/fs-00000000" }
+}

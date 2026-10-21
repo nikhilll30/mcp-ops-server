@@ -8,7 +8,7 @@ locals {
   # are left out: the server treats a set-but-empty number as a mistake, by design.
   environment = { for k, v in merge(
     {
-      MCP_OPS_HOST               = "0.0.0.0"
+      MCP_OPS_HOST               = "0.0.0.0" # check_infra: bind address (listen inside the task)
       MCP_OPS_PORT               = tostring(local.port)
       MCP_OPS_BACKEND            = var.backend
       MCP_OPS_TOKENS_FILE        = "/data/tokens.json"
@@ -50,6 +50,18 @@ resource "aws_ecs_cluster" "this" {
   setting {
     name  = "containerInsights"
     value = "enabled"
+  }
+}
+
+# Fargate is the cluster's default, so a run-task without --launch-type still lands on
+# Fargate rather than on EC2 capacity this cluster does not have (Codex review, PR #22).
+resource "aws_ecs_cluster_capacity_providers" "this" {
+  cluster_name       = aws_ecs_cluster.this.name
+  capacity_providers = ["FARGATE"]
+
+  default_capacity_provider_strategy {
+    capacity_provider = "FARGATE"
+    weight            = 1
   }
 }
 

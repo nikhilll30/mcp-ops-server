@@ -50,6 +50,18 @@ resource "aws_iam_role_policy" "execution" {
         Resource = "${aws_cloudwatch_log_group.app.arn}:*"
       },
       {
+        Sid      = "EncryptThisAppsLogs"
+        Effect   = "Allow"
+        Action   = ["kms:GenerateDataKey", "kms:Encrypt", "kms:Decrypt"]
+        Resource = aws_kms_key.logs.arn
+        Condition = {
+          StringEquals = {
+            "kms:ViaService"                     = "logs.${local.region}.amazonaws.com"
+            "kms:EncryptionContext:aws:logs:arn" = aws_cloudwatch_log_group.app.arn
+          }
+        }
+      },
+      {
         Sid      = "ReadTheDataKey"
         Effect   = "Allow"
         Action   = "secretsmanager:GetSecretValue"
@@ -147,10 +159,31 @@ resource "aws_iam_role_policy" "flow_logs" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"]
-      Resource = "${aws_cloudwatch_log_group.flow.arn}:*"
-    }]
+    Statement = [
+      {
+        Sid      = "WriteFlowLogs"
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"]
+        Resource = "${aws_cloudwatch_log_group.flow.arn}:*"
+      },
+      {
+        Sid      = "FindTheLogGroup" # AWS lists it among flow logs' required permissions
+        Effect   = "Allow"
+        Action   = "logs:DescribeLogGroups"
+        Resource = "arn:${local.partition}:logs:${local.region}:${local.account_id}:log-group:*"
+      },
+      {
+        Sid      = "EncryptFlowLogs"
+        Effect   = "Allow"
+        Action   = ["kms:GenerateDataKey", "kms:Encrypt", "kms:Decrypt"]
+        Resource = aws_kms_key.logs.arn
+        Condition = {
+          StringEquals = {
+            "kms:ViaService"                     = "logs.${local.region}.amazonaws.com"
+            "kms:EncryptionContext:aws:logs:arn" = aws_cloudwatch_log_group.flow.arn
+          }
+        }
+      },
+    ]
   })
 }

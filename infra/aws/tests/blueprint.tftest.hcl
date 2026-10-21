@@ -88,13 +88,36 @@ run "server_cannot_write_its_own_tokens" {
     condition     = one([for m in jsondecode(aws_ecs_task_definition.service.container_definitions)[0].mountPoints : m.readOnly if m.containerPath == "/data"])
     error_message = "The server must mount the tokens volume read-only."
   }
+  # The rendered IAM policies, not the locals they are built from (Codex review, PR #22).
   assert {
-    condition     = local.service_efs.data == ["elasticfilesystem:ClientMount"]
-    error_message = "The server's IAM role must not have ClientWrite on the tokens access point."
+    condition = alltrue([
+      for st in jsondecode(aws_iam_role_policy.service_task.policy).Statement :
+      st.Effect == "Allow" && st.Resource == aws_efs_file_system.this.arn
+      && contains([for ap in aws_efs_access_point.this : ap.arn], st.Condition.StringEquals["elasticfilesystem:AccessPointArn"])
+    ])
+    error_message = "Every server EFS grant must be on this file system and bound to one access point."
   }
   assert {
-    condition     = !contains(local.admin_efs.audit, "elasticfilesystem:ClientWrite")
-    error_message = "The admin task must not be able to write the audit log."
+    condition = [
+      for st in jsondecode(aws_iam_role_policy.service_task.policy).Statement : st.Action
+      if st.Condition.StringEquals["elasticfilesystem:AccessPointArn"] == aws_efs_access_point.this["data"].arn
+    ] == [["elasticfilesystem:ClientMount"]]
+    error_message = "The server's role must only mount (never write) the tokens access point."
+  }
+  assert {
+    condition = alltrue([
+      for st in jsondecode(aws_iam_role_policy.admin_task.policy).Statement :
+      st.Resource == aws_efs_file_system.this.arn
+      && contains([aws_efs_access_point.this["data"].arn, aws_efs_access_point.this["audit"].arn], st.Condition.StringEquals["elasticfilesystem:AccessPointArn"])
+    ])
+    error_message = "Every admin EFS grant must be bound to the data or audit access point."
+  }
+  assert {
+    condition = [
+      for st in jsondecode(aws_iam_role_policy.admin_task.policy).Statement : st.Action
+      if st.Condition.StringEquals["elasticfilesystem:AccessPointArn"] == aws_efs_access_point.this["audit"].arn
+    ] == [["elasticfilesystem:ClientMount"]]
+    error_message = "The admin task must only mount (never write) the audit access point."
   }
   assert {
     condition     = one([for m in jsondecode(aws_ecs_task_definition.admin.container_definitions)[0].mountPoints : m.readOnly if m.containerPath == "/audit"])
@@ -148,6 +171,20 @@ run "private_network_only" {
     error_message = "The only egress outside the VPC is to fhir_cidrs."
   }
   assert {
+    # Evaluated CIDRs, so a computed "0.0.0.0/0" is caught as well as a literal one.
+    condition = alltrue([
+      for c in concat(
+        [for r in aws_vpc_security_group_ingress_rule.alb_https : r.cidr_ipv4],
+        [for r in aws_vpc_security_group_egress_rule.service_fhir : r.cidr_ipv4],
+      ) : tonumber(split("/", c)[1]) >= 8
+    ])
+    error_message = "No security group rule may open a range wider than /8."
+  }
+  assert {
+    condition     = one(aws_ecs_cluster_capacity_providers.this.default_capacity_provider_strategy).capacity_provider == "FARGATE"
+    error_message = "Fargate must be the cluster default, so run-task never falls back to EC2."
+  }
+  assert {
     condition     = length(aws_default_security_group.this.ingress) == 0 && length(aws_default_security_group.this.egress) == 0
     error_message = "The VPC's default security group must have no rules."
   }
@@ -181,8 +218,34 @@ run "tls_and_encryption" {
     error_message = "Logs must be kept at least 400 days."
   }
   assert {
-    condition     = contains([for s in jsondecode(aws_efs_file_system_policy.this.policy).Statement : s.Sid], "DenyWithoutTls")
-    error_message = "The EFS policy must refuse connections without TLS."
+    condition     = alltrue([for st in jsondecode(aws_efs_file_system_policy.this.policy).Statement : st.Effect == "Deny" && st.Principal == { AWS = "*" } && st.Resource == aws_efs_file_system.this.arn])
+    error_message = "The EFS file system policy may only deny, for every principal, on this file system."
+  }
+  assert {
+    condition = anytrue([
+      for st in jsondecode(aws_efs_file_system_policy.this.policy).Statement :
+      st.Action == "*" && try(st.Condition.Bool["aws:SecureTransport"], "") == "false"
+    ])
+    error_message = "The EFS policy must deny every action without TLS."
+  }
+  assert {
+    condition     = anytrue([for st in jsondecode(aws_efs_file_system_policy.this.policy).Statement : st.Action == "elasticfilesystem:ClientRootAccess" && !can(st.Condition)])
+    error_message = "The EFS policy must deny root access unconditionally."
+  }
+  assert {
+    condition = anytrue([
+      for st in jsondecode(aws_efs_file_system_policy.this.policy).Statement :
+      contains(try(tolist(st.Action), []), "elasticfilesystem:ClientMount") && try(st.Condition.Null["elasticfilesystem:AccessPointArn"], "") == "true"
+    ])
+    error_message = "The EFS policy must deny mounts that bypass an access point."
+  }
+  assert {
+    condition = anytrue([
+      for st in jsondecode(aws_efs_file_system_policy.this.policy).Statement :
+      contains(try(tolist(st.Action), []), "elasticfilesystem:ClientWrite")
+      && toset(try(st.Condition.ArnNotEquals["aws:PrincipalArn"], [])) == toset([aws_iam_role.service_task.arn, aws_iam_role.admin_task.arn])
+    ])
+    error_message = "The EFS policy must deny every principal but the two task roles."
   }
   assert {
     condition     = one(one(aws_wafv2_web_acl_logging_configuration.this.redacted_fields).single_header).name == "authorization"
@@ -201,6 +264,33 @@ run "tls_and_encryption" {
       && jsondecode(aws_cloudwatch_log_resource_policy.waf.policy_document).Statement[0].Resource == "${aws_cloudwatch_log_group.waf.arn}:*"
     )
     error_message = "WAF log delivery must be allowed on the WAF log group only."
+  }
+}
+
+run "log_writers_may_use_the_logs_key_only_for_their_group" {
+  command = apply # against the mock provider only: nothing leaves this machine
+
+  assert {
+    condition = alltrue([
+      for st in concat(
+        jsondecode(aws_iam_role_policy.execution.policy).Statement,
+        jsondecode(aws_iam_role_policy.flow_logs.policy).Statement,
+      ) : st.Resource == aws_kms_key.logs.arn && st.Condition.StringEquals["kms:ViaService"] == "logs.us-east-1.amazonaws.com"
+      if contains(try(tolist(st.Action), [st.Action]), "kms:GenerateDataKey")
+    ])
+    error_message = "Logs-key grants must be on the logs key, through CloudWatch Logs only."
+  }
+  assert {
+    condition = [
+      for st in jsondecode(aws_iam_role_policy.flow_logs.policy).Statement :
+      st.Condition.StringEquals["kms:EncryptionContext:aws:logs:arn"]
+      if contains(try(tolist(st.Action), [st.Action]), "kms:GenerateDataKey")
+    ] == [aws_cloudwatch_log_group.flow.arn]
+    error_message = "The flow-log role may use the logs key for the flow log group only."
+  }
+  assert {
+    condition     = output.token_audience == "mcp-ops-server" && output.jwks_path == "/data/jwks.json"
+    error_message = "The outputs must give the audience and JWKS path the admin commands need."
   }
 }
 

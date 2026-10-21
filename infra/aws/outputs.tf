@@ -30,3 +30,13 @@ output "admin_network" {
     security_groups = [aws_security_group.admin.id]
   }
 }
+
+output "token_audience" {
+  description = "Pass as --audience when issuing tokens: the server refuses a tokens file holding another audience's token."
+  value       = var.audience == "" ? "mcp-ops-server" : var.audience
+}
+
+output "jwks_path" {
+  description = "Where the admin task must put the issuer's JWKS (when jwt_issuer is set)."
+  value       = "/data/${var.jwt_jwks_file}"
+}

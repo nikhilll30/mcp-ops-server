@@ -1017,11 +1017,11 @@ def part10() -> list:
     return [
         Paragraph("Part 10 Brief · Terraform blueprint on HIPAA-eligible AWS", title),
         Paragraph(
-            "mcp-ops-server · 21 Oct 2026 · PR #22 · Status: Cursor Security (2) and Bugbot (2) fixed; Codex review pending · validated, never applied",
+            "mcp-ops-server · 21 Oct 2026 · PR #22 · Status: Codex (2x P1, 5x P2), Cursor Security (2), Bugbot (2) all fixed · validated, never applied",
             sub,
         ),
         Spacer(1, 4),
-        section("What was built (infra/aws/: 1,270 lines of HCL, 340 of tests)"),
+        section("What was built (infra/aws/: 1,373 lines of HCL, 473 of tests)"),
         bl(
             "<b>A private Fargate service:</b> one task, image pinned by digest from an immutable, scanned ECR repo, "
             "uid 10001, read-only root, every capability dropped, no ECS Exec, no public IP. An internal ALB (TLS 1.2+) "
@@ -1045,15 +1045,15 @@ def part10() -> list:
                     "well-formed; provider 6.68.0 pinned by hash for 5 platforms",
                 ],
                 [
-                    "terraform test: 18 runs",
-                    "on a mocked provider: hardening, IAM split, network, TLS, encryption; 8 bad inputs refused",
+                    "terraform test: 21 runs",
+                    "on a mocked provider: the rendered IAM/EFS policies, hardening, network, TLS, encryption; 10 bad inputs refused",
                 ],
                 [
                     "tflint + AWS ruleset, checkov",
                     "196 checkov checks pass; each of 8 skips has its reason beside the resource",
                 ],
                 [
-                    "scripts/check_infra.py (+15 pytest)",
+                    "scripts/check_infra.py (+21 pytest)",
                     "every type maps to a HIPAA-eligible or no-PHI service; no IGW/NAT/EIP, no 0.0.0.0/0; settings and uid match the server",
                 ],
                 [
@@ -1079,23 +1079,23 @@ def part10() -> list:
             f"2 Nov 2026, 08:00. The task sets {cf}MCP_OPS_NOW=system</font>, and a test pins it."
         ),
         bl(
-            "<b>checkov caught a real portability bug:</b> zone <i>names</i> differ per account, so subnets now use zone IDs. "
-            "I dropped an ECR lifecycle rule that could expire the digest a running task names. <b>22 of 22</b> deliberately broken safeguards made a test fail."
+            "<b>checkov caught a portability bug</b> (zone names differ per account; subnets use zone IDs). The registry, "
+            "AWS's site and Docker Hub were unreachable here, so the provider came from HashiCorp's release server, and the "
+            "HIPAA list was checked by search only: the catalog marks each service official, secondary or (S3) unverified."
         ),
         bl(
-            "<b>This session could not reach</b> the Terraform registry, AWS's site or Docker Hub. The provider came from "
-            "HashiCorp's release server, and the base image from Google's mirror at the same digest. AWS's HIPAA list was "
-            "checked through search only, so the catalog marks each service official, secondary or (S3) unverified. "
-            "<b>Cursor Security found 2 token leaks:</b> WAF samples skip redaction (sampling now off), and admin "
-            f"{cf}issue</font> printed tokens into CloudWatch ({cf}issue --sha256</font> now registers a hash you made). "
-            f"Bugbot: the first apply could never start a task ({cf}start_service</font> now defaults to off)."
+            "<b>Reviewers found 6 real defects.</b> Cursor Security: WAF samples skip redaction (sampling off), and admin "
+            f"{cf}issue</font> printed tokens into CloudWatch ({cf}--sha256</font> registers a hash you made). Bugbot: "
+            f"the first apply could never start ({cf}start_service</font>). Codex: a concurrent admin task could undo a "
+            "revocation (the kit now locks the file), and my tests read helper maps, not rendered policies. Now they do: "
+            "13 of 13 mutations, including Codex's 3, are caught."
         ),
         section("Verify it yourself"),
         codebox(
             [
-                "cd infra/aws && terraform init -backend=false && terraform test   # 18 passed",
+                "cd infra/aws && terraform init -backend=false && terraform test   # 21 passed",
                 "tflint --init && tflint; checkov -d . --framework terraform --skip-download",
-                "cd ../.. && python scripts/check_infra.py && pytest -q          # 539 passed",
+                "cd ../.. && python scripts/check_infra.py && pytest -q          # 547 passed",
             ]
         ),
         section("Interview talking point"),
@@ -1107,8 +1107,8 @@ def part10() -> list:
         ),
         section("Next (your actions)"),
         Paragraph(
-            "1) Add <b>terraform</b> to the main ruleset's required checks after merging. 2) Paste the Codex prompt. "
-            "3) Check the services in hipaa-services.json against AWS's live list. 4) Say <b>go</b> for Part 11.",
+            "1) Merge PR #22 once CI is green, then add <b>terraform</b> to the main ruleset's required checks. "
+            "2) Check the services in hipaa-services.json against AWS's live list. 3) Say <b>go</b> for Part 11.",
             body,
         ),
     ]

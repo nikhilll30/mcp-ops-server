@@ -265,7 +265,8 @@ def test_the_tokens_file_is_replaced_atomically(tmp_path: Path) -> None:
     inode = path.stat().st_ino
     issue(str(path), "b", ["read:schedule"], None)
     assert path.stat().st_ino != inode
-    assert [p.name for p in tmp_path.iterdir()] == ["tokens.json"]  # no temp file left
+    # no temp file left; the lock file beside it serialises changes (Codex review, PR #22)
+    assert sorted(p.name for p in tmp_path.iterdir()) == [".tokens.json.lock", "tokens.json"]
 
 
 def test_any_failure_to_reload_refuses_rather_than_crashes(
@@ -285,3 +286,60 @@ def test_any_failure_to_reload_refuses_rather_than_crashes(
     path.write_text(issue_later + " ")  # changed, so it is re-read
     assert not _verify(verifier, token)
     assert verifier.error is not None and "TypeError" in verifier.error
+
+
+# ---- concurrent changes to the tokens file (Codex review, PR #22) -------------------------
+
+
+def test_a_concurrent_issue_cannot_undo_a_revocation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two admin tasks share the tokens file. An issue that read the file before a revoke,
+    then saved its older copy, would make the revoked token active again. Every change holds
+    the file's lock from read to write, so the revoke waits for the issue."""
+    import threading
+    import time
+
+    path = str(tmp_path / "tokens.json")
+    victim = issue(path, "victim", ["read:schedule"], None)
+    loaded, real_load = threading.Event(), kit.load_tokens
+
+    def slow_load(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        entries = real_load(*args, **kwargs)
+        if threading.current_thread().name == "issuer":
+            loaded.set()
+            time.sleep(0.3)  # the revoke runs now, unless the lock makes it wait
+        return entries
+
+    monkeypatch.setattr(kit, "load_tokens", slow_load)
+    issuer = threading.Thread(
+        target=issue, args=(path, "new", ["read:schedule"], None), name="issuer"
+    )
+    issuer.start()
+    assert loaded.wait(5)
+    kit.revoke(AUTH, path, client_id="victim")
+    issuer.join(5)
+    verifier = StaticTokenVerifier.from_file(path)
+    assert not _verify(verifier, victim)
+    assert [e.client_id for e in kit.load_tokens(AUTH, path)] == ["victim", "new"]
+
+
+def test_a_change_gives_up_if_another_holds_the_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stuck admin task must not make the next one hang forever, nor write unlocked."""
+    import fcntl
+    import os
+
+    path = tmp_path / "tokens.json"
+    issue(str(path), "a", ["read:schedule"], None)
+    before = path.read_text()
+    fd = os.open(tmp_path / ".tokens.json.lock", os.O_RDWR)
+    fcntl.flock(fd, fcntl.LOCK_EX)  # another process mid-change
+    monkeypatch.setattr(kit, "LOCK_TIMEOUT_S", 0.2)
+    try:
+        with pytest.raises(ValueError, match="has held its lock"):
+            kit.revoke(AUTH, str(path), client_id="a")
+    finally:
+        os.close(fd)
+    assert path.read_text() == before

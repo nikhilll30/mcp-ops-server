@@ -16,7 +16,7 @@
 | 7 Backend protocol + FHIR R4 | done (PR #16 merged) | docs/briefs/part-7-fhir-backend.pdf |
 | 8 Booking example, then extract mcp-ops-kit | done (PR #18 merged) | docs/briefs/part-8-mcp-ops-kit.pdf |
 | 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation, audience binding | done (PR #20 merged) | docs/briefs/part-9-safeguards.pdf |
-| 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | **in review** (PR #22; Codex review pending) | docs/briefs/part-10-terraform.pdf |
+| 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | **in review** (PR #22; Codex review addressed) | docs/briefs/part-10-terraform.pdf |
 | 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | planned | |
 | 12 Repeated live runs, pass^k, prompt-injection suite | planned | |
 
@@ -252,7 +252,7 @@ Built on branch `claude/nifty-ptolemy-l6whuk` (the branch this session was assig
   days. No internet gateway, NAT or Elastic IP. IAM: the server cannot write its own tokens
   file; the admin task cannot write the audit log.
 - **CI `terraform` job** (new; no AWS credentials anywhere): fmt, init against the committed
-  lock file, validate, `terraform test` (18 runs on a mocked provider), tflint with the AWS
+  lock file, validate, `terraform test` (21 runs on a mocked provider), tflint with the AWS
   ruleset, checkov (196 passed, 8 skips each with its reason), and `scripts/check_infra.py`.
   Terraform and tflint are pinned by version and SHA-256. `publish` now also needs `terraform`.
 - **`scripts/check_infra.py`** (15 pytest tests): every resource type maps to a service in
@@ -264,7 +264,7 @@ Built on branch `claude/nifty-ptolemy-l6whuk` (the branch this session was assig
 - **HIPAA eligibility was checked through web search only** (aws.amazon.com is blocked from
   this session). The catalog marks each service `official`, `secondary` or `unverified` (S3).
   Owner: check it against the live AWS page.
-- **Local results:** `pytest -q` 539 passed; `terraform test` 18/18; tflint clean; checkov 0
+- **Local results:** `pytest -q` 547 passed; `terraform test` 21/21; tflint clean; checkov 0
   failed; `check_infra.py` ok; the image built and run with the task's hardening (smoke test,
   audit verify, revoke from an admin-style container, all passed); CI's `container` steps
   replayed from the workflow text.
@@ -278,10 +278,18 @@ Built on branch `claude/nifty-ptolemy-l6whuk` (the branch this session was assig
   delivery: fixed with a managed log resource policy; the claim that the KMS key policy also
   needs `delivery.logs.amazonaws.com` is pushed back (CloudWatch Logs encrypts; unverified
   here, and named in the Codex prompt).
+- **Codex review (of 34e7e6c): 2x P1, 5x P2, all fixed** (FAILURES.md). Codex confirmed the
+  WAF/KMS pushback. P1: a concurrent admin `issue` could undo a `revoke` (reproduced; the kit
+  now locks the tokens file from read to write); the log writers lacked logs-key grants
+  (added, scoped; accepted on Codex's citation of AWS docs). P2: tests now assert the rendered
+  IAM/EFS policies (13 mutations, including Codex's 3, all caught); the checker refuses
+  `.tf.json`/override files and assembled open CIDRs; Fargate is the cluster default and the
+  README has a complete `run-task` helper; audience/JWKS outputs; rate limit must be a whole
+  number >= 1.
 
 ## Next action
-Owner: wait for CI, paste the Codex prompt below, then merge and add `terraform` to the `main`
-ruleset's required checks. Part 11 starts after the owner's "go".
+Owner: Codex's review is addressed. Merge once CI is green on the new head, then add `terraform`
+to the `main` ruleset's required checks. Part 11 starts after the owner's "go".
 
 Codex prompt for Part 10:
 ```

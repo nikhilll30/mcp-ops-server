@@ -36,6 +36,7 @@
     "aws_vpc_security_group_ingress_rule": "Amazon VPC",
     "aws_vpc_security_group_egress_rule": "Amazon VPC",
     "aws_ecs_cluster": "Amazon ECS",
+    "aws_ecs_cluster_capacity_providers": "AWS Fargate",
     "aws_ecs_service": "AWS Fargate",
     "aws_ecs_task_definition": "AWS Fargate",
     "aws_ecr_repository": "Amazon ECR",

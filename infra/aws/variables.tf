@@ -74,7 +74,7 @@ variable "allowed_ingress_cidrs" {
 
   validation {
     condition     = alltrue([for c in var.allowed_ingress_cidrs : tonumber(split("/", c)[1]) >= 8])
-    error_message = "allowed_ingress_cidrs must not include 0.0.0.0/0 or any range wider than /8: this blueprint is not an internet endpoint."
+    error_message = "allowed_ingress_cidrs must not include the whole internet (a /0) or any range wider than /8: this blueprint is not an internet endpoint."
   }
 }
 
@@ -138,6 +138,11 @@ variable "rate_limit_per_minute" {
   description = "Tool calls per client per minute, per task (MCP_OPS_RATE_LIMIT_PER_MIN)."
   type        = number
   default     = 120
+
+  validation {
+    condition     = var.rate_limit_per_minute >= 1 && floor(var.rate_limit_per_minute) == var.rate_limit_per_minute
+    error_message = "rate_limit_per_minute must be a whole number of at least 1 (the server refuses anything else at start-up)."
+  }
 }
 
 variable "waf_rate_limit_per_5_min" {

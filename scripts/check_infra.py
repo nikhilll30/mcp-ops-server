@@ -6,7 +6,12 @@
   mapped to a service that is HIPAA-eligible or stores no PHI. A new type fails until
   someone looks it up and adds it. Forbidden types (internet gateways, NAT, public IPs,
   IAM users, secret values in state) always fail.
-- No security rule or variable default opens ``0.0.0.0/0`` or ``::/0``.
+- No ``.tf.json`` or override file: Terraform loads them too, and these text checks read
+  only HCL, so such a file could hide a forbidden type (Codex review, PR #22).
+- No ``0.0.0.0`` or ``::/0`` appears in any string, not just as a whole CIDR (so
+  ``join("/", ["0.0.0.0", "0"])`` is caught). The tests in ``infra/aws/tests`` check the
+  evaluated CIDRs of every security group rule, which also catches arithmetic. The one
+  exception is a line marked ``# check_infra: bind address`` (a listen address, not a CIDR).
 - Every ``MCP_OPS_*`` setting the task definition passes is documented in ``.env.example``,
   so the blueprint cannot drift to a name the server does not read.
 - The uid the blueprint runs as is the image's own (Dockerfile ``useradd --uid``).
@@ -25,7 +30,8 @@ INFRA = ROOT / "infra" / "aws"
 
 BLOCK = re.compile(r'^(resource|data)\s+"([a-z0-9_]+)"\s+"([A-Za-z0-9_-]+)"', re.M)
 SETTING = re.compile(r"\bMCP_OPS_[A-Z0-9_]+\b")
-OPEN_CIDR = re.compile(r'"(0\.0\.0\.0/0|::/0)"')
+OPEN_CIDR = re.compile(r'"[^"\n]*?(0\.0\.0\.0|::/0)[^"\n]*"')
+BIND_MARK = "# check_infra: bind address"
 UID_TF = re.compile(r"^\s*app_uid\s*=\s*(\d+)", re.M)
 UID_DOCKER = re.compile(r"useradd\s+--uid\s+(\d+)")
 
@@ -33,6 +39,12 @@ UID_DOCKER = re.compile(r"useradd\s+--uid\s+(\d+)")
 def tf_files(infra: Path) -> list[Path]:
     """The blueprint's own .tf files (not tests, not the .terraform/ provider cache)."""
     return sorted(infra.glob("*.tf"))
+
+
+def unreadable_files(infra: Path) -> list[Path]:
+    """Files Terraform loads that these text checks cannot read, or that rewrite others."""
+    found = set(infra.glob("*.tf.json")) | set(infra.glob("override.tf*"))
+    return sorted(found | set(infra.glob("*_override.tf*")))
 
 
 def check(infra: Path = INFRA, root: Path = ROOT) -> list[str]:
@@ -52,6 +64,9 @@ def check(infra: Path = INFRA, root: Path = ROOT) -> list[str]:
         if svc not in services:
             problems.append(f"hipaa-services.json: {type_} maps to unknown service {svc!r}")
 
+    for path in unreadable_files(infra):
+        rel = path.relative_to(root) if path.is_relative_to(root) else path
+        problems.append(f"{rel}: Terraform JSON and override files are not allowed; use plain .tf")
     files = tf_files(infra)
     if not files:
         problems.append(f"{infra}: no .tf files")
@@ -72,7 +87,11 @@ def check(infra: Path = INFRA, root: Path = ROOT) -> list[str]:
                 )
         for match in OPEN_CIDR.finditer(text):
             line = text.count("\n", 0, match.start()) + 1
-            problems.append(f"{rel}:{line}: {match.group(1)} opens the blueprint to everyone")
+            if BIND_MARK in text.splitlines()[line - 1]:
+                continue
+            problems.append(
+                f"{rel}:{line}: {match.group(1)} in a string can open the blueprint to everyone"
+            )
         settings |= set(SETTING.findall(text))
 
     documented = set(SETTING.findall((root / ".env.example").read_text()))

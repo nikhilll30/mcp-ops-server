@@ -75,3 +75,19 @@ run "refuses_a_single_zone" {
   }
   expect_failures = [var.availability_zone_ids]
 }
+
+run "refuses_a_fractional_rate_limit" {
+  command = plan
+  variables {
+    rate_limit_per_minute = 120.5
+  }
+  expect_failures = [var.rate_limit_per_minute]
+}
+
+run "refuses_a_zero_rate_limit" {
+  command = plan
+  variables {
+    rate_limit_per_minute = 0
+  }
+  expect_failures = [var.rate_limit_per_minute]
+}
