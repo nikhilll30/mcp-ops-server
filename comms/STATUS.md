@@ -15,8 +15,8 @@
 | P2 Planning | done (PR #15 merged) | docs/briefs/phase-2-plan.pdf |
 | 7 Backend protocol + FHIR R4 | done (PR #16 merged) | docs/briefs/part-7-fhir-backend.pdf |
 | 8 Booking example, then extract mcp-ops-kit | done (PR #18 merged) | docs/briefs/part-8-mcp-ops-kit.pdf |
-| 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation, audience binding | **built** (PR #20), Codex review fixed (6x P1, 3x P2), waiting for CI and merge | docs/briefs/part-9-safeguards.pdf |
-| 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | planned | |
+| 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation, audience binding | done (PR #20 merged) | docs/briefs/part-9-safeguards.pdf |
+| 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | **next**, waiting for owner's go | |
 | 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | planned | |
 | 12 Repeated live runs, pass^k, prompt-injection suite | planned | |
 
@@ -33,7 +33,7 @@
 | P2 | Phase 2 planning: PLAN, CLAUDE rules, STATUS, README, brief | Claude | merged | #15 |
 | 007 | Backend protocol, SqliteBackend, FhirBackend, HAPI in CI, parity | Claude | merged | #16 |
 | 008 | Salon example (copy), then mcp-ops-kit extracted from both domains | Claude | merged | #18 |
-| 009 | Safeguards in the kit: tokens v2 + audience, OAuth JWTs, audit log, encryption at rest, minimisation | Claude | in review | #20 |
+| 009 | Safeguards in the kit: tokens v2 + audience, OAuth JWTs, audit log, encryption at rest, minimisation | Claude | merged | #20 |
 
 ## Workflow
 Claude builds each part in a fresh Claude Code session (rules in `CLAUDE.md`); Codex reviews each
@@ -172,7 +172,7 @@ data minimisation, all in the kit). Added by the owner, 2026-10-20:
   and revocation in one migration. Files without a version are refused with a message naming the
   fix. This closes the Part 8 Codex P2 on cross-domain unbound tokens.
 
-## Part 9 (built, PR #20, Codex review fixed)
+## Part 9 (done, PR #20 merged 2026-10-21)
 Built on branch `claude/happy-lovelace-rdq5e6` (the branch this session was assigned). The owner's
 "start the next part" on 2026-10-20 was the go. Everything is in `mcp_ops_kit`, so the clinic and
 the salon both have it with no domain-specific code.
@@ -236,5 +236,10 @@ differently between SQLite and FHIR. Also check test quality and anything that w
 repo once public. List findings as P0/P1/P2 with file and line. Do not change code.
 ```
 
-## Next action
-The owner merges PR #20 once CI is green on the latest head, then says "go" for Part 10.
+Owner, 2026-10-21: merged PR #20. The final head (106a11d) was green on every CI job (push and
+pull_request) and on both Cursor reviewers, with all review threads resolved. That head also
+carries one later Bugbot fix: the JWT revocation file must exist at start-up.
+
+## Next action: Part 10, after the owner says "go"
+Not started. Scope is in `comms/PLAN.md`: a Terraform blueprint on HIPAA-eligible AWS, validated
+in CI, never applied.
