@@ -91,13 +91,17 @@ def test_a_partly_mitigated_threat_must_say_what_is_left(repo: Path) -> None:
     assert f"{check_docs.THREATS}: E2 is Partly: say what is left" in run(repo)
 
 
+# Spelt in two halves, so this file does not trip the check it tests.
+CLAIM, HYPHENATED = "HIPAA " + "compliant", "HIPAA-" + "compliant"
+
+
 @pytest.mark.parametrize(
     ("line", "flagged"),
     [
-        ("This server is HIPAA compliant.", True),
-        ("A HIPAA-compliant deployment in one command", True),
-        ('HIPAA-ready, never "HIPAA compliant"', False),
-        ("This is not a HIPAA-compliant system.", False),
+        (f"This server is {CLAIM}.", True),
+        (f"A {HYPHENATED} deployment in one command", True),
+        (f'HIPAA-ready, never "{CLAIM}"', False),
+        (f"This is not a {HYPHENATED} system.", False),
     ],
 )
 def test_compliance_claims_are_refused(tmp_path: Path, line: str, flagged: bool) -> None:

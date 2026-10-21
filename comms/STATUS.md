@@ -17,7 +17,7 @@
 | 8 Booking example, then extract mcp-ops-kit | done (PR #18 merged) | docs/briefs/part-8-mcp-ops-kit.pdf |
 | 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation, audience binding | done (PR #20 merged) | docs/briefs/part-9-safeguards.pdf |
 | 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | done (PR #22 merged) | docs/briefs/part-10-terraform.pdf |
-| 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | **next**, waiting for owner's go | |
+| 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | **in review** (PR #24) | docs/briefs/part-11-assurance.pdf |
 | 12 Repeated live runs, pass^k, prompt-injection suite | planned | |
 
 ## Tasks
@@ -35,6 +35,7 @@
 | 008 | Salon example (copy), then mcp-ops-kit extracted from both domains | Claude | merged | #18 |
 | 009 | Safeguards in the kit: tokens v2 + audience, OAuth JWTs, audit log, encryption at rest, minimisation | Claude | merged | #20 |
 | 010 | Terraform blueprint (infra/aws), CI terraform job, check_infra.py, hardened container run | Claude | merged | #22 |
+| 011 | Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, pinned actions, kit packaging + release, signed images with an SBOM | Claude | in review | #24 |
 
 ## Workflow
 Claude builds each part in a fresh Claude Code session (rules in `CLAUDE.md`); Codex reviews each
@@ -316,8 +317,63 @@ merge commit (6ee5502) every CI job passed, `terraform` and `publish` included.
 Open, owner's call (not blocking): check `infra/aws/hipaa-services.json` against AWS's live
 HIPAA-eligible list. It was checked through web search only; Amazon S3 is `unverified`.
 
-## Next action: Part 11, after the owner says "go"
-Not started. Scope is in `comms/PLAN.md`: HIPAA controls matrix (164.312), threat model,
-`SECURITY.md`, CodeQL, Dependabot, `mcp-ops-kit` on PyPI (trusted publishing), signed images
-with an SBOM. The owner will need to create the PyPI project and register this repo as a
-trusted publisher; the steps come with the part.
+## Part 11 (in review, PR #24)
+Built on branch `claude/gifted-brown-k8ak51` (the branch this session was assigned). The owner's
+"start the next part" on 2026-10-21 was the go.
+- **Controls matrix** (`docs/hipaa-controls.md`): all 12 standards and specifications of
+  164.312. Each has a status (`Addressed`/`Partly`/`Adopter`), the tests that prove it, and the
+  adopter's part. **Threat model** (`docs/threat-model.md`): STRIDE over agent → server →
+  backend, 17 threats, including prompt injection through tool results (E2, Partly; Part 12
+  measures it). **`SECURITY.md`.** `scripts/check_docs.py` (CI `test` job) fails if a cited
+  test or file disappears, a spec or STRIDE category is missing, or anything claims "HIPAA
+  compliant".
+- **mcp-ops-kit distribution:** `packaging/mcp-ops-kit/`, `scripts/build_kit.py`,
+  `scripts/check_kit_dist.py`. A new CI `package` job builds the wheel, checks it and uses it
+  from a fresh venv. `release-kit.yml` publishes on a `kit-vX.Y.Z` tag on `main` by trusted
+  publishing.
+- **Signed images:** `scripts/supply_chain.sh`. PRs use a throwaway key on a local registry,
+  with must-fail cases. `main` signs keyless and verifies before `latest` moves.
+- **CodeQL** (python, actions), **Dependabot** (pip, actions, docker, terraform), every action
+  pinned by SHA, gitleaks and the test registry by digest (`tests/test_workflows.py`).
+- **Found:** cosign v3's `verify` accepts an attestation-only image, and v3 dropped
+  `--tlog-upload=false` (FAILURES.md).
+- **Local results:** `pytest -q` 594 passed; `sqlite,fhir` collects 672. The signing step was
+  replayed from the workflow text and passed. The kit wheel's smoke test passed in a fresh venv.
+- **CI on the first push (decef40):** every job green, `package` and the new signing steps
+  included.
+- **Not testable before merge:** keyless signing (first run: the merge commit's `publish`
+  job) and the PyPI upload (needs the owner's setup below).
+
+### Owner's steps for Part 11
+1. **Before merging:** Settings → Environments → New environment `pypi`. Under deployment
+   branches and tags, allow only tags matching `kit-v*`. A required reviewer is optional.
+2. **Before merging:** Settings → Code security → turn on **Private vulnerability reporting**
+   (SECURITY.md points at it). If CodeQL "default setup" is on, switch it to advanced, since
+   this PR adds the workflow.
+3. **PyPI:** at https://pypi.org/manage/account/publishing/, add a *pending* trusted
+   publisher: project `mcp-ops-kit`, owner `nikhilll30`, repository `mcp-ops-server`,
+   workflow `release-kit.yml`, environment `pypi`. (The name was free on 2026-10-21.)
+4. **Merge PR #24.** Then check the merge commit's `publish` job (signed, verified). Add
+   `package` (and CodeQL `analyze (python)`, `analyze (actions)` if wanted) to the ruleset's
+   required checks.
+5. **First kit release:** `git tag kit-v0.1.0 <merge commit> && git push origin kit-v0.1.0`.
+   Then https://pypi.org/project/mcp-ops-kit/ should show 0.1.0 with attestations.
+6. Optional check, signed out: `scripts/supply_chain.sh verify ghcr.io/nikhilll30/mcp-ops-server@<digest from the publish job>`.
+
+Codex prompt for Part 11:
+```
+Review PR #24 in nikhilll30/mcp-ops-server (branch claude/gifted-brown-k8ak51) as a senior
+engineer. Focus: whether each row of docs/hipaa-controls.md is true (does every cited test
+really prove the sentence beside it; is any status too generous; is anything the adopter's
+presented as ours), the threat model's coverage (missing threats on the agent -> server ->
+backend path, prompt injection through tool results, residuals understated), the signing
+pipeline (scripts/supply_chain.sh: identity and issuer pinning, digest handling, whether
+verify can pass for an image that is not signed by ci.yml on main, the PR key-mode test, the
+cosign v3 attestation-as-signature behaviour), the release workflow (trusted publishing,
+environment, tag-on-main check, whether a tag could publish code that CI never built), the kit
+distribution (scripts/build_kit.py, check_kit_dist.py: missing files, dependency drift,
+README links), workflow permissions and pinning (tests/test_workflows.py: what its text
+checks could miss), and Dependabot coverage. Also check test quality and anything that would
+embarrass this repo once public. List findings as P0/P1/P2 with file and line. Do not change
+code.
+```
