@@ -5,7 +5,9 @@ from mcp.server.mcpserver import MCPServer
 from starlette.applications import Starlette
 
 from mcp_ops_kit import server as kit
+from mcp_ops_kit.audit import AuditLog
 from mcp_ops_kit.auth import Guard
+from mcp_ops_kit.sqlite import require_key_for_file
 from salon_ops import __version__, seed, tools
 from salon_ops.auth import AUTH
 from salon_ops.config import Settings
@@ -18,6 +20,7 @@ def build_server(
     token_verifier: TokenVerifier | None = None,
     issuer_url: str = "http://127.0.0.1:8100",
     rate_limit_per_minute: int = 120,
+    audit: AuditLog | None = None,
 ) -> MCPServer:
     """The salon server; without ``store``, a fresh in-memory store seeded from ``seed.py``."""
     salon = store or SalonStore()
@@ -33,22 +36,32 @@ def build_server(
         token_verifier=token_verifier,
         issuer_url=issuer_url,
         rate_limit_per_minute=rate_limit_per_minute,
+        audit=audit,
     )
 
 
 def make_store(settings: Settings) -> SalonStore:
+    """The store ``settings`` describe; a database file is always encrypted."""
+    require_key_for_file(settings.db_path, settings.data_key, "SALON_OPS_DATA_KEY")
     now = kit.make_clock(settings.now, seed.SALON_TZ)
-    return SalonStore(settings.db_path, timeout_s=settings.call_timeout_s, now=now)
+    return SalonStore(
+        settings.db_path, timeout_s=settings.call_timeout_s, now=now, data_key=settings.data_key
+    )
 
 
 def build_http_app(settings: Settings, store: SalonStore | None = None) -> Starlette:
     """The app ``python -m salon_ops`` serves; the eval harness passes its own ``store``."""
-    if not settings.tokens_file:
-        raise ValueError("settings.tokens_file is required: the server never runs without auth")
-    server = build_server(
-        store or make_store(settings),
-        token_verifier=AUTH.verifier.from_file(settings.tokens_file),
-        issuer_url=f"http://{settings.host}:{settings.port}",
-        rate_limit_per_minute=settings.rate_limit_per_minute,
-    )
+    verifier = kit.build_verifier(settings, AUTH)
+    audit = kit.open_audit(settings)
+    try:
+        server = build_server(
+            store or make_store(settings),
+            token_verifier=verifier,
+            issuer_url=f"http://{settings.host}:{settings.port}",
+            rate_limit_per_minute=settings.rate_limit_per_minute,
+            audit=audit,
+        )
+    except BaseException:
+        audit.close()
+        raise
     return kit.build_http_app(server, settings, __version__)

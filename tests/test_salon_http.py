@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from conftest import safeguard_env
 from test_http_integration import INIT, _free_port, _raw_post, _wait_for_port
 
 from salon_ops.auth import ALL_SCOPES, issue
@@ -23,6 +24,7 @@ def salon(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[int, str]]
         "SALON_OPS_HOST": "127.0.0.1",
         "SALON_OPS_PORT": str(port),
         "SALON_OPS_TOKENS_FILE": tokens_file,
+        **safeguard_env("SALON_OPS_", Path(tokens_file).parent),
     }
     proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
         [sys.executable, "-m", "salon_ops"],

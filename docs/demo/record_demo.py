@@ -6,7 +6,8 @@ output is what the GIF shows. Nothing is typed in by hand.
     IMAGE=mcp-ops-server:local python docs/demo/record_demo.py   # or a local build
 
 The GIF displays the published image name. Set IMAGE to render from a local build of the same
-Dockerfile. The token is shown truncated. The container is removed afterwards.
+Dockerfile. The token and the data key are never shown. The container and its audit volume
+are removed afterwards.
 """
 
 import os
@@ -73,27 +74,43 @@ def main() -> None:
         ).strip()
         lines.pop()  # never show the token itself
         env["MCP_TOKEN"] = token
+        env["MCP_OPS_DATA_KEY"] = run(
+            f"docker run --rm {SHOWN_IMAGE} python -m mcp_ops_kit.crypto new-key", env
+        ).strip()  # never shown either
         step(
             f'docker run -d --name mcp-demo -p 127.0.0.1:8000:8000 -v "$DATA:/data:ro" '
-            f"{SHOWN_IMAGE} >/dev/null && for i in $(seq 30); do "
+            f"-v mcp-demo-audit:/audit -e MCP_OPS_DATA_KEY {SHOWN_IMAGE} >/dev/null && "
+            "for i in $(seq 30); do "
             "[ \"$(docker inspect -f '{{.State.Health.Status}}' mcp-demo)\" = healthy ] && break; "
             "sleep 1; done; docker ps --filter name=mcp-demo --filter health=healthy "
             "--format '{{.Names}}  {{.Status}}' | grep healthy",
-            shown=f"docker run -d -p 127.0.0.1:8000:8000 -v ./mcp-data:/data:ro {SHOWN_IMAGE}\n"
+            shown="docker run -d -p 127.0.0.1:8000:8000 -v ./mcp-data:/data:ro \\\n"
+            f"    -v mcp-audit:/audit -e MCP_OPS_DATA_KEY {SHOWN_IMAGE}\n"
             "docker ps",
-            note="2. serve it (non-root, health-checked)",
+            note="2. serve it (non-root, health-checked; refuses to start without a data key)",
         )
         step(
             "python scripts/smoke_test.py",
             note="3. end to end over HTTP: auth, then a real book + cancel",
         )
         step(
+            "docker exec mcp-demo python -m mcp_ops_kit.audit verify --file /audit/audit.log "
+            "--key-env MCP_OPS_DATA_KEY | cut -c1-60",
+            shown="docker exec mcp-demo python -m mcp_ops_kit.audit verify ...",
+            note="4. every call is in the encrypted, hash-chained audit log",
+        )
+        step(
             "python -m evals.run --report /tmp/demo-report.md | sed 's/; report:.*//'",
             shown="python -m evals.run",
-            note="4. the CI eval gate: 31 golden tasks, 12 negative controls",
+            note="5. the CI eval gate: 31 golden tasks, 12 negative controls",
         )
     finally:
         subprocess.run(["docker", "rm", "-f", "mcp-demo"], capture_output=True, check=False)  # noqa: S607
+        subprocess.run(  # noqa: S603
+            ["docker", "volume", "rm", "mcp-demo-audit"],  # noqa: S607
+            capture_output=True,
+            check=False,
+        )
     os.chdir(root)
     render(lines)
     print(f"wrote {OUT} ({OUT.stat().st_size // 1024} KB)")  # noqa: T201

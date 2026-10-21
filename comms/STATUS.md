@@ -15,7 +15,7 @@
 | P2 Planning | done (PR #15 merged) | docs/briefs/phase-2-plan.pdf |
 | 7 Backend protocol + FHIR R4 | done (PR #16 merged) | docs/briefs/part-7-fhir-backend.pdf |
 | 8 Booking example, then extract mcp-ops-kit | done (PR #18 merged) | docs/briefs/part-8-mcp-ops-kit.pdf |
-| 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation, audience binding | **next**, waiting for owner's go | |
+| 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation, audience binding | **built** (PR #20), Codex review fixed (6x P1, 3x P2), waiting for CI and merge | docs/briefs/part-9-safeguards.pdf |
 | 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | planned | |
 | 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | planned | |
 | 12 Repeated live runs, pass^k, prompt-injection suite | planned | |
@@ -33,6 +33,7 @@
 | P2 | Phase 2 planning: PLAN, CLAUDE rules, STATUS, README, brief | Claude | merged | #15 |
 | 007 | Backend protocol, SqliteBackend, FhirBackend, HAPI in CI, parity | Claude | merged | #16 |
 | 008 | Salon example (copy), then mcp-ops-kit extracted from both domains | Claude | merged | #18 |
+| 009 | Safeguards in the kit: tokens v2 + audience, OAuth JWTs, audit log, encryption at rest, minimisation | Claude | in review | #20 |
 
 ## Workflow
 Claude builds each part in a fresh Claude Code session (rules in `CLAUDE.md`); Codex reviews each
@@ -171,5 +172,69 @@ data minimisation, all in the kit). Added by the owner, 2026-10-20:
   and revocation in one migration. Files without a version are refused with a message naming the
   fix. This closes the Part 8 Codex P2 on cross-domain unbound tokens.
 
-## Next action: Part 9, after the owner says "go"
-Not started.
+## Part 9 (built, PR #20, Codex review fixed)
+Built on branch `claude/happy-lovelace-rdq5e6` (the branch this session was assigned). The owner's
+"start the next part" on 2026-10-20 was the go. Everything is in `mcp_ops_kit`, so the clinic and
+the salon both have it with no domain-specific code.
+- **Tokens file format 2, with audience binding** (`auth.py`). Every token has `audience`,
+  `expires_at` and an optional `revoked_at`. The verifier re-reads the file when it changes,
+  so `revoke` works on a running server with no restart. A broken file refuses every token.
+  An unversioned file is refused with the `migrate` command. A file holding another
+  audience's token is refused. This closes the Part 8 Codex P2.
+- **OAuth 2.1 resource server** (`oauth.py`). RS256/ES256 JWTs checked against a JWKS from a
+  file or URL, with caching and rotation; iss, aud, exp, nbf, sub, client_id, jti and iat are
+  checked, and revoked `jti` values come from a file re-read on change. A server can take
+  static tokens, JWTs or both.
+- **Audit log** (`audit.py`). One record per tool call, never the arguments. Each record is
+  AES-256-GCM encrypted and bound to its sequence number, with an HMAC chain across records.
+  `verify` and `show` CLIs. If a record cannot be written, the server stops acting.
+- **Encryption at rest** (`sqlite.py`, `crypto.py`). A SQLite file holds only ciphertext and
+  is re-encrypted atomically on every committed write. If a save fails, the write is undone.
+  A plaintext file is refused. One data key (`<PREFIX>DATA_KEY`) with HKDF subkeys.
+- **Data minimisation** (`tests/test_minimisation.py`). Every tool's fields are pinned with a
+  reason. `OpsServer` rebuilds the text content from the validated output (FAILURES.md: the
+  agent could read undeclared fields).
+- **Fail-closed start-up.** No server starts without a token source, an audit log and a data key.
+  The Docker image now needs `MCP_OPS_DATA_KEY`, and writes its audit log to `/audit`.
+- One new dependency, `cryptography`: AES-GCM and HKDF, plus the RSA/EC signatures PyJWT
+  needs. PyJWT itself was already required by `mcp`.
+- **Local results:**
+  - `pytest -q`: 521 passed. This includes every clinic tool test on encrypted SQLite
+    too, and the salon tool tests in memory and in an encrypted file.
+  - `sqlite,fhir` against HAPI: 599 passed.
+  - Eval gates: clinic 31/31, 12/12 on SQLite and on FHIR; salon 18/18, 14/14.
+  - Each eval task's audit chain is verified.
+  - The Docker image was built from the real context, and every CI `container` step was
+    replayed locally.
+
+CI on PR #20 (head e461104): every job green on the push and pull_request runs (lint, test,
+evals, fhir, container, secrets). Cursor Bugbot found 3 defects and Cursor Security 1, all
+reproduced, fixed with tests that fail without the fix, and logged in FAILURES.md; both bots
+pass on the final head.
+
+Codex review (of a378fd0, 2026-10-21): 6x P1, 3x P2, each checked against the current head first.
+- **Already fixed by later commits:** 3 (JWKS stale keys, save after rename, CI key).
+- **Fixed now, each with a test that fails without the fix:** 5:
+  - a deleted revocation file un-revoked tokens;
+  - truncated JWT client IDs merged principals;
+  - a deleted or replaced audit log did not stop the server;
+  - an in-memory store could spill temp tables to `/tmp`;
+  - returned error results were audited as `ok`.
+- **Documented, not changed:** 1. The encrypted save runs after COMMIT, so it is outside the deadline; failing the call would claim a rollback that never happened.
+
+Codex prompt for Part 9:
+```
+Review PR #20 in nikhilll30/mcp-ops-server (branch claude/happy-lovelace-rdq5e6) as a senior
+engineer. Focus: token verification (audience, expiry on wall-clock time, revocation and the
+file re-read on change, fail-closed behaviour on a broken file, migrate), the JWT verifier
+(algorithm confusion, kid handling, JWKS caching and rotation, required claims, subject binding),
+the audit log (what it records and never records, the chain and what it cannot detect, behaviour
+when a write fails, the outcome classification), encryption at rest for SQLite (the save-after-
+commit path, rollback to the last saved image, locking, plaintext refusal, temp files), the text
+content rebuilt from validated output, and anything that weakens a Part 1-8 guarantee or behaves
+differently between SQLite and FHIR. Also check test quality and anything that would embarrass this
+repo once public. List findings as P0/P1/P2 with file and line. Do not change code.
+```
+
+## Next action
+The owner merges PR #20 once CI is green on the latest head, then says "go" for Part 10.

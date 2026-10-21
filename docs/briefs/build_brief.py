@@ -912,6 +912,105 @@ def part8() -> list:
     ]
 
 
+def part9() -> list:
+    w = 7.0 * inch
+    cf = "<font face='Courier'>"
+    return [
+        Paragraph("Part 9 Brief · Safeguards in the kit", title),
+        Paragraph(
+            "mcp-ops-server · 20 Oct 2026 · PR #20 · Status: Codex review fixed (6x P1, 3x P2); CI running; ready to merge when green",
+            sub,
+        ),
+        Spacer(1, 4),
+        section("What was built (in mcp_ops_kit, so the clinic and the salon both have it)"),
+        bl(
+            "<b>Tokens file format 2 + audience binding:</b> every token names its audience, expiry and revocation. "
+            f"The verifier re-reads the file on change, so {cf}revoke</font> works on a running server. An "
+            f"unversioned file is refused with the {cf}migrate</font> command. Closes the Part 8 cross-domain P2."
+        ),
+        bl(
+            "<b>OAuth 2.1 resource server:</b> RS256/ES256 JWT access tokens (RFC 9068) checked against a JWKS (file or "
+            f"URL, cached, rotation-aware), iss/aud/exp/nbf, and a {cf}jti</font> revocation file. Static and JWT side by side."
+        ),
+        bl(
+            "<b>Audit log (164.312(b)):</b> one record per tool call (client, token ID, tool, scope, subject ID, "
+            "outcome, time), never arguments. AES-256-GCM per record, HMAC chain across records, "
+            f"{cf}verify</font>/{cf}show</font> CLIs."
+        ),
+        bl(
+            "<b>Encryption at rest (164.312(a)(2)(iv)):</b> a SQLite file holds only ciphertext. The database lives in "
+            "memory, and each committed write re-encrypts it atomically (about 3 ms). One data key, HKDF subkeys per purpose."
+        ),
+        bl(
+            "<b>Data minimisation:</b> every tool's fields pinned with a reason, checked on every backend. The server "
+            "refuses to start without a token source, an audit log and a key."
+        ),
+        section("How it works"),
+        table(
+            [
+                ["Call path", "Safeguard"],
+                [
+                    "Bearer token",
+                    "static: hash, audience, expiry, revoked? / JWT: signature, iss, aud, exp, jti",
+                ],
+                ["OpsServer.call_tool", "audit begin, then rate limit, before argument validation"],
+                [
+                    "Tool: guard.check",
+                    "scope and subject; notes scope, subject and refusal for the audit record",
+                ],
+                ["Store", "SQLite in memory, re-encrypted to disk on every committed write"],
+                [
+                    "Result",
+                    "text rebuilt from the validated output; one audit record appended and fsynced",
+                ],
+            ],
+            [1.7 * inch, w - 1.7 * inch],
+        ),
+        section("Why it was done this way"),
+        bl(
+            "<b>Fail closed where a safeguard can fail.</b> A broken tokens or revocation file refuses every token "
+            "(keeping the old set could skip a revocation). An unwritable audit record stops the server, but the call "
+            "already made still returns its real result: reporting it as failed would be false (Part 7's lesson)."
+        ),
+        bl(
+            "<b>No native dependency.</b> SQLCipher needs a C library, and field-level encryption leaks the schema and "
+            f"row counts. One new dependency, {cf}cryptography</font>, for AES-GCM and the JWT signatures."
+        ),
+        section("What went wrong or surprised me (logged in FAILURES.md)"),
+        bl(
+            "<b>The agent could read undeclared fields.</b> The SDK drops them from structured content, but builds the "
+            "text, which the model reads, from the raw return. I found it when my minimisation test passed against a "
+            "deliberately leaky backend. The kit now rebuilds the text."
+        ),
+        bl(
+            "<b>Before pushing:</b> a 0600 tokens file the container could not read (found by replaying CI's container "
+            "steps locally), a lock leaked on a refused database, an empty JWKS that raised a 500, and old tests that "
+            "passed for the wrong reason. Cursor's bots found 4 more, Codex 9 (3 already fixed; 5 fixed, e.g. a deleted audit log or revocation file did not fail closed; 1 documented). 14/15 mutations caught."
+        ),
+        section("Verify it yourself"),
+        codebox(
+            [
+                "pytest -q                                   # 521 passed",
+                "python -m evals.run; python -m salon_ops.evals.run   # 31/31 12/12; 18/18 14/14",
+                "python -m mcp_ops_kit.audit verify --file audit.log --key-env MCP_OPS_DATA_KEY",
+            ]
+        ),
+        section("Interview talking point"),
+        Paragraph(
+            '"My data-minimisation test passed against a backend I had made leak on purpose. The framework stripped '
+            "the extra field from the structured result but not from the text the model reads. So I test what the "
+            'consumer sees, not what the framework validates."',
+            body,
+        ),
+        section("Next (your actions)"),
+        Paragraph(
+            "1) Note: the image now needs MCP_OPS_DATA_KEY, and old tokens files need migrate (README). "
+            "2) Merge PR #20 when CI is green. 3) Say <b>go</b> for Part 10.",
+            body,
+        ),
+    ]
+
+
 def phase2() -> list:
     w = 7.0 * inch
     return [
@@ -1027,6 +1126,7 @@ PARTS = {
     6: (part6, "part-6-ship", "Part 6 Brief: Ship"),
     7: (part7, "part-7-fhir-backend", "Part 7 Brief: Backend protocol + FHIR R4"),
     8: (part8, "part-8-mcp-ops-kit", "Part 8 Brief: Salon example + mcp-ops-kit"),
+    9: (part9, "part-9-safeguards", "Part 9 Brief: Safeguards in the kit"),
 }
 
 

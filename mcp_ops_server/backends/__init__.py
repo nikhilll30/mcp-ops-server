@@ -17,7 +17,9 @@ def clock(settings: Settings) -> Callable[[], datetime]:
 
 def make_backend(settings: Settings) -> Backend:
     """The backend ``settings`` selects. A FHIR backend is checked before it is returned, so
-    the server fails closed (``fhir.BackendUnavailableError``) on an unusable FHIR URL."""
+    the server fails closed (``fhir.BackendUnavailableError``) on an unusable FHIR URL. A
+    SQLite file is always encrypted with the data key (``ConfigError`` without one); a FHIR
+    server's storage encryption is that server's job (see the README)."""
     now = clock(settings)
     if settings.backend == "fhir":
         from mcp_ops_server.backends.fhir import BackendUnavailableError, FhirBackend
@@ -31,6 +33,10 @@ def make_backend(settings: Settings) -> Backend:
             backend.close()
             raise
         return backend
+    from mcp_ops_kit.sqlite import require_key_for_file
     from mcp_ops_server.backends.sqlite import SqliteBackend
 
-    return SqliteBackend(settings.db_path, timeout_s=settings.call_timeout_s, now=now)
+    require_key_for_file(settings.db_path, settings.data_key, "MCP_OPS_DATA_KEY")
+    return SqliteBackend(
+        settings.db_path, timeout_s=settings.call_timeout_s, now=now, data_key=settings.data_key
+    )

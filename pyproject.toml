@@ -10,7 +10,12 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "Nikhil" }]
-dependencies = ["mcp>=2.3,<3"]
+dependencies = [
+    "mcp>=2.3,<3",
+    # AES-256-GCM and HKDF (encryption at rest, audit log), and the RSA/EC signatures
+    # PyJWT (already required by mcp) needs to verify OAuth access tokens.
+    "cryptography>=42",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]

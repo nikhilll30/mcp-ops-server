@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 from conftest import (
@@ -20,6 +22,7 @@ from pydantic import ValidationError
 
 from mcp_ops_server.auth import (
     ALL_SCOPES,
+    AUTH,
     StaticTokenVerifier,
     TokenEntry,
     hash_token,
@@ -42,6 +45,14 @@ TOOL_SCOPES = {
 }
 
 
+FAR_FUTURE = datetime(2099, 1, 1, tzinfo=UTC)
+
+
+def _entry(**fields: Any) -> TokenEntry:  # noqa: ANN401 - TokenEntry fields
+    """A format-2 entry for this clinic's audience that has not expired."""
+    return TokenEntry(**({"audience": AUTH.audience, "expires_at": FAR_FUTURE} | fields))
+
+
 def _error(server: MCPServer, tool: str, args: dict) -> str:
     with pytest.raises(ToolError) as exc:
         asyncio.run(server.call_tool(tool, args))
@@ -52,7 +63,7 @@ def _error(server: MCPServer, tool: str, args: dict) -> str:
 
 
 def test_verifier_accepts_known_token_and_rejects_others() -> None:
-    entry = TokenEntry(client_id="c", sha256=hash_token("secret-1"), scopes=["read:schedule"])
+    entry = _entry(client_id="c", sha256=hash_token("secret-1"), scopes=["read:schedule"])
     verifier = StaticTokenVerifier([entry])
     token = asyncio.run(verifier.verify_token("secret-1"))
     assert token is not None and token.client_id == "c" and token.scopes == ["read:schedule"]
@@ -62,7 +73,7 @@ def test_verifier_accepts_known_token_and_rejects_others() -> None:
 
 
 def test_verifier_carries_patient_binding() -> None:
-    entry = TokenEntry(
+    entry = _entry(
         client_id="p", sha256=hash_token("t"), scopes=list(ALL_SCOPES), patient_id=DERM_PATIENT
     )
     token = asyncio.run(StaticTokenVerifier([entry]).verify_token("t"))
@@ -70,7 +81,7 @@ def test_verifier_carries_patient_binding() -> None:
 
 
 def test_verifier_rejects_duplicate_hashes() -> None:
-    e = TokenEntry(client_id="c", sha256=hash_token("t"), scopes=["read:schedule"])
+    e = _entry(client_id="c", sha256=hash_token("t"), scopes=["read:schedule"])
     with pytest.raises(ValueError, match="Duplicate"):
         StaticTokenVerifier([e, e])
 
@@ -86,7 +97,7 @@ def test_verifier_rejects_duplicate_hashes() -> None:
 )
 def test_tokens_file_entries_are_validated(bad: dict) -> None:
     with pytest.raises(ValidationError):
-        TokenEntry.model_validate(bad)
+        TokenEntry.model_validate({"audience": AUTH.audience, "expires_at": FAR_FUTURE} | bad)
 
 
 def test_issue_stores_only_the_hash(tmp_path: Path) -> None:
@@ -218,7 +229,7 @@ def test_health_counts_toward_the_rate_limit() -> None:
 def test_each_token_has_its_own_subject() -> None:
     """Distinct subjects keep tokens that share a client_id in separate HTTP sessions."""
     entries = [
-        TokenEntry(client_id="portal", sha256=hash_token(t), scopes=list(ALL_SCOPES))
+        _entry(client_id="portal", sha256=hash_token(t), scopes=list(ALL_SCOPES))
         for t in ("a", "b")
     ]
     verifier = StaticTokenVerifier(entries)
@@ -233,7 +244,7 @@ def test_issue_cli_explains_an_unwritable_tokens_file(monkeypatch: pytest.Monkey
     clinic, so the write is stubbed where the kit makes it.)"""
     import mcp_ops_kit.auth as kit_auth
 
-    def denied(*args: object) -> str:
+    def denied(*args: object, **kwargs: object) -> str:
         raise PermissionError(13, "Permission denied")
 
     monkeypatch.setattr(kit_auth, "issue", denied)

@@ -3,8 +3,9 @@
 [![CI](https://github.com/nikhilll30/mcp-ops-server/actions/workflows/ci.yml/badge.svg)](https://github.com/nikhilll30/mcp-ops-server/actions/workflows/ci.yml)
 
 A production-shaped [MCP](https://modelcontextprotocol.io) server that lets AI agents act on a
-booking system safely: scopes and patient binding enforced in server code, rate and size limits,
-and a container that CI boots and tests on every PR. It comes with **trajectory-level agent evals**
+booking system safely: scopes and patient binding enforced in server code, expiring and revocable
+tokens (static or OAuth 2.1 JWTs), an encrypted tamper-evident audit log, encryption at rest, rate
+and size limits, and a container that CI boots and tests on every PR. It comes with **trajectory-level agent evals**
 and a **CI gate** that blocks a merge when a known-good agent flow breaks.
 
 The reference domain is a **synthetic** clinic (providers, open slots, referrals, appointments),
@@ -12,7 +13,8 @@ because it has real multi-step tasks and real security stakes. It runs on SQLite
 **FHIR R4** server, and CI proves both give identical results. A second synthetic domain, a
 **salon** (stylists, openings, visits), runs on the same [`mcp-ops-kit`](mcp_ops_kit/README.md):
 auth, limits, server wiring, harness, grader and CI gate, extracted from what the two domains
-share. Phase 2 (see [Roadmap](#roadmap)) also makes the clinic **HIPAA-ready**.
+share. Phase 2 (see [Roadmap](#roadmap)) is making the clinic **HIPAA-ready**; Part 9 added
+the technical safeguards in code.
 
 All data is synthetic and generated from a fixed seed. No real names, patients or credentials
 appear anywhere.
@@ -21,18 +23,18 @@ appear anywhere.
 
 | You are | Use it today for | Coming in Phase 2 |
 |---|---|---|
-| **A developer building an MCP server** | [`mcp-ops-kit`](mcp_ops_kit/README.md): scopes and a subject binding in code, per-client limits, a per-call deadline, a fail-closed server, a smoke test. Plus a schema-drift guard, a container smoke-tested in CI, and one `Backend` protocol with two stores held to the same tests | The kit on PyPI; signed images |
+| **A developer building an MCP server** | [`mcp-ops-kit`](mcp_ops_kit/README.md): scopes and a subject binding in code; tokens with audience, expiry and live revocation, or OAuth 2.1 JWTs; an encrypted, hash-chained audit log; encrypted SQLite; outputs cut to declared fields; per-client limits, a per-call deadline, a fail-closed server, a smoke test. Plus a schema-drift guard, a container smoke-tested in CI, and one `Backend` protocol with two stores held to the same tests | The kit on PyPI; signed images |
 | **An agent team** | A trajectory grader, negative controls that prove it can fail, a CI eval gate and measured live runs, with a harness any domain plugs into (`EvalDomain`) | Repeated runs with pass^k, a prompt-injection suite |
-| **Healthcare IT** | Studying a synthetic clinic with patient-bound tokens, and a FHIR R4 backend (Practitioner, Schedule/Slot, Appointment, ServiceRequest) tested against HAPI FHIR in CI, including concurrent booking; **not** for real patient data (see [below](#can-i-use-it-with-real-patient-data)) | Audit log, expiring/revocable tokens, encryption at rest, a Terraform blueprint, a HIPAA controls matrix |
-| **A booking business** (salon, tutor, repair) | A synthetic salon built on the kit (`salon_ops/`: 6 tools, its own scopes and customer-bound tokens, 18 golden tasks, 14 negative controls), and a [step-by-step guide](mcp_ops_kit/README.md) to building yours the same way | Audit log and expiring tokens from the kit, at no extra work per domain |
-| **An evaluator or learner** | A build documented part by part: a failure log, one brief per part, every number linked to where it was measured | The same for Parts 9–12, including what "HIPAA-ready" does and does not mean |
+| **Healthcare IT** | Studying a synthetic clinic with patient-bound tokens, and a FHIR R4 backend (Practitioner, Schedule/Slot, Appointment, ServiceRequest) tested against HAPI FHIR in CI, including concurrent booking. The 164.312 technical safeguards in code: audit log, expiring and revocable tokens, encryption at rest, minimum-necessary outputs. **Not** for real patient data (see [below](#can-i-use-it-with-real-patient-data)) | A Terraform blueprint, a HIPAA controls matrix, a threat model |
+| **A booking business** (salon, tutor, repair) | A synthetic salon built on the kit (`salon_ops/`: 6 tools, its own scopes and customer-bound tokens, 18 golden tasks, 14 negative controls), and a [step-by-step guide](mcp_ops_kit/README.md) to building yours the same way. It got the audit log, expiring tokens and encryption at rest from the kit, with no salon-specific code | Repeated live runs and a prompt-injection suite, from the kit |
+| **An evaluator or learner** | A build documented part by part: a failure log, one brief per part, every number linked to where it was measured, including what "HIPAA-ready" does and does not mean | The same for Parts 10–12 |
 
 | | |
 |---|---|
-| **Server** | 6 MCP tools over Streamable HTTP · bearer tokens with scopes and patient binding · rate limit, body limit, per-call deadline |
+| **Server** | 6 MCP tools over Streamable HTTP · bearer tokens (static or OAuth 2.1 JWT) with scopes, patient binding, audience, expiry and live revocation · encrypted, hash-chained audit log · encrypted SQLite at rest · rate limit, body limit, per-call deadline |
 | **Evals** | Clinic: 31 golden tasks graded step by step, and on the exact database change, plus 12 negative controls the grader must fail · Salon: 18 tasks and 14 controls, on the same kit |
 | **Backends** | SQLite (default) or FHIR R4 (`MCP_OPS_BACKEND=fhir`), behind one protocol; same tool results, byte for byte, on every eval task |
-| **CI** | lint · 297 tests · eval gates (clinic 31/31, 12/12; salon 18/18, 14/14) · a `fhir` job: 374 tests with every clinic tool test on both backends against HAPI FHIR, and the eval gate on FHIR · secret scan · the Docker image built and smoke-tested on every PR |
+| **CI** | lint · 521 tests · eval gates (clinic 31/31, 12/12; salon 18/18, 14/14) · a `fhir` job: 599 tests with every clinic tool test on both backends against HAPI FHIR, and the eval gate on FHIR · secret scan · the Docker image built, smoke-tested and its audit log verified on every PR |
 | **Live models** | `gpt-6-luna` **30/31** for **$0.046** · `gpt-6.1-sol` **30/31** for **$0.339** (all 31 tasks, one run each) |
 
 ![Demo: issue a token, run the container, a real book and cancel over HTTP, then the eval gate](docs/demo/demo.gif)
@@ -75,16 +77,29 @@ it: a task may not need information no tool provides. All of this is in
 
 ```bash
 mkdir -p mcp-data
-# 1. Issue a token. This prints it once; only its SHA-256 hash is stored in mcp-data/tokens.json.
+# 1. Issue a token (expires in 90 days). This prints it once; only its SHA-256 hash is stored.
 docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/mcp-data:/data" ghcr.io/nikhilll30/mcp-ops-server \
   python -m mcp_ops_server.auth issue --file /data/tokens.json --client me \
   --scope read:schedule --scope write:schedule --scope read:referrals
-# 2. Serve on http://127.0.0.1:8000/mcp (health probe: GET /healthz)
-docker run --rm -p 127.0.0.1:8000:8000 -v "$PWD/mcp-data:/data:ro" ghcr.io/nikhilll30/mcp-ops-server
-# 3. From a checkout (pip install -e .): check it end to end. This tests health, a 401
+# 2. Make a data key; it encrypts the audit log. Keep it in your secret store.
+export MCP_OPS_DATA_KEY=$(docker run --rm ghcr.io/nikhilll30/mcp-ops-server python -m mcp_ops_kit.crypto new-key)
+# 3. Serve on http://127.0.0.1:8000/mcp (health probe: GET /healthz). Every tool call goes to
+#    the audit log in the mcp-audit volume. Without a key, the container refuses to start.
+docker run --rm -p 127.0.0.1:8000:8000 -v "$PWD/mcp-data:/data:ro" -v mcp-audit:/audit \
+  -e MCP_OPS_DATA_KEY ghcr.io/nikhilll30/mcp-ops-server
+# 4. From a checkout (pip install -e .): check it end to end. This tests health, a 401
 #    without a token, then search, book and cancel.
 MCP_TOKEN=<token from step 1> python scripts/smoke_test.py
+# 5. Revoke the token while the server runs: refused from the next request, no restart.
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/mcp-data:/data" ghcr.io/nikhilll30/mcp-ops-server \
+  python -m mcp_ops_server.auth revoke --file /data/tokens.json --client me
 ```
+
+Tokens files from before Part 9 have no `version` and are refused at start-up with the fix:
+`python -m mcp_ops_server.auth migrate --file tokens.json` (each token gets the server's
+audience and a 90-day expiry). To use OAuth 2.1 access tokens from your own authorization
+server instead of, or as well as, the tokens file, set `MCP_OPS_JWT_ISSUER` and
+`MCP_OPS_JWT_JWKS` (see [`.env.example`](.env.example)).
 
 Point any MCP client at `http://127.0.0.1:8000/mcp` with the header `Authorization: Bearer <token>`.
 The image is not tied to any host. The same container runs on AWS App Runner/ECS, Fly or Cloud Run
@@ -97,8 +112,8 @@ HAPI FHIR image CI uses (synthetic data only: `fhir_seed load` writes the seed i
 docker run -d --name hapi -p 127.0.0.1:8080:8080 hapiproject/hapi:v8.4.0-2   # ready in ~40 s
 python -m mcp_ops_server.backends.fhir_seed load --url http://127.0.0.1:8080/fhir
 MCP_OPS_BACKEND=fhir MCP_OPS_FHIR_URL=http://127.0.0.1:8080/fhir MCP_OPS_TOKENS_FILE=tokens.json \
-  python -m mcp_ops_server
-MCP_OPS_TEST_BACKENDS=sqlite,fhir pytest -q                  # 374 tests, both backends
+  MCP_OPS_AUDIT_LOG=audit.log MCP_OPS_DATA_KEY=<key> python -m mcp_ops_server
+MCP_OPS_TEST_BACKENDS=sqlite,fhir pytest -q                  # 599 tests, both backends
 python -m evals.run --backend fhir --backend-url http://127.0.0.1:8080/fhir
 ```
 
@@ -109,9 +124,9 @@ unreachable, is not R4, or has no seed loaded.
 
 ```bash
 pip install -e ".[dev]"
-ruff check . && ruff format --check . && pytest -q   # 297 tests (FHIR ones need the server above)
+ruff check . && ruff format --check . && pytest -q   # 521 tests (FHIR ones need the server above)
 python -m evals.run                                  # 31/31 tasks passed; 12/12 negative controls caught
-python -m mcp_ops_server                             # needs MCP_OPS_TOKENS_FILE; see .env.example
+python -m mcp_ops_server                             # needs a tokens file, audit log, key: .env.example
 ```
 
 **The salon example**, on the same kit (port 8100, `SALON_OPS_*` settings):
@@ -120,7 +135,8 @@ python -m mcp_ops_server                             # needs MCP_OPS_TOKENS_FILE
 python -m salon_ops.evals.run                        # 18/18 tasks passed; 14/14 negative controls caught
 python -m salon_ops.auth issue --file salon-tokens.json --client me \
   --scope read:catalog --scope write:bookings --scope read:customers
-SALON_OPS_TOKENS_FILE=salon-tokens.json python -m salon_ops   # http://127.0.0.1:8100/mcp
+SALON_OPS_TOKENS_FILE=salon-tokens.json SALON_OPS_AUDIT_LOG=salon-audit.log \
+  SALON_OPS_DATA_KEY=$(python -m mcp_ops_kit.crypto new-key) python -m salon_ops   # :8100/mcp
 ```
 
 ## How it works
@@ -130,10 +146,13 @@ SALON_OPS_TOKENS_FILE=salon-tokens.json python -m salon_ops   # http://127.0.0.1
    │  MCP over Streamable HTTP + bearer token
    ▼
  mcp_ops_kit (domain-free)
-   auth.py     token → scopes (+ optional subject binding); hashes only on disk
+   auth.py     token → scopes (+ subject binding); audience, expiry, revocation; hashes only
+   oauth.py    OAuth 2.1 JWT access tokens: JWKS (file or URL), iss/aud/exp, jti revocation
+   audit.py    one record per call: encrypted, HMAC-chained, no arguments; verify CLI
+   crypto.py   data key → per-purpose subkeys; AES-256-GCM; atomic file replace
    limits.py   per-client rate limit, applied before argument validation
-   server.py   rate limit first, health tool, /mcp (authenticated), /healthz (no data), serve
-   sqlite.py   one deadline per call: lock wait, busy wait, query; late COMMIT rolled back
+   server.py   audit + rate limit first, text rebuilt from validated output, /mcp, /healthz, serve
+   sqlite.py   one deadline per call; with a key, the file on disk is encrypted
    evals/      harness: freshly seeded data + real server per task; records every call
                grader: required/forbidden steps, preconditions, subject scope, budgets, exact diff
                run: replay or live agent → results JSON + Markdown report + CI gate
@@ -159,9 +178,15 @@ SALON_OPS_TOKENS_FILE=salon-tokens.json python -m salon_ops   # http://127.0.0.1
 **Security is enforced in server code, never in prompts.**
 - Every tool checks its scope.
 - A patient-bound token (a "portal" token) can only act for its own patient.
-- Tokens are stored as SHA-256 hashes.
+- Tokens are stored as SHA-256 hashes. Each names its audience and expiry; a token for another
+  server, an expired one or a revoked one is refused. Revocation reaches a running server on
+  the next request.
 - Each token gets its own session identity, so one token cannot touch another's session.
-- The server refuses to start without a tokens file.
+- Every tool call is written to an encrypted, hash-chained audit log (who, which token, tool,
+  scope, subject ID, outcome, time), never the arguments. If a record cannot be written, the
+  server stops acting.
+- The server refuses to start without a token source, an audit log and a data key, and never
+  keeps its database in a plaintext file.
 
 **Evals grade what happened, not what the agent said.** The harness records every tool call that
 reaches the server and diffs the appointments table before and after. A grader then checks the
@@ -182,8 +207,8 @@ task generator. The map today:
 
 | Coupling | Files | What ties it to a domain |
 |---|---|---|
-| **Domain-free** | `mcp_ops_kit/` (auth, limits, server, sqlite, errors, smoke, evals), `Dockerfile`, `.github/workflows/` | Nothing in the kit, and a test fails if it ever imports a domain. CI names each domain's commands (the `container` job issues clinic scopes for the smoke token). |
-| **Configuration a domain writes** | `mcp_ops_server/auth.py`, `salon_ops/auth.py` | An `AuthConfig`: scope names, the subject claim and its ID pattern |
+| **Domain-free** | `mcp_ops_kit/` (auth, oauth, audit, crypto, limits, server, sqlite, errors, smoke, evals), `Dockerfile`, `.github/workflows/` | Nothing in the kit, and a test fails if it ever imports a domain. CI names each domain's commands (the `container` job issues clinic scopes for the smoke token). |
+| **Configuration a domain writes** | `mcp_ops_server/auth.py`, `salon_ops/auth.py` | An `AuthConfig`: scope names, the subject claim and its ID pattern, the default audience |
 | | `evals/run.py`, `salon_ops/evals/run.py` | An `EvalDomain`: principals, subject rule, clock, fresh data per task, live-agent prompt |
 | | `server.py`, `config.py`, `__main__.py`, `scripts/smoke_test.py`, `salon_ops/smoke.py` | Which tools to register, extra settings, the env prefix, the smoke round trip |
 | **The domain itself** | Clinic: `seed.py`, `models.py`, `tools/`, `backends/`, `evals/golden/`. Salon: `seed.py`, `models.py`, `store.py`, `tools.py`, `evals/golden/` | Replace these for a new domain (the FHIR mapping is clinic-specific by nature) |
@@ -193,15 +218,16 @@ salon's 14 controls cover every grader check, and three of them fail a refusal t
 
 ## Can I use it with real patient data?
 
-**Not yet, and not by code alone.** Today tokens never expire, there is no audit log and data is not
-encrypted at rest (see [Known limits](#known-limits)). Phase 2 aims at **HIPAA-ready**, never
-"HIPAA compliant": compliance belongs to an organisation, not to a repository.
+**Not by code alone.** Part 9 added the technical safeguards below, but a deployment is still
+missing the infrastructure blueprint and controls matrix (Parts 10–11), and above all the
+organisational half on the right. Phase 2 aims at **HIPAA-ready**, never "HIPAA compliant":
+compliance belongs to an organisation, not to a repository.
 
 | What Phase 2 code adds (45 CFR 164.312 technical safeguards) | What the adopter must still do |
 |---|---|
-| Tamper-evident audit log of every tool call, without the PHI arguments (Part 9) | Sign a **BAA with every vendor that touches PHI**: the hosting provider *and* the **LLM provider**, since tool results with PHI go into the model's context |
-| OAuth 2.1 tokens with expiry and revocation without a restart (Part 9) | Run a risk analysis and keep risk management, policies and workforce training (164.308) |
-| Encryption at rest, minimum-necessary tool outputs (Part 9) | Operate it in their own HIPAA-eligible accounts, with their own keys, backups, log retention and breach-notification process |
+| Tamper-evident audit log of every tool call, without the PHI arguments (Part 9, done) | Sign a **BAA with every vendor that touches PHI**: the hosting provider *and* the **LLM provider**, since tool results with PHI go into the model's context |
+| OAuth 2.1 tokens with expiry and revocation without a restart, and audience binding (Part 9, done) | Run a risk analysis and keep risk management, policies and workforce training (164.308) |
+| Encryption at rest for the SQLite store and the audit log, minimum-necessary tool outputs (Part 9, done; FHIR storage encryption is the FHIR server's) | Operate it in their own HIPAA-eligible accounts, with their own keys, backups, log retention and breach-notification process |
 | A FHIR R4 backend so the server fronts an existing record system (Part 7, done) | Decide who gets which tokens, review access regularly, and pen-test their deployment |
 | A Terraform blueprint, controls matrix, threat model and `SECURITY.md` (Parts 10–11) | Map the controls matrix to their own environment; anything marked "adopter's responsibility" is theirs |
 
@@ -215,7 +241,7 @@ legal advice**; talk to your privacy officer or counsel.
 | 1–6 | Foundation, core server, hardening, evals, CI gate with live numbers, shipped container | Done |
 | 7 | `Backend` protocol; FHIR R4 backend tested against HAPI FHIR in CI; parity with SQLite on every test and the eval gate | Done |
 | 8 | A salon booking example built by copying the clinic, then `mcp-ops-kit` extracted from what both share; both eval gates run on the kit in CI | Done |
-| 9 | Audit log, OAuth 2.1 expiry and revocation, encryption at rest, data minimisation, in the kit | Next |
+| 9 | Audit log, OAuth 2.1 expiry and revocation, audience binding, encryption at rest, data minimisation, in the kit | Done |
 | 10 | Terraform blueprint on HIPAA-eligible AWS, validated in CI, never applied | Planned |
 | 11 | HIPAA controls matrix (164.312), threat model, `SECURITY.md`, CodeQL, Dependabot, PyPI, signed images | Planned |
 | 12 | Repeated live runs with pass^k, a prompt-injection suite | Planned |
@@ -235,11 +261,25 @@ has a test that fails without it.
 
 ## Known limits
 
-- Tokens never expire, and the tokens file is read once, at startup. To revoke a token, remove
-  its line **and restart every server process**. A running server keeps accepting the token
-  until it restarts.
+- Token expiry is checked against the host's wall clock. If an edit breaks the tokens file (or
+  the JWT revocation file), every token it governs is refused until it is fixed: a deliberate
+  fail-closed choice, so a typo can cause an outage but never skip a revocation.
+- The audit log detects an edited, deleted, inserted or reordered record, but not records cut
+  off the *end*. `verify` prints the last sequence number and chain value; record them
+  elsewhere to catch truncation later.
+- The audit log records tool calls. A request refused at the HTTP layer (no token, or a bad,
+  expired or revoked one) never reaches a tool, so it appears only in the server's access log
+  as a 401.
+- One process per audit log and per encrypted database file (each takes an exclusive lock).
+  The encrypted database lives in memory and is rewritten in full on each committed write:
+  about 3 ms for the clinic's 400 KB, but not a design for a large database.
+- The per-call deadline covers everything up to COMMIT. Saving an encrypted database file
+  happens after it and is not cut short, so a slow disk makes a write late, never falsely
+  reported as failed.
+- No key rotation yet: a new data key means a new audit log and database file.
 - The rate limit is per process. Several replicas would each allow the full rate.
-- The default database is in-memory and reseeds on every start. `MCP_OPS_DB=<path>` persists it.
+- The default database is in-memory and reseeds on every start. `MCP_OPS_DB=<path>` persists
+  it, encrypted with `MCP_OPS_DATA_KEY`. With FHIR, encryption at rest is the FHIR server's job.
 - The container listens on all interfaces, so the SDK's DNS-rebinding check (which is on only
   for localhost binds) is off. Every `/mcp` request still needs a bearer token. Publish the
   port on localhost, as above, unless you mean to expose it.

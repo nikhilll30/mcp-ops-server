@@ -16,14 +16,18 @@ COPY salon_ops ./salon_ops
 RUN pip install . && rm -rf /app/mcp_ops_kit /app/mcp_ops_server /app/salon_ops /app/pyproject.toml
 
 # Unprivileged user; /data holds the tokens file (mounted at run time, never baked in).
+# /audit holds the encrypted audit log: mount a volume there to keep it.
 RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin app \
-    && mkdir /data && chown app /data
+    && mkdir /data /audit && chown app /data /audit && chmod 700 /audit
 USER app
 
 # Listen on all interfaces inside the container. Every /mcp request needs a bearer token.
+# MCP_OPS_DATA_KEY has no default: the container refuses to start until it is given one
+# (from a secret store, never baked into an image).
 ENV MCP_OPS_HOST=0.0.0.0 \
     MCP_OPS_PORT=8000 \
-    MCP_OPS_TOKENS_FILE=/data/tokens.json
+    MCP_OPS_TOKENS_FILE=/data/tokens.json \
+    MCP_OPS_AUDIT_LOG=/audit/audit.log
 EXPOSE 8000
 
 # Probes whatever port the server was configured with (MCP_OPS_PORT), not a fixed 8000.

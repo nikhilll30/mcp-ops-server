@@ -9,6 +9,7 @@ import sqlite3
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 
+from mcp_ops_kit.crypto import DataKey
 from mcp_ops_kit.sqlite import SqliteStore, escape_like, has_table, run_script
 from mcp_ops_server import seed
 from mcp_ops_server.backends import base
@@ -72,6 +73,7 @@ class SqliteBackend(SqliteStore):
     deadline, and a write that reaches COMMIT late is rolled back).
 
     ``now`` returns the current clinic-local time; slots at or before it are in the past.
+    With ``data_key``, a file database is encrypted at rest (the kit's ``SqliteStore``).
     """
 
     def __init__(
@@ -80,9 +82,10 @@ class SqliteBackend(SqliteStore):
         seed_value: int = seed.SEED,
         timeout_s: float = 5.0,
         now: Callable[[], datetime] = lambda: seed.CLINIC_NOW,
+        data_key: DataKey | None = None,
     ) -> None:
         self._seed_value = seed_value
-        super().__init__(path, label="clinic", timeout_s=timeout_s, now=now)
+        super().__init__(path, label="clinic", timeout_s=timeout_s, now=now, data_key=data_key)
 
     def _is_seeded(self, c: sqlite3.Connection) -> bool:
         return has_table(c, "providers")

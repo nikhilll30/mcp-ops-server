@@ -19,6 +19,7 @@ from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import AccessToken
 from mcp.server.mcpserver import MCPServer
 
+from mcp_ops_kit.crypto import DataKey
 from mcp_ops_server import seed
 from mcp_ops_server.backends import fhir_seed
 from mcp_ops_server.backends.base import Backend
@@ -30,6 +31,7 @@ TEST_BACKENDS = [b.strip() for b in os.environ.get("MCP_OPS_TEST_BACKENDS", "sql
 if not set(TEST_BACKENDS) <= {"sqlite", "fhir"} or not TEST_BACKENDS:
     raise ValueError(f"MCP_OPS_TEST_BACKENDS must list sqlite and/or fhir, not {TEST_BACKENDS}")
 FHIR_ENABLED = "fhir" in TEST_BACKENDS
+BACKEND_PARAMS = TEST_BACKENDS + (["sqlite-encrypted"] if "sqlite" in TEST_BACKENDS else [])
 FHIR_URL = os.environ.get("MCP_OPS_TEST_FHIR_URL", "http://127.0.0.1:8080/fhir")
 
 # Facts from the deterministic seed that tests rely on (pinned in test_seed.py).
@@ -50,6 +52,14 @@ _SLOTS = {s.id: s for s in _SEED.slots}
 
 
 ALL_SCOPES = ["read:schedule", "write:schedule", "read:referrals"]
+
+
+def safeguard_env(prefix: str, directory: Any) -> dict[str, str]:  # noqa: ANN401 - a path
+    """The settings every served server needs since Part 9: an audit log and a data key."""
+    return {
+        f"{prefix}AUDIT_LOG": str(directory / "audit.log"),
+        f"{prefix}DATA_KEY": DataKey.generate().to_text(),
+    }
 
 
 @contextmanager
@@ -118,13 +128,16 @@ def store() -> Iterator[SqliteBackend]:
     s.close()
 
 
-@pytest.fixture(params=TEST_BACKENDS)
+@pytest.fixture(params=BACKEND_PARAMS)
 def backend(request: pytest.FixtureRequest) -> Iterator[Backend]:
     """Each enabled backend in turn, freshly seeded."""
     if request.param == "fhir":
         url = request.getfixturevalue("fhir_url")
         fhir_seed.reset(url)
         b: Backend = FhirBackend(url)
+    elif request.param == "sqlite-encrypted":
+        path = request.getfixturevalue("tmp_path") / "clinic.db"
+        b = SqliteBackend(str(path), data_key=DataKey.generate())
     else:
         b = SqliteBackend()
     yield b
