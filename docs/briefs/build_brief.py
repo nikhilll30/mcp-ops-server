@@ -1017,7 +1017,7 @@ def part10() -> list:
     return [
         Paragraph("Part 10 Brief · Terraform blueprint on HIPAA-eligible AWS", title),
         Paragraph(
-            "mcp-ops-server · 21 Oct 2026 · PR #22 · Status: Codex (2x P1, 5x P2), Cursor Security (2), Bugbot (2) all fixed · validated, never applied",
+            "mcp-ops-server · 21 Oct 2026 · PR #22 · Status: merged 21 Oct 2026; Codex (2x P1, 5x P2) and Cursor (6) fixed; CI green · validated, never applied",
             sub,
         ),
         Spacer(1, 4),
@@ -1107,8 +1107,8 @@ def part10() -> list:
         ),
         section("Next (your actions)"),
         Paragraph(
-            "1) Merge PR #22 once CI is green, then add <b>terraform</b> to the main ruleset's required checks. "
-            "2) Check the services in hipaa-services.json against AWS's live list. 3) Say <b>go</b> for Part 11.",
+            "Done: PR #22 merged and <b>terraform</b> is a required check. Optional: check hipaa-services.json against "
+            "AWS's live list. Then say <b>go</b> for Part 11.",
             body,
         ),
     ]

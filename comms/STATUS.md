@@ -16,8 +16,8 @@
 | 7 Backend protocol + FHIR R4 | done (PR #16 merged) | docs/briefs/part-7-fhir-backend.pdf |
 | 8 Booking example, then extract mcp-ops-kit | done (PR #18 merged) | docs/briefs/part-8-mcp-ops-kit.pdf |
 | 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation, audience binding | done (PR #20 merged) | docs/briefs/part-9-safeguards.pdf |
-| 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | **in review** (PR #22; Codex review addressed) | docs/briefs/part-10-terraform.pdf |
-| 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | planned | |
+| 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | done (PR #22 merged) | docs/briefs/part-10-terraform.pdf |
+| 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | **next**, waiting for owner's go | |
 | 12 Repeated live runs, pass^k, prompt-injection suite | planned | |
 
 ## Tasks
@@ -34,7 +34,7 @@
 | 007 | Backend protocol, SqliteBackend, FhirBackend, HAPI in CI, parity | Claude | merged | #16 |
 | 008 | Salon example (copy), then mcp-ops-kit extracted from both domains | Claude | merged | #18 |
 | 009 | Safeguards in the kit: tokens v2 + audience, OAuth JWTs, audit log, encryption at rest, minimisation | Claude | merged | #20 |
-| 010 | Terraform blueprint (infra/aws), CI terraform job, check_infra.py, hardened container run | Claude | in review | #22 |
+| 010 | Terraform blueprint (infra/aws), CI terraform job, check_infra.py, hardened container run | Claude | merged | #22 |
 
 ## Workflow
 Claude builds each part in a fresh Claude Code session (rules in `CLAUDE.md`); Codex reviews each
@@ -241,7 +241,7 @@ Owner, 2026-10-21: merged PR #20. The final head (106a11d) was green on every CI
 pull_request) and on both Cursor reviewers, with all review threads resolved. That head also
 carries one later Bugbot fix: the JWT revocation file must exist at start-up.
 
-## Part 10 (in review)
+## Part 10 (done, PR #22 merged 2026-10-21)
 Built on branch `claude/nifty-ptolemy-l6whuk` (the branch this session was assigned). The owner's
 "start the next part" on 2026-10-21 was the go. Everything is in `infra/aws/` (README there).
 - **The blueprint:** one Fargate task in private subnets (image by digest from an immutable,
@@ -291,10 +291,6 @@ Built on branch `claude/nifty-ptolemy-l6whuk` (the branch this session was assig
   Each role and log group now has its own ARN in the tests, and each grant is asserted
   exactly. Both mutations passed the old tests (checked).
 
-## Next action
-Owner: Codex's review is addressed. Merge once CI is green on the new head, then add `terraform`
-to the `main` ruleset's required checks. Part 11 starts after the owner's "go".
-
 Codex prompt for Part 10:
 ```
 Review PR #22 in nikhilll30/mcp-ops-server (branch claude/nifty-ptolemy-l6whuk) as a senior
@@ -311,3 +307,17 @@ tflint plugin), and any wording that claims compliance rather than HIPAA-ready. 
 quality and anything that would embarrass this repo once public. List findings as P0/P1/P2 with
 file and line. Do not change code.
 ```
+
+Owner, 2026-10-21: merged PR #22 and added `terraform` to the `main` ruleset's required checks.
+Verified signed out: `GET /repos/nikhilll30/mcp-ops-server/rules/branches/main` lists the
+required checks `container`, `evals`, `fhir`, `lint`, `secrets`, `terraform` and `test`; on the
+merge commit (6ee5502) every CI job passed, `terraform` and `publish` included.
+
+Open, owner's call (not blocking): check `infra/aws/hipaa-services.json` against AWS's live
+HIPAA-eligible list. It was checked through web search only; Amazon S3 is `unverified`.
+
+## Next action: Part 11, after the owner says "go"
+Not started. Scope is in `comms/PLAN.md`: HIPAA controls matrix (164.312), threat model,
+`SECURITY.md`, CodeQL, Dependabot, `mcp-ops-kit` on PyPI (trusted publishing), signed images
+with an SBOM. The owner will need to create the PyPI project and register this repo as a
+trusted publisher; the steps come with the part.
