@@ -173,7 +173,9 @@ def test_pins_dependabot_cannot_see_are_listed() -> None:
 
 
 def test_the_publish_job_signs_what_it_pushed_and_verifies_it() -> None:
-    publish = _jobs((ROOT / ".github" / "workflows" / "ci.yml").read_text())["publish"]
+    """Read without comments, so a step commented out does not count (Cursor Bugbot)."""
+    jobs = _jobs(_code((ROOT / ".github" / "workflows" / "ci.yml").read_text()))
+    publish = jobs["publish"]
     order = [
         publish.index('docker push "$IMAGE:sha-'),
         publish.index('scripts/supply_chain.sh sign "$IMAGE@$DIGEST"'),
@@ -181,6 +183,15 @@ def test_the_publish_job_signs_what_it_pushed_and_verifies_it() -> None:
         publish.index('docker push "$IMAGE:latest"'),
     ]
     assert order == sorted(order), "push, sign, verify, then move latest"
+    # The PR-time rehearsal: sign and verify with a key, then the two cases that must fail.
+    container = jobs["container"]
+    for line in (
+        'COSIGN_KEY="$KEYS/ci.key" scripts/supply_chain.sh sign "$REF" sbom.spdx.json',
+        'COSIGN_PUBLIC_KEY="$KEYS/ci.pub" scripts/supply_chain.sh verify "$REF"',
+        'if COSIGN_PUBLIC_KEY="$KEYS/other.pub" scripts/supply_chain.sh verify "$REF"; then',
+        'if COSIGN_PUBLIC_KEY="$KEYS/ci.pub" scripts/supply_chain.sh verify "$ONLY"; then',
+    ):
+        assert line in container, line
 
 
 def test_supply_chain_tools_are_exact_versions() -> None:
