@@ -20,6 +20,8 @@ version (format 1, before Part 9) is refused with the ``migrate`` command that f
 """
 
 import argparse
+import contextlib
+import fcntl
 import hashlib
 import json
 import logging
@@ -30,7 +32,7 @@ import secrets
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
@@ -231,6 +233,35 @@ def save_tokens(path: str, entries: list[TokenEntry]) -> None:
     atomic_write(path, (json.dumps(data, indent=2) + "\n").encode(), mode=0o644)
 
 
+LOCK_TIMEOUT_S = 30.0
+
+
+@contextlib.contextmanager
+def _changing(path: str | Path) -> Iterator[None]:
+    """Hold ``.<name>.lock`` beside the tokens file from read to write, so two changes (two
+    admin tasks, say) cannot interleave: an issue that read the file before a revoke and
+    saved after it would make the revoked token active again (Codex review, PR #22). The
+    server only reads the file and never takes this lock. ``flock`` is also honoured across
+    NFS clients (EFS), where Linux maps it to a POSIX lock."""
+    target = Path(path)
+    fd = os.open(target.with_name(f".{target.name}.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        deadline = time.monotonic() + LOCK_TIMEOUT_S
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise ValueError(
+                        f"another change to {path} has held its lock for {LOCK_TIMEOUT_S:.0f} s"
+                    ) from None
+                time.sleep(0.05)
+        yield
+    finally:
+        os.close(fd)  # releases the lock
+
+
 def _index(entries: list[TokenEntry]) -> dict[str, TokenEntry]:
     by_hash = {e.sha256: e for e in entries}
     if len(by_hash) != len(entries):
@@ -392,20 +423,27 @@ def issue(
     *,
     audience: str | None = None,
     expires_in: timedelta = timedelta(days=DEFAULT_LIFETIME_DAYS),
-) -> str:
+    sha256: str | None = None,
+) -> str | None:
     """Add a new token's hash to ``path`` (created if missing) and return the raw token,
-    which is shown once and never stored."""
+    which is shown once and never stored. With ``sha256``, register that hash instead: the
+    token was made elsewhere (by the operator), so it never passes through this process or
+    its logs, and None is returned."""
     if expires_in <= timedelta(0):
         raise ValueError("a token must expire in the future")
-    token = secrets.token_urlsafe(32)
-    entries = load_tokens(config, path) if Path(path).exists() else []
-    fields: dict[str, Any] = {"client_id": client_id, "sha256": hash_token(token)}
+    token = None if sha256 is not None else secrets.token_urlsafe(32)
+    digest = sha256 if sha256 is not None else hash_token(token or "")
+    fields: dict[str, Any] = {"client_id": client_id, "sha256": digest}
     fields |= {"scopes": scopes, "audience": audience or config.audience}
     fields["expires_at"] = _now_utc() + expires_in
     if subject is not None:
         fields[config.subject_claim] = subject
-    entries.append(config.token_entry.model_validate(fields))
-    save_tokens(path, entries)
+    entry = config.token_entry.model_validate(fields)
+    with _changing(path):
+        entries = load_tokens(config, path) if Path(path).exists() else []
+        if any(e.sha256 == digest for e in entries):
+            raise ValueError("that token is already in the tokens file")
+        save_tokens(path, [*entries, entry])
     return token
 
 
@@ -416,18 +454,19 @@ def revoke(
     them from its next request. Returns the tokens newly revoked; raises if none matched."""
     if (client_id is None) == (token_id is None):
         raise ValueError("revoke by exactly one of client_id or token_id")
-    entries = load_tokens(config, path)
-    now = _now_utc()
-    changed, out = [], []
-    for e in entries:
-        match = e.client_id == client_id if client_id is not None else e.token_id == token_id
-        if match and e.revoked_at is None:
-            e = e.model_copy(update={"revoked_at": now})
-            changed.append(e)
-        out.append(e)
-    if not changed:
-        raise ValueError("no unrevoked token matched")
-    save_tokens(path, out)
+    with _changing(path):
+        entries = load_tokens(config, path)
+        now = _now_utc()
+        changed, out = [], []
+        for e in entries:
+            match = e.client_id == client_id if client_id is not None else e.token_id == token_id
+            if match and e.revoked_at is None:
+                e = e.model_copy(update={"revoked_at": now})
+                changed.append(e)
+            out.append(e)
+        if not changed:
+            raise ValueError("no unrevoked token matched")
+        save_tokens(path, out)
     return changed
 
 
@@ -436,6 +475,13 @@ def migrate(
 ) -> list[TokenEntry]:
     """Rewrite a format-1 tokens file as format 2: every token gets ``audience`` and an
     expiry ``expires_in`` from now. Validated as strictly as before (unknown keys refused)."""
+    with _changing(path):
+        return _migrate(config, path, audience, expires_in)
+
+
+def _migrate(
+    config: AuthConfig, path: str, audience: str, expires_in: timedelta
+) -> list[TokenEntry]:
     raw = _read_json(path)
     if "version" in raw:
         raise ValueError(f"{path} already has a version ({raw['version']!r}); nothing to migrate")
@@ -467,6 +513,12 @@ def main(config: AuthConfig, argv: list[str] | None = None) -> None:
     p.add_argument(f"--{config.subject_label}", dest="subject", default=None)
     p.add_argument("--audience", default=config.audience)
     p.add_argument("--expires-in-days", type=float, default=DEFAULT_LIFETIME_DAYS)
+    p.add_argument(
+        "--sha256",
+        default=None,
+        help="Register this hash of a token you made yourself; nothing secret is printed "
+        "(for hosts whose output is logged, such as a cloud admin task).",
+    )
     r = sub.add_parser("revoke", help="Revoke tokens; a running server refuses them at once.")
     r.add_argument("--file", required=True)
     who = r.add_mutually_exclusive_group(required=True)
@@ -489,8 +541,12 @@ def main(config: AuthConfig, argv: list[str] | None = None) -> None:
                 args.subject,
                 audience=args.audience,
                 expires_in=timedelta(days=args.expires_in_days),
+                sha256=args.sha256,
             )
-            print(token)  # noqa: T201 - the CLI's output is the token itself
+            if token is None:
+                print(f"registered {args.sha256[:TOKEN_ID_CHARS]} ({args.client})")  # noqa: T201
+            else:
+                print(token)  # noqa: T201 - the CLI's output is the token itself
         elif args.command == "revoke":
             for e in revoke(config, args.file, client_id=args.client, token_id=args.token_id):
                 print(f"revoked {e.token_id} ({e.client_id})")  # noqa: T201

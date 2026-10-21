@@ -1011,6 +1011,109 @@ def part9() -> list:
     ]
 
 
+def part10() -> list:
+    w = 7.0 * inch
+    cf = "<font face='Courier'>"
+    return [
+        Paragraph("Part 10 Brief · Terraform blueprint on HIPAA-eligible AWS", title),
+        Paragraph(
+            "mcp-ops-server · 21 Oct 2026 · PR #22 · Status: Codex (2x P1, 5x P2), Cursor Security (2), Bugbot (2) all fixed · validated, never applied",
+            sub,
+        ),
+        Spacer(1, 4),
+        section("What was built (infra/aws/: 1,373 lines of HCL, 473 of tests)"),
+        bl(
+            "<b>A private Fargate service:</b> one task, image pinned by digest from an immutable, scanned ECR repo, "
+            "uid 10001, read-only root, every capability dropped, no ECS Exec, no public IP. An internal ALB (TLS 1.2+) "
+            "behind a WAF (known bad inputs, rate limit per IP across tasks). No internet gateway, NAT or Elastic IP: "
+            f"AWS APIs through VPC endpoints, the FHIR server through {cf}fhir_cidrs</font> only."
+        ),
+        bl(
+            "<b>Storage and keys:</b> EFS access points for tokens (read-only to the server), audit log and SQLite; "
+            "the data key in Secrets Manager, set out of band so it never enters state; two rotated KMS keys; logs kept 400+ days."
+        ),
+        bl(
+            "<b>Least privilege in IAM:</b> the server can read the tokens file but not write it, so it cannot grant "
+            "itself a token; an on-demand admin task issues and revokes tokens but cannot write the audit log."
+        ),
+        section("How CI checks it (new terraform job; no AWS credentials exist)"),
+        table(
+            [
+                ["Check", "What it proves"],
+                [
+                    "fmt, init (lock file), validate",
+                    "well-formed; provider 6.68.0 pinned by hash for 5 platforms",
+                ],
+                [
+                    "terraform test: 21 runs",
+                    "on a mocked provider: the rendered IAM/EFS policies, hardening, network, TLS, encryption; 10 bad inputs refused",
+                ],
+                [
+                    "tflint + AWS ruleset, checkov",
+                    "196 checkov checks pass; each of 8 skips has its reason beside the resource",
+                ],
+                [
+                    "scripts/check_infra.py (+21 pytest)",
+                    "every type maps to a HIPAA-eligible or no-PHI service; no IGW/NAT/EIP, no 0.0.0.0/0; settings and uid match the server",
+                ],
+                [
+                    "container job",
+                    "the image now runs read-only with no capabilities, as the task does",
+                ],
+            ],
+            [2.15 * inch, w - 2.15 * inch],
+        ),
+        section("Why it was done this way"),
+        bl(
+            "<b>Never applied.</b> Reviewable infrastructure without a PHI endpoint to operate or pay for. "
+            "<b>Tests on a mock, not just linters:</b> checkov knows AWS defaults, not this server's rules "
+            "(read-only tokens, one writer, the real clock)."
+        ),
+        bl(
+            "<b>One task.</b> The audit log and database take exclusive locks, so deploys stop the old task first. "
+            "Scaling out needs a shared audit sink; I wrote that down instead of hiding it."
+        ),
+        section("What went wrong or surprised me (logged in FAILURES.md)"),
+        bl(
+            "<b>The image's default clock is the synthetic demo time.</b> Deployed as is, it would think it is always "
+            f"2 Nov 2026, 08:00. The task sets {cf}MCP_OPS_NOW=system</font>, and a test pins it."
+        ),
+        bl(
+            "<b>checkov caught a portability bug</b> (zone names differ per account; subnets use zone IDs). The registry, "
+            "AWS's site and Docker Hub were unreachable here, so the provider came from HashiCorp's release server, and the "
+            "HIPAA list was checked by search only: the catalog marks each service official, secondary or (S3) unverified."
+        ),
+        bl(
+            "<b>Reviewers found 6 real defects.</b> Cursor Security: WAF samples skip redaction (sampling off), and admin "
+            f"{cf}issue</font> printed tokens into CloudWatch ({cf}--sha256</font> registers a hash you made). Bugbot: "
+            f"the first apply could never start ({cf}start_service</font>). Codex: a concurrent admin task could undo a "
+            "revocation (the kit now locks the file), and my tests read helper maps, not rendered policies. Now they do: "
+            "13 of 13 mutations, including Codex's 3, are caught."
+        ),
+        section("Verify it yourself"),
+        codebox(
+            [
+                "cd infra/aws && terraform init -backend=false && terraform test   # 21 passed",
+                "tflint --init && tflint; checkov -d . --framework terraform --skip-download",
+                "cd ../.. && python scripts/check_infra.py && pytest -q          # 547 passed",
+            ]
+        ),
+        section("Interview talking point"),
+        Paragraph(
+            '"Linters pass AWS best practice; they do not know that my server must not be able to write its own tokens '
+            "file. So the blueprint has plan-time tests against a mocked provider, and I broke each safeguard to see a "
+            'test fail."',
+            body,
+        ),
+        section("Next (your actions)"),
+        Paragraph(
+            "1) Merge PR #22 once CI is green, then add <b>terraform</b> to the main ruleset's required checks. "
+            "2) Check the services in hipaa-services.json against AWS's live list. 3) Say <b>go</b> for Part 11.",
+            body,
+        ),
+    ]
+
+
 def phase2() -> list:
     w = 7.0 * inch
     return [
@@ -1127,6 +1230,7 @@ PARTS = {
     7: (part7, "part-7-fhir-backend", "Part 7 Brief: Backend protocol + FHIR R4"),
     8: (part8, "part-8-mcp-ops-kit", "Part 8 Brief: Salon example + mcp-ops-kit"),
     9: (part9, "part-9-safeguards", "Part 9 Brief: Safeguards in the kit"),
+    10: (part10, "part-10-terraform", "Part 10 Brief: Terraform blueprint on HIPAA-eligible AWS"),
 }
 
 

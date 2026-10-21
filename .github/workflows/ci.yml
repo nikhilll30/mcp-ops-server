@@ -146,7 +146,10 @@ jobs:
             echo "::error::the container started without MCP_OPS_DATA_KEY"; exit 1
           fi
           grep -q "MCP_OPS_DATA_KEY are both required" nokey.log
+          # Hardened as infra/aws's task definition runs it: read-only root filesystem, no
+          # Linux capabilities, no privilege escalation. Only /audit is writable.
           docker run -d --name mcpops -p 8000:8000 -v "$PWD/ctdata:/data:ro" \
+            --read-only --cap-drop ALL --security-opt no-new-privileges \
             -v mcpops-audit:/audit -e MCP_OPS_DATA_KEY mcp-ops-server:ci
           for i in $(seq 1 30); do
             [ "$(docker inspect -f '{{.State.Health.Status}}' mcpops)" = healthy ] && exit 0
@@ -194,13 +197,65 @@ jobs:
             image-id.txt
           retention-days: 1
 
+  terraform:
+    # The AWS blueprint (infra/aws), validated and never applied: no AWS credentials exist in
+    # this repo, and terraform test runs against a mocked provider. Binaries are pinned by
+    # version and SHA-256; the provider by .terraform.lock.hcl.
+    runs-on: ubuntu-latest
+    env:
+      TF_VERSION: 1.16.5
+      TF_SHA256: 2bc2fcfff033265c9e02ca0351f01794eb122f62a9b2a49a3294b9e49eaab5e4
+      TFLINT_VERSION: 0.64.0
+      TFLINT_SHA256: cca9d13e2e1d7a2c627af60ff899a3c9b74212899416aeb96ec764d2ef954537
+      CHECKOV_VERSION: 3.3.30
+    defaults:
+      run:
+        working-directory: infra/aws
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install terraform and tflint (pinned, hash-checked)
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfLo tf.zip "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip"
+          echo "$TF_SHA256  tf.zip" | sha256sum -c
+          curl -sSfLo tflint.zip "https://github.com/terraform-linters/tflint/releases/download/v${TFLINT_VERSION}/tflint_linux_amd64.zip"
+          echo "$TFLINT_SHA256  tflint.zip" | sha256sum -c
+          unzip -q tf.zip terraform -d "$RUNNER_TEMP/bin"
+          unzip -q tflint.zip tflint -d "$RUNNER_TEMP/bin"
+          rm tf.zip tflint.zip
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff
+      - name: terraform init (no backend; provider checked against the lock file)
+        run: terraform init -backend=false -input=false -lockfile=readonly
+      - name: terraform validate
+        run: terraform validate
+      - name: terraform test (mocked AWS provider; nothing is created)
+        run: terraform test
+      - name: tflint
+        env:
+          GITHUB_TOKEN: ${{ github.token }}  # read-only; avoids the plugin download rate limit
+        run: |
+          tflint --init
+          tflint --format compact
+      - name: checkov
+        run: |
+          pip install "checkov==${CHECKOV_VERSION}"
+          checkov -d . --framework terraform --compact --quiet --skip-download
+      - name: HIPAA-eligible services, no open CIDRs, settings and uid match the server
+        working-directory: .
+        run: python scripts/check_infra.py
+
   publish:
     # Pushes the image that the container job tested (loaded from its artifact, ID checked)
     # to GitHub Container Registry. Only from main, only after every check passed, and the
     # only job with write access to packages; PRs never reach it. Runs one at a time, and
     # only the run for the current head of main moves `latest`.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [lint, test, evals, fhir, container, secrets]
+    needs: [lint, test, evals, fhir, container, terraform, secrets]
     runs-on: ubuntu-latest
     concurrency:
       group: publish-ghcr
