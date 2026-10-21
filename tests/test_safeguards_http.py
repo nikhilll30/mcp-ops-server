@@ -17,7 +17,7 @@ from conftest import DERM_PATIENT, safeguard_env
 from test_http_integration import INIT, _free_port, _raw_post, _session, _wait_for_port
 from test_oauth import ISSUER, Signer
 
-from mcp_ops_kit import audit
+from mcp_ops_kit import audit, oauth
 from mcp_ops_kit.crypto import DataKey
 from mcp_ops_server.auth import ALL_SCOPES, issue
 
@@ -101,6 +101,7 @@ def jwt_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[JwtServer]:
     signer = Signer("as-key-1")
     (root / "jwks.json").write_text(json.dumps({"keys": [signer.jwk]}))
     revoked = str(root / "revoked.json")
+    oauth.init_revoked(revoked)
     key = DataKey.generate()
     port = _free_port()
     clean = {k: v for k, v in os.environ.items() if not k.startswith("MCP_OPS_")}

@@ -192,6 +192,7 @@ def test_revoking_a_jti_takes_effect_at_once(
     jwks_file: Path, signer: Signer, tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
     revoked = str(tmp_path / "revoked.json")
+    oauth.main(["init", "--file", revoked])
     v = _verifier(str(jwks_file), revoked)
     token = signer.token(jti="jti-to-revoke")
     other = signer.token()
@@ -208,6 +209,7 @@ def test_a_broken_revocation_file_refuses_every_jwt(
     jwks_file: Path, signer: Signer, tmp_path: Path
 ) -> None:
     revoked = tmp_path / "revoked.json"
+    oauth.init_revoked(str(revoked))
     v = _verifier(str(jwks_file), str(revoked))
     assert _verify(v, signer.token())
     revoked.write_text("{ broken")
@@ -368,6 +370,7 @@ def test_a_malformed_revocation_file_refuses_without_crashing(
     """Cursor Bugbot, PR #20: ``"revoked": null`` raised TypeError out of verify_token
     (a 500), where every other malformed file already refused (a 401)."""
     revoked = tmp_path / "revoked.json"
+    oauth.init_revoked(str(revoked))
     v = _verifier(str(jwks_file), str(revoked))
     assert _verify(v, signer.token()) is not None
     revoked.write_text(json.dumps(body))
@@ -400,10 +403,15 @@ def test_a_down_jwks_is_fetched_at_most_every_30_seconds(
 def test_a_revocation_file_that_disappears_refuses_every_jwt(
     jwks_file: Path, signer: Signer, tmp_path: Path
 ) -> None:
-    """Codex review, PR #20: deleting the file after start-up un-revoked every token (a
-    missing file read as "nothing revoked"). It may be missing only at start-up."""
+    """Codex review, PR #20: deleting the file un-revoked every token (a missing file read
+    as "nothing revoked"). Then Cursor Bugbot: when it could be missing at start-up, a file
+    created and deleted between two requests looked unchanged. Now it must exist at
+    start-up, so missing always means refuse."""
     revoked = tmp_path / "revoked.json"
-    v = _verifier(str(jwks_file), str(revoked))  # missing at start-up: fine
+    with pytest.raises(ConfigError, match="python -m mcp_ops_kit.oauth init --file"):
+        RevocationList(str(revoked))
+    oauth.init_revoked(str(revoked))
+    v = _verifier(str(jwks_file), str(revoked))
     token = signer.token(jti="gone")
     oauth.revoke_jti(str(revoked), "gone")
     assert _verify(v, token) is None
@@ -412,6 +420,8 @@ def test_a_revocation_file_that_disappears_refuses_every_jwt(
     assert _verify(v, signer.token()) is None  # every JWT, until the file is back
     revoked.write_text(json.dumps({"version": 1, "revoked": []}))
     assert _verify(v, signer.token()) is not None
+    with pytest.raises(ValueError, match="already exists"):
+        oauth.init_revoked(str(revoked))  # init never overwrites revocations
 
 
 def test_a_long_client_id_is_refused_not_truncated(jwks_file: Path, signer: Signer) -> None:

@@ -167,22 +167,28 @@ class JwksSource:
 
 class RevocationList:
     """Revoked ``jti`` values from a file, re-read whenever it changes. If the file becomes
-    invalid, or disappears after start-up, every JWT is refused until it is fixed: a
-    revocation is never skipped. (It may be missing at start-up: nothing revoked yet.)"""
+    invalid or disappears, every JWT is refused until it is fixed: a revocation is never
+    skipped. The file must exist at start-up (empty if nothing is revoked yet), so a
+    missing file always means failure. An earlier version allowed it to be missing at
+    start-up, and a file created and deleted between two requests then looked unchanged
+    (Cursor Bugbot, PR #20)."""
 
     def __init__(self, path: str) -> None:
         self.path = path
+        if not Path(path).is_file():
+            raise ConfigError(
+                f"JWT revocation file {path} not found. Create it (nothing revoked yet) with: "
+                f"python -m mcp_ops_kit.oauth init --file {path}"
+            )
         self._signature: object = None
         self._revoked: frozenset[str] | None = frozenset()
         self._lock = threading.Lock()
-        self._missing_ok = True
         self._refresh()
-        self._missing_ok = False  # from now on, a vanished file would un-revoke tokens
         if self._revoked is None:
             raise ConfigError(f"JWT revocation file {path} is not valid; see the log")
 
     @staticmethod
-    def read(path: str, missing_ok: bool = True) -> list[dict[str, str]]:
+    def read(path: str, missing_ok: bool = False) -> list[dict[str, str]]:
         if not Path(path).exists():
             if missing_ok:
                 return []
@@ -208,7 +214,7 @@ class RevocationList:
             if signature == self._signature:
                 return
             try:
-                revoked = self.read(self.path, missing_ok=self._missing_ok)
+                revoked = self.read(self.path)
                 self._revoked = frozenset(r["jti"] for r in revoked)
             except Exception as exc:  # any failure refuses, never a 500
                 self._revoked = None
@@ -220,13 +226,24 @@ class RevocationList:
         return self._revoked is None or jti in self._revoked
 
 
+def _write_revoked(path: str, entries: list[dict[str, str]]) -> None:
+    data = {"version": 1, "revoked": entries}
+    atomic_write(path, (json.dumps(data, indent=2) + "\n").encode(), mode=0o644)  # not secret
+
+
 def revoke_jti(path: str, jti: str) -> None:
-    entries = RevocationList.read(path)
+    entries = RevocationList.read(path, missing_ok=True)
     if any(r["jti"] == jti for r in entries):
         raise ValueError(f"jti {jti} is already revoked")
     stamp = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    data = {"version": 1, "revoked": [*entries, {"jti": jti, "revoked_at": stamp}]}
-    atomic_write(path, (json.dumps(data, indent=2) + "\n").encode(), mode=0o644)  # not secret
+    _write_revoked(path, [*entries, {"jti": jti, "revoked_at": stamp}])
+
+
+def init_revoked(path: str) -> None:
+    """Create an empty revocation file; refuses to overwrite one (it may hold revocations)."""
+    if Path(path).exists():
+        raise ValueError(f"{path} already exists")
+    _write_revoked(path, [])
 
 
 class JwtVerifier:
@@ -340,18 +357,24 @@ class EitherVerifier:
 
 
 def main(argv: list[str] | None = None) -> None:
-    """``python -m mcp_ops_kit.oauth revoke --file revoked.json --jti <jti>``"""
+    """``python -m mcp_ops_kit.oauth init --file revoked.json`` (once), then
+    ``python -m mcp_ops_kit.oauth revoke --file revoked.json --jti <jti>``"""
     parser = argparse.ArgumentParser(prog="python -m mcp_ops_kit.oauth")
     sub = parser.add_subparsers(dest="command", required=True)
+    i = sub.add_parser("init", help="Create an empty revocation file (a server needs one).")
+    i.add_argument("--file", required=True)
     r = sub.add_parser("revoke", help="Revoke a JWT by its jti; servers refuse it at once.")
     r.add_argument("--file", required=True)
     r.add_argument("--jti", required=True)
     args = parser.parse_args(argv)
     try:
-        revoke_jti(args.file, args.jti)
+        if args.command == "init":
+            init_revoked(args.file)
+        else:
+            revoke_jti(args.file, args.jti)
     except (OSError, ValueError) as exc:
-        sys.exit(f"revoke: {exc}")
-    print(f"revoked jti {args.jti}")  # noqa: T201
+        sys.exit(f"{args.command}: {exc}")
+    print(f"created {args.file}" if args.command == "init" else f"revoked jti {args.jti}")  # noqa: T201
 
 
 if __name__ == "__main__":
