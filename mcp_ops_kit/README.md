@@ -10,8 +10,6 @@ copies turned out to share (Part 8, see [`FAILURES.md`](../FAILURES.md)).
 pip install mcp-ops-kit            # add [live] for the OpenAI agent used in live eval runs
 ```
 
-(Once the first release is tagged; until then, `pip install -e .` from this repo.)
-
 The source lives in this repo, next to the two domains built on it. Releases are published to
 PyPI from a `kit-vX.Y.Z` tag on `main` by trusted publishing, with attestations, after CI has
 built the wheel and used it from a fresh venv (`release-kit.yml`).
