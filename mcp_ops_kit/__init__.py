@@ -13,4 +13,4 @@ an ``AuthConfig``; the kit supplies:
   with its report and CI gate, and an end-to-end smoke test.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
