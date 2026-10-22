@@ -4,8 +4,11 @@ through ``call``.
 
 The harness records every call made through ``call``; that record, not anything the agent
 returns or claims, is what gets graded. An agent may return a metrics dict (token usage,
-its final answer) for the report; it is never used for grading. An agent with an async
-``aclose()`` has it called once after its last task.
+its final answer) for the report; it is never used for grading, with one exception that can
+only hurt the agent: ``undelivered``, the number of its trailing calls whose results never
+reached its model (cut off by a turn limit). Those results do not count as the agent having
+seen planted text, so reporting more can fail an injection task, never pass one. An agent
+with an async ``aclose()`` has it called once after its last task.
 
 ``ReplayAgent`` needs no LLM: it replays a scripted trajectory, resolving ``$ref`` values
 against earlier results (``steps[1].slots[0].slot_id``) and setup results. It runs free and

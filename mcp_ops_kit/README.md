@@ -26,7 +26,7 @@ built the wheel and used it from a fresh venv (`release-kit.yml`).
 | `server` | The audit-and-rate-limit-first `OpsServer`, which also rebuilds every result's text from the validated output, so an agent sees only declared fields. A `health` tool, `/mcp` with bearer auth, `/healthz`, env settings, a fail-closed `serve` (no token source, audit log or data key: no start) | Your tools (`register(server, guard)`), your settings fields, your env prefix |
 | `sqlite` | One deadline per call: lock wait, busy wait and execution, with a late COMMIT rolled back. With a data key, the file on disk is encrypted (the database lives in memory; each committed write re-encrypts it atomically) | Your schema, seed and queries (subclass `SqliteStore`) |
 | `errors` | `StoreError` and its kinds. Tools turn them into messages an agent can act on (`store_errors`) | Your own rule errors, as subclasses |
-| `evals` | The harness (fresh data and a real server per task), the trajectory grader, the replay and OpenAI agents, the report and the CI gate | An `EvalDomain`, golden tasks and negative controls |
+| `evals` | The harness (fresh data and a real server per task), the trajectory grader, the replay and OpenAI agents, the report and the CI gate. Repeated runs (`--repeats k`) scored with pass^k; a prompt-injection suite (`--suite injection`): planted text in records, an `injection_exposed` check, and attempted vs carried-out outcomes | An `EvalDomain`, golden tasks and negative controls; for injection, `supports_plant` and a `start_task` that writes `TaskSpec.plant` into the task's data |
 | `smoke` | `/healthz`, 401 without a token, then an MCP session | Your tool round trip, with each write read back |
 
 ## Build a domain on it: the salon as the worked example
@@ -49,7 +49,11 @@ built the wheel and used it from a fresh venv (`release-kit.yml`).
 5. **Evals.** An `EvalDomain` (`salon_ops/evals/run.py`) says who the principals are, which
    argument names the subject (`SubjectRule`), the default clock, and how to get fresh data
    per task. Then write golden tasks and **negative controls for every grader check**
-   (`salon_ops/evals/golden/make_tasks.py`) before you trust the gate.
+   (`salon_ops/evals/golden/make_tasks.py`) before you trust the gate. For a
+   prompt-injection suite, set `supports_plant=True`, write each task's `TaskSpec.plant`
+   (record ID -> text) into its fresh data in `start_task`, and add `injection.json` and
+   `injection-negative.json` (the clinic's are in `evals/golden/`). A domain without
+   `supports_plant` refuses a planted task, so an attack never runs on data it did not reach.
 6. **Smoke test.** Your `exercise(session)` for `kit.smoke.main` (`salon_ops/smoke.py`).
 
 The salon example has the following parts:

@@ -10,8 +10,10 @@ CLI. Exit code 1 if any golden task fails or any negative control is not caught.
 """
 
 import argparse
+import re
 import shutil
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -35,12 +37,27 @@ __all__ = ["domain", "load", "main", "report", "run_suite", "summarize"]
 HERE = Path(__file__).parent
 BACKENDS = ("sqlite", "fhir")
 PATIENT_SCOPE = SubjectRule(arg="patient_id", task_key="patients", check="patient_scope")
+PROVIDER_ID = re.compile(r"PRV-[0-9]{3}")
+
+
+def plant_sqlite(store: SqliteBackend, names: Mapping[str, str]) -> None:
+    """Rename providers (provider ID -> name) in a task's database: the prompt-injection
+    suite's planted text. Each ID must exist. Eval-only, so it uses the store's private
+    write transaction rather than adding a rename to the server's backend protocol."""
+    with store._write() as c:
+        for provider_id, name in names.items():
+            changed = c.execute(
+                "UPDATE providers SET name = ? WHERE id = ?", (name, provider_id)
+            ).rowcount
+            if changed != 1:
+                raise ValueError(f"provider {provider_id} is not in the database")
 
 
 def domain(backend: str = "sqlite", fhir_url: str | None = None) -> EvalDomain:
     """The clinic for evals, on SQLite (a copy of one seeded file per task) or on a FHIR R4
     server at ``fhir_url`` (loaded once, then reset to the seed before every task; its data
-    is overwritten)."""
+    is overwritten). A task's ``plant`` (provider ID -> name) renames those providers in its
+    fresh data, on either backend."""
     if backend not in BACKENDS:
         raise ValueError(f"backend must be one of {BACKENDS}")
     if backend == "fhir" and not fhir_url:
@@ -55,8 +72,13 @@ def domain(backend: str = "sqlite", fhir_url: str | None = None) -> EvalDomain:
 
     def start_task(spec: TaskSpec) -> TaskData:
         db_path = str(spec.workdir / f"task-{spec.number}.db")
+        bad = [k for k in spec.plant if not PROVIDER_ID.fullmatch(k)]
+        if bad:
+            raise ValueError(f"the clinic plants text in provider names only, not {bad}")
         if backend == "fhir":
             fhir_seed.reset(fhir_url)  # type: ignore[arg-type] - checked above
+            if spec.plant:
+                fhir_seed.set_provider_names(fhir_url, dict(spec.plant))  # type: ignore[arg-type]
         else:
             shutil.copyfile(spec.workdir / "template.db", db_path)
         settings = Settings(
@@ -72,6 +94,8 @@ def domain(backend: str = "sqlite", fhir_url: str | None = None) -> EvalDomain:
             data_key=spec.data_key,
         )
         store = make_backend(settings)
+        if spec.plant and isinstance(store, SqliteBackend):
+            plant_sqlite(store, spec.plant)
         app = build_http_app(settings, store)
 
         def close() -> None:
@@ -95,6 +119,10 @@ def domain(backend: str = "sqlite", fhir_url: str | None = None) -> EvalDomain:
         start_task=start_task,
         backend=backend,
         system_prompt=SYSTEM_PROMPT,
+        supports_plant=True,
+        # Both backends' wording for a write sent but not confirmed (fhir.py's
+        # OutcomeUnknownError); SQLite never raises it, so it never matches there.
+        uncertain_errors=("may or may not",),
     )
 
 
@@ -109,10 +137,16 @@ def run_suite(
     prices: tuple[float, float] | None = None,
     backend: str = "sqlite",
     fhir_url: str | None = None,
+    *,
+    suite: str = "golden",
+    repeats: int = 1,
 ) -> dict[str, Any]:
-    """Golden tasks with ``agent`` and negative controls with the replay agent, on the
-    chosen backend. ``prices`` is (USD per 1M input, per 1M output tokens) for cost."""
-    return kit.run_suite(domain(backend, fhir_url), agent, tasks, negatives, prices)
+    """A suite's tasks with ``agent`` (``repeats`` times each) and its negative controls with
+    the replay agent, on the chosen backend. ``prices`` is (USD per 1M input, per 1M output
+    tokens) for cost."""
+    return kit.run_suite(
+        domain(backend, fhir_url), agent, tasks, negatives, prices, suite=suite, repeats=repeats
+    )
 
 
 def _build_agent(args: argparse.Namespace) -> Agent:

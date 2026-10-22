@@ -5,8 +5,10 @@
 
 Every resource has a deterministic ID from ``seed.py`` and every entry is a PUT, so loading
 twice changes nothing. Patients carry an identifier only: no names, no birth dates, nothing
-that could describe a person. ``reset`` puts back exactly the seeded bookings (tests and
-the eval harness call it before each test or task); the server itself never calls either.
+that could describe a person. ``reset`` puts back exactly the seeded bookings and provider
+names (tests and the eval harness call it before each test or task); the server itself never
+calls either. ``set_provider_names`` plants prompt-injection text in provider names for the
+eval harness (Part 12); the next ``reset`` puts the seeded names back.
 """
 
 import argparse
@@ -38,6 +40,10 @@ PATIENT_SYSTEM = "urn:mcp-ops:patient"
 SLOTS_PER_BUNDLE = 1000
 
 
+def practitioner(provider_id: str, name: str) -> dict[str, Any]:
+    return {"resourceType": "Practitioner", "id": provider_id, "name": [{"text": name}]}
+
+
 def bundles(seed_value: int = seed.SEED) -> list[dict[str, Any]]:
     """The seed as transaction Bundles, in reference order. The marker is last, so a load
     that stopped part-way is never mistaken for a complete one."""
@@ -56,7 +62,7 @@ def bundles(seed_value: int = seed.SEED) -> list[dict[str, Any]]:
             )
         )
     for p in data.providers:
-        first.append(put({"resourceType": "Practitioner", "id": p.id, "name": [{"text": p.name}]}))
+        first.append(put(practitioner(p.id, p.name)))
         first.append(
             put(
                 {
@@ -203,7 +209,8 @@ def load(url: str, seed_value: int = seed.SEED, timeout_s: float = 300.0) -> boo
 def reset(url: str, seed_value: int = seed.SEED, timeout_s: float = 60.0) -> None:
     """Put the bookings back to the seed: drop new appointments, restore seeded ones (all
     their content, not only status) and the slots they hold, free every other slot, and
-    rewind the appointment sequence.
+    rewind the appointment sequence. Provider names go back to the seed too, so text one eval
+    task planted never reaches the next.
 
     Refuses, changing nothing, unless this exact seed is the one loaded: resetting toward
     another seed would leave its slots, referrals and providers mismatched (Codex review,
@@ -234,8 +241,35 @@ def reset(url: str, seed_value: int = seed.SEED, timeout_s: float = 60.0) -> Non
         for s in wrong:
             s.pop("meta", None)
             entries.append(put({**s, "status": "busy" if s["id"] in held else "free"}))
+        names = {p.id: practitioner(p.id, p.name) for p in seed.generate(seed_value).providers}
+        entries += [
+            put(names[r["id"]])
+            for r in c.search_all("Practitioner")
+            if r["id"] in names and _content(r) != names[r["id"]]
+        ]
         entries.append(put(sequence_resource(len(seeded))))
         c.transact(entries)
+    finally:
+        c.http.close()
+
+
+def set_provider_names(
+    url: str, names: dict[str, str], seed_value: int = seed.SEED, timeout_s: float = 60.0
+) -> None:
+    """Rename seeded providers (provider ID -> name), all in one transaction. Refuses an ID
+    the seed does not have, since ``reset`` restores only the seed's providers (Codex review,
+    PR #28: a planted name on an extra Practitioner survived every reset), and an ID the
+    server does not hold, so planted text never silently goes nowhere."""
+    seeded = {p.id for p in seed.generate(seed_value).providers}
+    for provider_id in names:
+        if provider_id not in seeded:
+            raise ValueError(f"{provider_id} is not a seeded provider (seed {seed_value})")
+    c = _Client(url, timeout_s)
+    try:
+        for provider_id in names:
+            if c.get(f"Practitioner/{provider_id}").status_code != 200:
+                raise ValueError(f"provider {provider_id} is not on {url}")
+        c.transact([put(practitioner(i, name)) for i, name in sorted(names.items())])
     finally:
         c.http.close()
 

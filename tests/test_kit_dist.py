@@ -119,13 +119,14 @@ def _metadata(version: str, requires: list[str]) -> str:
     return "\n".join(lines + [f"Requires-Dist: {r}" for r in requires]) + "\n\n"
 
 
+VERSION = build_kit.kit_version()  # the kit's own, so a version bump needs no test edit
 GOOD_REQUIRES = ["cryptography>=42", "mcp<3,>=2.3", "openai<4,>=3.35; extra == 'live'"]
 
 
 def _write(
     dist: Path,
     *,
-    version: str = "0.1.0",
+    version: str = VERSION,
     add: tuple[str, ...] = (),
     drop: tuple[str, ...] = (),
     requires: list[str] = GOOD_REQUIRES,
@@ -159,7 +160,7 @@ def test_a_well_formed_distribution_passes(tmp_path: Path) -> None:
         ({"add": ("mcp_ops_server/server.py",)}, "domain or repo-only file mcp_ops_server"),
         ({"add": ("tests/test_kit.py",)}, "must not contain tests/test_kit.py"),
         ({"drop": ("mcp_ops_kit/audit.py",)}, "wheel is missing mcp_ops_kit/audit.py"),
-        ({"version": "0.0.9"}, "not mcp_ops_kit 0.1.0"),
+        ({"version": "0.0.9"}, f"not mcp_ops_kit {VERSION}"),
         ({"requires": ["mcp<3,>=2.3"]}, "differs from pyproject"),
         ({"requires": [*GOOD_REQUIRES, "requests"]}, "differs from pyproject"),
         ({"sdist_add": ("evals/golden/tasks.json",)}, "sdist must not contain evals/golden"),
@@ -172,5 +173,5 @@ def test_a_broken_distribution_is_refused(tmp_path: Path, kwargs: dict, expected
 
 def test_a_stray_file_in_the_dist_folder_is_refused(tmp_path: Path) -> None:
     dist = _write(tmp_path / "d")
-    (dist / "mcp_ops_kit-0.1.0-py3-none-any.whl.bak").write_text("")
+    (dist / f"mcp_ops_kit-{VERSION}-py3-none-any.whl.bak").write_text("")
     assert check_kit_dist.check(dist)[0].startswith("expected one wheel and one sdist")

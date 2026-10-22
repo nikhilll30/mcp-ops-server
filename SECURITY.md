@@ -49,8 +49,8 @@ known and need no report, though better ideas for them are welcome.
 - Anything that needs real patient data, or a deployment this repo does not run (there is
   no hosted instance).
 - How a language model behaves on its own. Prompt injection that makes an agent misuse
-  the tools its token allows is a known residual risk (threat model E2), measured in
-  Part 12. A way to make the *server* exceed a token's scopes or subject binding is in
+  the tools its token allows is a known residual risk (threat model E2), measured by
+  the prompt-injection suite (`evals/README.md`). A way to make the *server* exceed a token's scopes or subject binding is in
   scope.
 - Denial of service by volume against your own deployment.
 

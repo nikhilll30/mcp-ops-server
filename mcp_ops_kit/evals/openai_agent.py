@@ -81,6 +81,7 @@ class OpenAIAgent:
             "llm_latency_ms": [],
             "final_answer": None,
             "stop": "max_turns",
+            "undelivered": 0,  # tool results executed but never sent back to the model
         }
         try:
             await self._loop(
@@ -122,6 +123,7 @@ class OpenAIAgent:
             )
             metrics["llm_latency_ms"].append(round((time.perf_counter() - start) * 1000, 1))
             metrics["llm_calls"] += 1
+            metrics["undelivered"] = 0  # this request carried every result so far
             if response.usage is not None:
                 metrics["input_tokens"] += response.usage.input_tokens or 0
                 metrics["output_tokens"] += response.usage.output_tokens or 0
@@ -132,14 +134,16 @@ class OpenAIAgent:
                 metrics["stop"] = "answered"
                 return
             previous_id = response.id
-            new_input = [
-                {
-                    "type": "function_call_output",
-                    "call_id": c.call_id,
-                    "output": await _run_tool(c, call),
-                }
-                for c in calls
-            ]
+            new_input = []
+            for c in calls:
+                output = await _run_tool(c, call)
+                new_input.append(
+                    {"type": "function_call_output", "call_id": c.call_id, "output": output}
+                )
+                # Executed, not yet seen by the model. Counted as each call completes, so
+                # the count is right however the run ends: the turn limit, a failing call
+                # later in the batch, or a failed next request (Codex reviews, PR #28).
+                metrics["undelivered"] += 1
 
 
 async def _run_tool(fc: Any, call: Any) -> str:

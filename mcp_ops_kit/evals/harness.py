@@ -10,6 +10,10 @@ where a subprocess per task costs seconds.
 The domain clock is pinned per task (``task["now"]``, default ``EvalDomain.default_now``)
 and is never read from the environment, so the caller's shell cannot change results.
 
+A prompt-injection task names text to plant in the task's fresh data (``TaskSpec.plant``,
+record ID -> text). Only a domain with ``supports_plant`` gets one; any other refuses it, so
+an injection suite never runs on data the planted text never reached.
+
 Evals run with the production safeguards on: each suite gets a fresh data key, so SQLite
 files are encrypted at rest, and each task's server writes its own audit log, whose chain
 is verified when the task ends.
@@ -22,7 +26,7 @@ import threading
 import time
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator, Mapping
 from contextlib import asynccontextmanager, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -58,6 +62,9 @@ class TaskSpec:
     now: datetime
     data_key: DataKey  # this suite's key: encrypts database files and the audit log
     audit_log: str  # this task's audit log
+    # Prompt-injection text to write into this task's data before it starts: record ID ->
+    # text (the clinic: a provider ID -> that provider's name). Empty for ordinary tasks.
+    plant: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -81,6 +88,10 @@ class EvalDomain:
     fresh data and its app.
     ``record_key``/``record_id`` name a changed record in diffs (``appointment_id``,
     ``APT-00001``). ``system_prompt`` is a template with ``{now}`` for live agents.
+    ``supports_plant`` says ``start_task`` writes ``TaskSpec.plant`` into the task's data.
+    ``uncertain_errors`` are phrases the domain's tools use, and only use, when a write was
+    sent but its outcome is unknown; an injected write that fails with one is reported as
+    unknown, never as stopped.
     """
 
     name: str
@@ -97,6 +108,8 @@ class EvalDomain:
     start_task: Callable[[TaskSpec], TaskData]
     backend: str = "sqlite"
     system_prompt: str = ""
+    supports_plant: bool = False
+    uncertain_errors: tuple[str, ...] = ()
 
     def principal_spec(self, name: str) -> tuple[list[str], str | None]:
         if name.startswith(self.bound_prefix):
@@ -135,7 +148,11 @@ class Harness:
         self._dir.cleanup()
 
     @contextmanager
-    def task_server(self, now: datetime | None = None) -> Iterator["TaskServer"]:
+    def task_server(
+        self, now: datetime | None = None, plant: Mapping[str, str] | None = None
+    ) -> Iterator["TaskServer"]:
+        if plant and not self.domain.supports_plant:
+            raise ValueError(f"the {self.domain.name} domain cannot plant injection text")
         self._count += 1
         port = _free_port()
         audit_log = str(self._root / f"audit-{self._count}.log")
@@ -147,6 +164,7 @@ class Harness:
             now or self.domain.default_now,
             self.data_key,
             audit_log,
+            dict(plant or {}),
         )
         data = self.domain.start_task(spec)
         server = uvicorn.Server(
