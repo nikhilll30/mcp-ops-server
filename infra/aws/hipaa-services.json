@@ -1,8 +1,8 @@
 {
   "about": "Every AWS resource and data source type in this blueprint, mapped to the AWS service it belongs to. scripts/check_infra.py fails CI on any type not listed here, and on any forbidden type. HIPAA eligibility is AWS's list, not this file: an adopter must check the live page under their own BAA before storing PHI.",
   "source": "https://aws.amazon.com/compliance/hipaa-eligible-services-reference/",
-  "checked_on": "2026-10-21",
-  "how_checked": "The AWS page was unreachable from the build session (egress policy), so it was checked through web search. 'official' means an excerpt of the AWS page itself named the service; 'secondary' means only third-party copies or guides did; 'unverified' means no source seen in this session named it. Re-check every entry against the live page.",
+  "checked_on": "2026-10-22",
+  "how_checked": "2026-10-21: the AWS page was unreachable from the build session (egress policy), so entries were first checked through web search. 2026-10-22: every eligible entry was checked against the live page (its 'Last Updated: October 15, 2026'), read by the owner's browsing agent because the build session still cannot reach aws.amazon.com; all 12 are listed there. 'official' means the AWS page itself names the service. Re-check every entry against the live page before relying on it.",
   "services": {
     "Amazon ECS": {"status": "eligible", "evidence": "official"},
     "AWS Fargate": {"status": "eligible", "evidence": "official", "note": "listed for the ECS and EKS engines; this blueprint runs ECS on Fargate"},
@@ -11,11 +11,11 @@
     "Elastic Load Balancing": {"status": "eligible", "evidence": "official"},
     "AWS WAF": {"status": "eligible", "evidence": "official"},
     "AWS KMS": {"status": "eligible", "evidence": "official"},
-    "AWS Secrets Manager": {"status": "eligible", "evidence": "secondary"},
-    "Amazon CloudWatch Logs": {"status": "eligible", "evidence": "secondary"},
-    "Amazon VPC": {"status": "eligible", "evidence": "secondary"},
-    "AWS Backup": {"status": "eligible", "evidence": "secondary"},
-    "Amazon S3": {"status": "eligible", "evidence": "unverified", "note": "holds load balancer access logs only (IPs, paths, status codes; never request bodies)"},
+    "AWS Secrets Manager": {"status": "eligible", "evidence": "official"},
+    "Amazon CloudWatch Logs": {"status": "eligible", "evidence": "official"},
+    "Amazon VPC": {"status": "eligible", "evidence": "official"},
+    "AWS Backup": {"status": "eligible", "evidence": "official"},
+    "Amazon S3": {"status": "eligible", "evidence": "official", "note": "holds load balancer access logs only (IPs, paths, status codes; never request bodies)"},
     "AWS IAM": {"status": "no-phi", "reason": "roles and policies only; IAM stores no customer content"},
     "Account metadata": {"status": "no-phi", "reason": "read-only lookups of the account ID, partition and region"}
   },
