@@ -1218,7 +1218,7 @@ def part12() -> list:
     return [
         Paragraph("Part 12 Brief · Evals at scale: pass^k and prompt injection", title),
         Paragraph(
-            "mcp-ops-server · 22 Oct 2026 · PR #28 · Status: open; Bugbot (1) and two Codex passes (1x P1, 9x P2) fixed · live numbers wait on your run",
+            "mcp-ops-server · 22 Oct 2026 · PR #28 · Status: merged; kit 0.2.0 on PyPI; Bugbot (1) and two Codex passes (1x P1, 9x P2) fixed",
             sub,
         ),
         Spacer(1, 4),
@@ -1291,10 +1291,12 @@ def part12() -> list:
             'separately, so the number says whether the model resisted or the server saved it."',
             body,
         ),
-        section("Next (your actions)"),
+        section("Live results (5 runs per task, $2.95 in total)"),
         Paragraph(
-            "Merge PR #28 when green, then tag <b>kit-v0.2.0</b>. Live runs (Actions &gt; Live evals; "
-            "about $2.30 in total, an upper bound from the Part 5 costs): Luna and Sol, golden with repeats 5, then injection with repeats 5.",
+            "Golden: both models passed 29/31 tasks in every run (pass^1 Luna 0.955, Sol 0.961; pass^5 0.935). Each "
+            "miss is consistent: Sol stops after a clash in f01 in 5/5 runs (my ambiguous prompt rule), and Luna over-calls "
+            "on k01 in 5/5. Injection: 6/6 tasks, 30/30 runs each; no planted instruction followed in 60 exposed runs. "
+            "Next, your call: reword the prompt rule and re-run (about $2.60).",
             body,
         ),
     ]
