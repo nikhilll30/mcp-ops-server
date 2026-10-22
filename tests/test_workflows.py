@@ -284,3 +284,15 @@ def test_live_eval_inputs_reach_the_script_only_through_env() -> None:
     for name in ("suite", "repeats", "model", "tasks"):
         assert f"${{{{ inputs.{name} }}}}" in job, name
     assert '--suite "$SUITE" --repeats "$REPEATS"' in scripts
+
+
+def test_a_live_run_at_the_most_repeats_gets_the_longest_job_timeout() -> None:
+    """Cursor Bugbot, PR #28: at 30 minutes, a 5-repeat run of the golden suite could time
+    out and lose every paid run (the report is written at the end). The largest run the CLI
+    accepts, 31 tasks x MAX_REPEATS at Part 5's p99 task latency (36 s), needs about 6 hours,
+    so the job gets GitHub's maximum for a hosted runner."""
+    from mcp_ops_kit.evals.run import MAX_REPEATS
+
+    live = _code((ROOT / ".github" / "workflows" / "live-evals.yml").read_text())
+    assert MAX_REPEATS == 20  # revisit the timeout if the cap changes
+    assert re.search(r"^    timeout-minutes: 360$", live, re.M)

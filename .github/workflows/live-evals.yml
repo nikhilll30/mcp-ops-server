@@ -58,7 +58,11 @@ concurrency:
 jobs:
   live:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The report is written only when every run has finished, so a timeout throws away the
+    # paid runs. 31 tasks x 20 repeats at Part 5's p99 task latency (36 s) is about 6 hours,
+    # so the limit is GitHub's maximum for a hosted runner; spend stays capped by the OpenAI
+    # project's hard limit (Cursor Bugbot, PR #28: it was 30 minutes).
+    timeout-minutes: 360
     environment: live-evals
     steps:
       - name: Only main runs live evals
