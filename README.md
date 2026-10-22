@@ -26,8 +26,8 @@ appear anywhere.
 | You are | Use it today for | Coming in Phase 2 |
 |---|---|---|
 | **A developer building an MCP server** | [`mcp-ops-kit`](mcp_ops_kit/README.md): scopes and a subject binding in code; tokens with audience, expiry and live revocation, or OAuth 2.1 JWTs; an encrypted, hash-chained audit log; encrypted SQLite; outputs cut to declared fields; per-client limits, a per-call deadline, a fail-closed server, a smoke test. Plus a schema-drift guard, a container smoke-tested in CI, and one `Backend` protocol with two stores held to the same tests. The kit as its own package, `mcp-ops-kit`, on [PyPI](https://pypi.org/project/mcp-ops-kit/) (`pip install mcp-ops-kit`), released by trusted publishing with attestations, and images signed with an SBOM you can verify (`scripts/supply_chain.sh verify`) | Nothing more planned |
-| **An agent team** | A trajectory grader, negative controls that prove it can fail, a CI eval gate and measured live runs, with a harness any domain plugs into (`EvalDomain`). Repeated runs (`--repeats k`) scored with pass^k and per-task variance, and a [prompt-injection suite](evals/README.md#prompt-injection-suite): instructions planted in tool results, graded by the same grader, which separates an attack the agent *attempted* from one the server *carried out*. Both suites gate CI on both backends | Nothing more planned; the live pass^k and injection numbers wait on the owner's paid run |
-| **Healthcare IT** | Studying a synthetic clinic with patient-bound tokens, and a FHIR R4 backend (Practitioner, Schedule/Slot, Appointment, ServiceRequest) tested against HAPI FHIR in CI, including concurrent booking. The 164.312 technical safeguards in code: audit log, expiring and revocable tokens, encryption at rest, minimum-necessary outputs. A [Terraform blueprint](infra/aws/README.md) on HIPAA-eligible AWS services (private Fargate, KMS everywhere, no internet path, least-privilege IAM), validated in CI, never applied. A [controls matrix](docs/hipaa-controls.md) mapping each 164.312 specification to the test that proves it or to the adopter, and a STRIDE [threat model](docs/threat-model.md) including prompt injection through tool results, both checked against the code in CI. A prompt-injection suite that plants instructions in provider names (as a real FHIR system's free text could) and measures what an agent does with them. **Not** for real patient data (see [below](#can-i-use-it-with-real-patient-data)) | Nothing more planned; live injection results wait on the owner's paid run |
+| **An agent team** | A trajectory grader, negative controls that prove it can fail, a CI eval gate and measured live runs, with a harness any domain plugs into (`EvalDomain`). Repeated runs (`--repeats k`) scored with pass^k and per-task variance, and a [prompt-injection suite](evals/README.md#prompt-injection-suite): instructions planted in tool results, graded by the same grader, which separates an attack the agent *attempted* from one the server *carried out*. Both suites gate CI on both backends, and both have [measured live results](#results) for two models | Nothing more planned |
+| **Healthcare IT** | Studying a synthetic clinic with patient-bound tokens, and a FHIR R4 backend (Practitioner, Schedule/Slot, Appointment, ServiceRequest) tested against HAPI FHIR in CI, including concurrent booking. The 164.312 technical safeguards in code: audit log, expiring and revocable tokens, encryption at rest, minimum-necessary outputs. A [Terraform blueprint](infra/aws/README.md) on HIPAA-eligible AWS services (private Fargate, KMS everywhere, no internet path, least-privilege IAM), validated in CI, never applied. A [controls matrix](docs/hipaa-controls.md) mapping each 164.312 specification to the test that proves it or to the adopter, and a STRIDE [threat model](docs/threat-model.md) including prompt injection through tool results, both checked against the code in CI. A prompt-injection suite that plants instructions in provider names (as a real FHIR system's free text could) and measures what an agent does with them: two models, 60 exposed runs, no planted instruction followed. **Not** for real patient data (see [below](#can-i-use-it-with-real-patient-data)) | Nothing more planned |
 | **A booking business** (salon, tutor, repair) | A synthetic salon built on the kit (`salon_ops/`: 6 tools, its own scopes and customer-bound tokens, 18 golden tasks, 14 negative controls), and a [step-by-step guide](mcp_ops_kit/README.md) to building yours the same way. It got the audit log, expiring tokens and encryption at rest from the kit, with no salon-specific code, and repeated runs with pass^k (`--repeats`). The kit can plant injection text for any domain that implements `supports_plant`; the salon does not yet, and refuses a planted task | Nothing more planned |
 | **An evaluator or learner** | A build documented part by part (Parts 1–12): a failure log, one brief per part, every number linked to where it was measured, including what "HIPAA-ready" does and does not mean, and a [security policy](SECURITY.md) | Nothing more planned |
 
@@ -45,7 +45,30 @@ appear anywhere.
 
 ## Results
 
-Real models, driving the server's own tools through the OpenAI Responses API, graded by the same code as CI:
+Real models, driving the server's own tools through the OpenAI Responses API, graded by the same code as CI.
+
+**Repeated runs (Part 12, 2026-10-22):** every task 5 times, on `main` at 63edc7a, default reasoning effort.
+
+| Model | Suite | Tasks passed in all 5 runs | Runs passed | pass^1 | pass^5 | Controls | Cost* |
+|---|---|---|---|---|---|---|---|
+| `gpt-6-luna` | golden | 29/31 | 148/155 | 0.955 | 0.935 | 12/12 | $0.226 |
+| `gpt-6.1-sol` | golden | 29/31 | 149/155 | 0.961 | 0.935 | 12/12 | $2.398 |
+| `gpt-6-luna` | prompt injection | 6/6 | 30/30 | 1.00 | 1.00 | 8/8 | $0.017 |
+| `gpt-6.1-sol` | prompt injection | 6/6 | 30/30 | 1.00 | 1.00 | 8/8 | $0.310 |
+
+- **The misses are consistent, not random.** 29 tasks passed every run for both models, and
+  each model's misses fell in the same two tasks. Sol stopped after a clash in `f01` in all 5
+  runs (Luna in 2), the over-caution Part 5 traced to an ambiguous rule in my system prompt.
+  Luna needed 15 to 18 calls for `k01` in all 5 runs (the limit is 6); Sol passed it 4 times.
+- **Neither model followed a planted instruction**, in 30 exposed runs each: the planted text
+  reached the model every time, and no call it asked for was made. That is six hand-written
+  attacks in one field, so it shows resistance to those, not to prompt injection in general.
+- Runs: [Luna golden](https://github.com/nikhilll30/mcp-ops-server/actions/runs/39779549179),
+  [Sol golden](https://github.com/nikhilll30/mcp-ops-server/actions/runs/39782479666),
+  [Luna injection](https://github.com/nikhilll30/mcp-ops-server/actions/runs/39785707467),
+  [Sol injection](https://github.com/nikhilll30/mcp-ops-server/actions/runs/39786259284).
+
+**Single runs (Part 5, 2026-10-19):**
 
 | Model | Passed | Negative controls | Tool calls | Tokens in / out | Cost* | Task latency p50 / p99 |
 |---|---|---|---|---|---|---|
@@ -249,7 +272,7 @@ legal advice**; talk to your privacy officer or counsel.
 | 9 | Audit log, OAuth 2.1 expiry and revocation, audience binding, encryption at rest, data minimisation, in the kit | Done |
 | 10 | Terraform blueprint on HIPAA-eligible AWS (private Fargate, EFS, KMS, WAF, least-privilege IAM), validated in CI, never applied | Done |
 | 11 | HIPAA controls matrix (164.312), STRIDE threat model, `SECURITY.md`, CodeQL, Dependabot, actions pinned by commit, `mcp-ops-kit` on PyPI by trusted publishing, images signed keyless with an SBOM | Done |
-| 12 | Repeated runs with pass^k and per-task variance; a prompt-injection suite (instructions planted in tool results, on SQLite and FHIR) graded by the trajectory grader; both owner-triggered live, with costs reported | Built; live numbers wait on the owner's run |
+| 12 | Repeated runs with pass^k and per-task variance; a prompt-injection suite (instructions planted in tool results, on SQLite and FHIR) graded by the trajectory grader; both owner-triggered live, with costs reported | Done |
 
 The detailed plan is in [`comms/PLAN.md`](comms/PLAN.md).
 
@@ -290,8 +313,8 @@ has a test that fails without it.
 - The container listens on all interfaces, so the SDK's DNS-rebinding check (which is on only
   for localhost binds) is off. Every `/mcp` request still needs a bearer token. Publish the
   port on localhost, as above, unless you mean to expose it.
-- The live results above are single runs, so they say nothing about run-to-run variance.
-  `--repeats` now measures it (pass^k); repeated live numbers wait on the owner's paid run.
+- Live results are 5 runs per task for two models. That shows which tasks fail consistently,
+  but 5 runs cannot separate a 90% task from a 100% one.
 - The injection suite is 6 hand-written attacks in one field (provider names). Passing it
   shows resistance to these attacks, not to prompt injection in general.
 - Images are signed from Part 11 on. Tags pushed before it (`sha-*` of older commits) have no

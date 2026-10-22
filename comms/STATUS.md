@@ -18,7 +18,7 @@
 | 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation, audience binding | done (PR #20 merged) | docs/briefs/part-9-safeguards.pdf |
 | 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | done (PR #22 merged) | docs/briefs/part-10-terraform.pdf |
 | 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | done (PR #24 merged; kit 0.1.0 on PyPI) | docs/briefs/part-11-assurance.pdf |
-| 12 Repeated live runs, pass^k, prompt-injection suite | **in review** (PR #28); live runs wait on the owner | docs/briefs/part-12-evals-at-scale.pdf |
+| 12 Repeated live runs, pass^k, prompt-injection suite | done (PR #28 merged; kit 0.2.0 on PyPI; live results in) | docs/briefs/part-12-evals-at-scale.pdf |
 
 ## Tasks
 | # | Task | Built by | State | PR |
@@ -36,7 +36,7 @@
 | 009 | Safeguards in the kit: tokens v2 + audience, OAuth JWTs, audit log, encryption at rest, minimisation | Claude | merged | #20 |
 | 010 | Terraform blueprint (infra/aws), CI terraform job, check_infra.py, hardened container run | Claude | merged | #22 |
 | 011 | Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, pinned actions, kit packaging + release, signed images with an SBOM | Claude | merged | #24 |
-| 012 | Repeated runs with pass^k, prompt-injection suite (SQLite + FHIR), live workflow inputs, kit 0.2.0 | Claude | in review | #28 |
+| 012 | Repeated runs with pass^k, prompt-injection suite (SQLite + FHIR), live workflow inputs, kit 0.2.0 | Claude | merged | #28 |
 
 ## Workflow
 Claude builds each part in a fresh Claude Code session (rules in `CLAUDE.md`); Codex reviews each
@@ -430,7 +430,7 @@ embarrass this repo once public. List findings as P0/P1/P2 with file and line. D
 code.
 ```
 
-## Part 12 (in review, PR #28)
+## Part 12 (done, PR #28 merged 2026-10-22)
 Built on branch `claude/zen-turing-1efa44` (the branch this session was assigned). The owner's
 "start the next part" on 2026-10-22 was the go. Details: `evals/README.md` (sections "Repeated
 runs and pass^k" and "Prompt-injection suite").
@@ -492,14 +492,17 @@ quality and anything that would embarrass this repo once public. List findings a
 with file and line. Do not change code.
 ```
 
-## Next action: owner
-1. (Done: two Codex passes, all findings fixed.)
-2. Merge PR #28 when CI is green. Then `git tag kit-v0.2.0 <merge commit> && git push origin kit-v0.2.0`
-   and approve the `pypi` deployment.
-3. Live runs (Actions > Live evals > Run workflow, on `main`; prices as in Part 5). About $2.30
-   in total, an upper bound from Part 5's per-run costs:
-   - `gpt-6-luna`, suite `golden`, repeats `5`, price 0.10 / 0.50
-   - `gpt-6.1-sol`, suite `golden`, repeats `5`, price 2 / 10
-   - both models, suite `injection`, repeats `5`
-   Then share the run links (or the `live-results.json` artifacts), and I add the pass^k and
-   injection tables to the README, evals/README and threat model E2.
+### After the merge (2026-10-22)
+- **Merge:** PR #28 was merged by the owner as merge commit 63edc7a. CI run 39778592735 passed all 9 jobs, publish included.
+- **Release:** kit-v0.2.0, release run 39779287388. The owner approved the `pypi` deployment. **mcp-ops-kit 0.2.0 is on PyPI.**
+- **Live runs:** 5 repeats each, on 63edc7a. Results are in `evals/README.md` and the README:
+  - golden suite: 29/31 tasks passed every run for both models. Luna had pass^1 0.955 and Sol 0.961; pass^5 was 0.935 for both.
+  - injection suite: 6/6 tasks and 30/30 runs for both models. No planted instruction was followed.
+  - total cost: $2.95 (upper bound).
+- **Checked by me:** the headline lines in the job logs. The per-task tables came from the reports, as extracted by the owner; every derived figure was recomputed and matched.
+
+## Phase 2 is complete
+All twelve parts are done. Open, owner's call (not blocking):
+- **Reword the system prompt's "slot taken" rule.** The repeated runs confirm it: Sol stops after the clash in `f01` in 5 of 5 runs. Rewording it means re-running both models (about $2.60 for the golden suite at 5 repeats).
+- **Add release notes for kit-v0.2.0** on the release page.
+- Check `infra/aws/hipaa-services.json` against AWS's live list (from Part 10).
