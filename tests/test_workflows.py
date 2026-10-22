@@ -262,3 +262,25 @@ def test_dependabot_reads_every_requirements_file_ci_installs() -> None:
     assert used
     for path in used:
         assert path.endswith("/requirements.txt") and f'"/{path.rsplit("/", 1)[0]}"' in pip, path
+
+
+def test_the_injection_suite_gates_every_push_on_both_backends() -> None:
+    """Part 12: the prompt-injection suite is part of the free replay gate, on SQLite in the
+    evals job and on FHIR in the fhir job (backend parity), not only a paid live run."""
+    jobs = _jobs(_code((ROOT / ".github" / "workflows" / "ci.yml").read_text()))
+    assert "python -m evals.run --suite injection" in jobs["evals"]
+    fhir_steps = jobs["fhir"].split("- name: ")
+    assert any("--suite injection --backend fhir" in step for step in fhir_steps)
+
+
+def test_live_eval_inputs_reach_the_script_only_through_env() -> None:
+    """Inputs are text anyone dispatching the workflow controls: interpolated into a run
+    script they could inject shell. The new suite and repeats inputs follow the rule."""
+    live = _code((ROOT / ".github" / "workflows" / "live-evals.yml").read_text())
+    (job,) = _jobs(live).values()
+    runs = re.findall(r"run: [|>]?\n((?:\s{10,}.*\n)+)|run: (.*)\n", job)
+    scripts = "\n".join(a or b for a, b in runs)
+    assert "${{" not in scripts
+    for name in ("suite", "repeats", "model", "tasks"):
+        assert f"${{{{ inputs.{name} }}}}" in job, name
+    assert '--suite "$SUITE" --repeats "$REPEATS"' in scripts

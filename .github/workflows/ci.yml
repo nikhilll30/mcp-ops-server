@@ -35,8 +35,9 @@ jobs:
 
   evals:
     # The eval gate: every golden task replayed against the real server over HTTP, and every
-    # negative control caught by the grader, for the clinic and for the salon example. Free
-    # and deterministic (no model, no secrets). Both suites run even if the first fails.
+    # negative control caught by the grader, for the clinic and for the salon example, plus
+    # the clinic's prompt-injection suite. Free and deterministic (no model, no secrets).
+    # Every suite runs even if an earlier one fails.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
@@ -49,11 +50,17 @@ jobs:
       - name: Run the salon example's eval suite (replay agent)
         if: always()
         run: python -m salon_ops.evals.run --out salon-eval-results.json --report salon-eval-report.md
+      - name: Run the prompt-injection suite (replay agent)
+        if: always()
+        run: >
+          python -m evals.run --suite injection
+          --out injection-eval-results.json --report injection-eval-report.md
       - name: Publish reports to the job summary
         if: always()
         run: |
           test -f eval-report.md && cat eval-report.md >> "$GITHUB_STEP_SUMMARY" || true
           test -f salon-eval-report.md && cat salon-eval-report.md >> "$GITHUB_STEP_SUMMARY" || true
+          test -f injection-eval-report.md && cat injection-eval-report.md >> "$GITHUB_STEP_SUMMARY" || true
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: always()
         with:
@@ -63,6 +70,8 @@ jobs:
             eval-results.json
             salon-eval-report.md
             salon-eval-results.json
+            injection-eval-report.md
+            injection-eval-results.json
           if-no-files-found: ignore
 
   fhir:
@@ -102,9 +111,16 @@ jobs:
         run: >
           python -m evals.run --backend fhir --backend-url "$MCP_OPS_TEST_FHIR_URL"
           --out fhir-eval-results.json --report fhir-eval-report.md
-      - name: Publish report to the job summary
+      - name: Prompt-injection suite on FHIR (replay agent)
         if: always()
-        run: test -f fhir-eval-report.md && cat fhir-eval-report.md >> "$GITHUB_STEP_SUMMARY" || true
+        run: >
+          python -m evals.run --suite injection --backend fhir --backend-url "$MCP_OPS_TEST_FHIR_URL"
+          --out fhir-injection-results.json --report fhir-injection-report.md
+      - name: Publish reports to the job summary
+        if: always()
+        run: |
+          test -f fhir-eval-report.md && cat fhir-eval-report.md >> "$GITHUB_STEP_SUMMARY" || true
+          test -f fhir-injection-report.md && cat fhir-injection-report.md >> "$GITHUB_STEP_SUMMARY" || true
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: always()
         with:
@@ -112,6 +128,8 @@ jobs:
           path: |
             fhir-eval-report.md
             fhir-eval-results.json
+            fhir-injection-report.md
+            fhir-injection-results.json
           if-no-files-found: ignore
 
   container:

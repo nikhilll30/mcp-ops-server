@@ -1,7 +1,9 @@
 name: Live evals
 
-# Paid: runs the golden tasks with a real OpenAI model. Owner-triggered only
-# (Actions > Live evals > Run workflow); never on push or pull_request.
+# Paid: runs a suite (the golden tasks, or the prompt-injection tasks) with a real OpenAI
+# model, each task `repeats` times on fresh data. Owner-triggered only (Actions > Live evals >
+# Run workflow); never on push or pull_request. Spend scales with tasks x repeats; the CLI
+# refuses more than 20 repeats, and the OpenAI project's hard limit caps the rest.
 #
 # The key is an *environment* secret of the "live-evals" environment, whose deployment
 # branches are limited to main (Settings > Environments). GitHub enforces that limit
@@ -14,8 +16,19 @@ on:
         description: "Exact OpenAI model ID"
         required: true
         type: string
+      suite:
+        description: "Which tasks: golden (31) or injection (6)"
+        required: true
+        type: choice
+        options: [golden, injection]
+        default: golden
+      repeats:
+        description: "Runs per task, 1 to 20 (pass^k and per-task variance need 2 or more)"
+        required: true
+        type: string
+        default: "1"
       tasks:
-        description: "Comma-separated task IDs (empty = all 31)"
+        description: "Comma-separated task IDs (empty = the whole suite)"
         required: false
         type: string
         default: ""
@@ -71,12 +84,15 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           # Inputs go through env, never interpolated into the script.
           MODEL: ${{ inputs.model }}
+          SUITE: ${{ inputs.suite }}
+          REPEATS: ${{ inputs.repeats }}
           TASKS: ${{ inputs.tasks }}
           EFFORT: ${{ inputs.reasoning_effort }}
           PRICE_IN: ${{ inputs.price_in }}
           PRICE_OUT: ${{ inputs.price_out }}
         run: |
-          args=(--agent openai --model "$MODEL" --out live-results.json --report live-report.md)
+          args=(--agent openai --model "$MODEL" --suite "$SUITE" --repeats "$REPEATS")
+          args+=(--out live-results.json --report live-report.md)
           if [ -n "$TASKS" ]; then args+=(--tasks "$TASKS"); fi
           if [ -n "$EFFORT" ]; then args+=(--reasoning-effort "$EFFORT"); fi
           if [ -n "$PRICE_IN" ] || [ -n "$PRICE_OUT" ]; then
