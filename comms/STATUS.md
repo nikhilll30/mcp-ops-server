@@ -503,8 +503,8 @@ with file and line. Do not change code.
 - **Checked by me:** the headline lines in the job logs. The per-task tables came from the reports, as extracted by the owner; every derived figure was recomputed and matched.
 
 ## Phase 2 is complete
-All twelve parts are done. Open, owner's call (not blocking):
-- **Reword the system prompt's "slot taken" rule.** The repeated runs confirm it: Sol stops after the clash in `f01` in 5 of 5 runs. Rewording it means re-running both models (about $2.60 for the golden suite at 5 repeats).
+All twelve parts are done. Nothing is open. Decisions and follow-ups:
+- **Decided 2026-10-22 (owner): the system prompt's "slot taken" rule stays as it is.** The repeated runs confirm the ambiguity (Sol stops after the clash in `f01` in 5 of 5 runs), and it is documented in FAILURES.md and the README. Rewording the prompt until a model passes would tune it to the eval, and would break the like-for-like comparison with the Part 5 runs. It stays an option for later (about $2.60 to re-run the golden suite at 5 repeats).
 - Done 2026-10-22: kit-v0.2.0 release notes added (by the owner's agent; read back by me).
 - Done 2026-10-22: `infra/aws/hipaa-services.json` checked against AWS's live page (last updated
   2026-10-15), read by the owner's browsing agent since this session cannot reach
