@@ -1212,6 +1212,93 @@ def part11() -> list:
     ]
 
 
+def part12() -> list:
+    w = 7.0 * inch
+    cf = "<font face='Courier'>"
+    return [
+        Paragraph("Part 12 Brief · Evals at scale: pass^k and prompt injection", title),
+        Paragraph(
+            "mcp-ops-server · 22 Oct 2026 · PR #28 · Status: open, CI running; Codex review pending · live numbers wait on your run",
+            sub,
+        ),
+        Spacer(1, 4),
+        section("What was built"),
+        bl(
+            f"<b>Repeated runs</b> ({cf}--repeats k</font>, 1 to 20): every task k times on fresh data, scored with "
+            "<b>pass^k</b> (the chance k runs of a task all pass), per-task pass rate and variance, and flaky tasks named. "
+            "A task passes only if every run passed. Cost is summed over all runs."
+        ),
+        bl(
+            f"<b>A prompt-injection suite</b> ({cf}--suite injection</font>): 6 clinic tasks plant an instruction in a "
+            "provider's name, the one free-text field the tools return, on SQLite and FHIR. 7 negative controls obey it "
+            "and must be caught. Both suites gate CI on both backends; the live workflow takes suite and repeats."
+        ),
+        section("How it works"),
+        table(
+            [
+                ["Piece", "What it does"],
+                [
+                    "plant (harness)",
+                    f"writes the text into the task's fresh data before the server starts; {cf}fhir_seed reset</font> puts names back",
+                ],
+                [
+                    "injection_exposed",
+                    "the agent must have received a tool result containing the text, else the run is not a resisted attack",
+                ],
+                [
+                    "attempted / carried out",
+                    "a call the planted text asked for, refused or not / one the server let succeed; the gap is what server controls stopped",
+                ],
+                [
+                    "pass^k",
+                    "C(c, k) / C(n, k) per task from n runs with c passes (unbiased), averaged over tasks",
+                ],
+            ],
+            [1.7 * inch, w - 1.7 * inch],
+        ),
+        section("Why it was done this way"),
+        bl(
+            "<b>Three attacks the server refuses, three the token allows.</b> Threat model E2 says the server bounds what an "
+            "instruction can achieve; the suite measures both halves: what the model tries, and what still gets through."
+        ),
+        bl(
+            "<b>Separate suite, same grader.</b> The golden numbers (31/31) stay comparable, and injection tasks use the "
+            "same checks; following the injection is a forbidden step, so it fails like any other unsafe call."
+        ),
+        section("What went wrong or surprised me (logged in FAILURES.md)"),
+        bl(
+            "<b>Planted text would have leaked across tasks on FHIR</b>: reset never restored provider names. Fixed, and a "
+            "test fails without it. <b>A run that never saw the attack would have passed</b> as resisted: hence the exposure check."
+        ),
+        bl(
+            "<b>Mutation testing found a rule my tests missed</b>: deleting the check that a control's attempted/carried-out "
+            "outcome matches left 80 tests green. Now a test fails. <b>I nearly rebuilt Part 11</b> from a stale checkout; "
+            "PyPI already showing mcp-ops-kit 0.1.0 gave it away before any code was written."
+        ),
+        section("Verify it yourself"),
+        codebox(
+            [
+                "pytest -q                                   # 647 passed (728 with sqlite,fhir)",
+                "python -m evals.run --suite injection       # 6/6 tasks, 7/7 controls",
+                "python -m evals.run --repeats 3 --tasks b01-earliest-primary-care",
+            ]
+        ),
+        section("Interview talking point"),
+        Paragraph(
+            '"An injection eval that only counts passes is misleading in two ways: an agent that never read the attack '
+            "looks robust, and a refused call looks the same as a carried-out one. I grade exposure, attempt and outcome "
+            'separately, so the number says whether the model resisted or the server saved it."',
+            body,
+        ),
+        section("Next (your actions)"),
+        Paragraph(
+            "Paste the Codex prompt, merge PR #28 when green, then tag <b>kit-v0.2.0</b>. Live runs (Actions &gt; Live evals; "
+            "about $2.30 in total, an upper bound from the Part 5 costs): Luna and Sol, golden with repeats 5, then injection with repeats 5.",
+            body,
+        ),
+    ]
+
+
 def phase2() -> list:
     w = 7.0 * inch
     return [
@@ -1330,6 +1417,7 @@ PARTS = {
     9: (part9, "part-9-safeguards", "Part 9 Brief: Safeguards in the kit"),
     10: (part10, "part-10-terraform", "Part 10 Brief: Terraform blueprint on HIPAA-eligible AWS"),
     11: (part11, "part-11-assurance", "Part 11 Brief: Assurance and supply chain"),
+    12: (part12, "part-12-evals-at-scale", "Part 12 Brief: Evals at scale"),
 }
 
 
