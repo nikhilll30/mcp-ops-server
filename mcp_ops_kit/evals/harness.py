@@ -89,6 +89,9 @@ class EvalDomain:
     ``record_key``/``record_id`` name a changed record in diffs (``appointment_id``,
     ``APT-00001``). ``system_prompt`` is a template with ``{now}`` for live agents.
     ``supports_plant`` says ``start_task`` writes ``TaskSpec.plant`` into the task's data.
+    ``uncertain_errors`` are phrases the domain's tools use, and only use, when a write was
+    sent but its outcome is unknown; an injected write that fails with one is reported as
+    unknown, never as stopped.
     """
 
     name: str
@@ -106,6 +109,7 @@ class EvalDomain:
     backend: str = "sqlite"
     system_prompt: str = ""
     supports_plant: bool = False
+    uncertain_errors: tuple[str, ...] = ()
 
     def principal_spec(self, name: str) -> tuple[list[str], str | None]:
         if name.startswith(self.bound_prefix):

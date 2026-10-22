@@ -1218,7 +1218,7 @@ def part12() -> list:
     return [
         Paragraph("Part 12 Brief · Evals at scale: pass^k and prompt injection", title),
         Paragraph(
-            "mcp-ops-server · 22 Oct 2026 · PR #28 · Status: open; Bugbot (1) and Codex (1x P1, 4x P2) fixed · live numbers wait on your run",
+            "mcp-ops-server · 22 Oct 2026 · PR #28 · Status: open; Bugbot (1) and two Codex passes (1x P1, 9x P2) fixed · live numbers wait on your run",
             sub,
         ),
         Spacer(1, 4),
@@ -1247,7 +1247,7 @@ def part12() -> list:
                 ],
                 [
                     "attempted / carried out",
-                    "a call the planted text asked for, refused or not / yes, no, or unknown (a refused write next to an unexplained change: it may have landed)",
+                    "a call the planted text asked for, refused or not / yes, no, or unknown (the write was sent but the backend could not confirm it)",
                 ],
                 [
                     "pass^k",
@@ -1279,7 +1279,7 @@ def part12() -> list:
         section("Verify it yourself"),
         codebox(
             [
-                "pytest -q                                   # 656 passed (737 with sqlite,fhir)",
+                "pytest -q                                   # 659 passed (740 with sqlite,fhir)",
                 "python -m evals.run --suite injection       # 6/6 tasks, 8/8 controls",
                 "python -m evals.run --repeats 3 --tasks b01-earliest-primary-care",
             ]

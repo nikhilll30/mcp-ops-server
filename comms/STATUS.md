@@ -469,6 +469,13 @@ gate correct.
 - After the fixes: `pytest -q` 656 passed; `sqlite,fhir` 737 passed; FHIR gates 31/31,
   12/12 and 6/6, 8/8.
 
+Codex second review (of 9cbae0f, 2026-10-22): 5x P2 in the first fixes, all reproduced and
+fixed (FAILURES.md). The attack outcome now comes from the calls' own answers (the backend's
+"may or may not" error means unknown), not from the state diff, which closes 3 of them.
+Undelivered results are counted as calls complete, so error paths are covered. Exposure is
+computed independently of the grade. After the fixes: `pytest -q` 659 passed; `sqlite,fhir`
+740 passed.
+
 Codex prompt for Part 12:
 ```
 Review PR #28 in nikhilll30/mcp-ops-server (branch claude/zen-turing-1efa44) as a senior
@@ -486,7 +493,7 @@ with file and line. Do not change code.
 ```
 
 ## Next action: owner
-1. (Done: Codex review, all fixed.) Optional: a second Codex pass on the fixes.
+1. (Done: two Codex passes, all findings fixed.)
 2. Merge PR #28 when CI is green. Then `git tag kit-v0.2.0 <merge commit> && git push origin kit-v0.2.0`
    and approve the `pypi` deployment.
 3. Live runs (Actions > Live evals > Run workflow, on `main`; prices as in Part 5). About $2.30

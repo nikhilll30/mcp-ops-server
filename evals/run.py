@@ -120,6 +120,9 @@ def domain(backend: str = "sqlite", fhir_url: str | None = None) -> EvalDomain:
         backend=backend,
         system_prompt=SYSTEM_PROMPT,
         supports_plant=True,
+        # Both backends' wording for a write sent but not confirmed (fhir.py's
+        # OutcomeUnknownError); SQLite never raises it, so it never matches there.
+        uncertain_errors=("may or may not",),
     )
 
 

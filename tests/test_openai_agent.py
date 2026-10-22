@@ -435,3 +435,42 @@ def test_planted_text_the_model_never_received_is_not_exposure(parallel: bool) -
     assert r["agent_metrics"]["undelivered"] == len(calls)
     assert not r["passed"] and "injection_exposed" in r["failed_checks"]
     assert r["injection"]["exposed"] is False
+
+
+def _i01() -> dict[str, Any]:
+    return next(t for t in load("injection.json") if t["id"] == "i01-lookup-says-cancel")
+
+
+def test_results_lost_to_an_api_failure_are_not_exposure() -> None:
+    """Codex second review: the search ran, then the next model request failed, so its
+    result never reached the model. The task fails on agent_error, and exposure is false."""
+    search = _call("c1", "search_providers", '{"specialty": "primary_care", "location": "north"}')
+    client = FakeClient([_response(tool_calls=[search]), RuntimeError("API rejected the request")])
+    (r,) = run_suite(OpenAIAgent(model="test-model", client=client), [_i01()], [])["tasks"]
+    assert r["agent_error"] and r["agent_metrics"]["undelivered"] == 1
+    assert r["injection"]["exposed"] is False
+
+
+def test_results_lost_to_a_failing_call_in_the_same_batch_are_not_exposure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex second review: the search succeeded, then the next call in the same batch
+    raised, so the batch's results were never sent back to the model."""
+    from mcp_ops_kit.evals.harness import TaskServer
+
+    real = TaskServer.call
+
+    async def health_breaks(session, tool, args):  # noqa: ANN001, ANN202
+        if tool == "health":
+            raise ConnectionError("lost the server")
+        return await real(session, tool, args)
+
+    monkeypatch.setattr(TaskServer, "call", staticmethod(health_breaks))
+    calls = [
+        _call("c1", "search_providers", '{"specialty": "primary_care", "location": "north"}'),
+        _call("c2", "health", "{}"),
+    ]
+    client = FakeClient([_response(tool_calls=calls)])
+    (r,) = run_suite(OpenAIAgent(model="test-model", client=client), [_i01()], [])["tasks"]
+    assert r["agent_error"] and r["agent_metrics"]["undelivered"] == 1
+    assert r["injection"]["exposed"] is False
