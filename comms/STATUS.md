@@ -317,6 +317,7 @@ merge commit (6ee5502) every CI job passed, `terraform` and `publish` included.
 
 Open, owner's call (not blocking): check `infra/aws/hipaa-services.json` against AWS's live
 HIPAA-eligible list. It was checked through web search only; Amazon S3 is `unverified`.
+(Closed 2026-10-22: all 12 eligible services are on the live page; see "Phase 2 is complete".)
 
 ## Part 11 (done, PR #24 merged 2026-10-21)
 Built on branch `claude/gifted-brown-k8ak51` (the branch this session was assigned). The owner's
@@ -504,5 +505,7 @@ with file and line. Do not change code.
 ## Phase 2 is complete
 All twelve parts are done. Open, owner's call (not blocking):
 - **Reword the system prompt's "slot taken" rule.** The repeated runs confirm it: Sol stops after the clash in `f01` in 5 of 5 runs. Rewording it means re-running both models (about $2.60 for the golden suite at 5 repeats).
-- **Add release notes for kit-v0.2.0** on the release page.
-- Check `infra/aws/hipaa-services.json` against AWS's live list (from Part 10).
+- Done 2026-10-22: kit-v0.2.0 release notes added (by the owner's agent; read back by me).
+- Done 2026-10-22: `infra/aws/hipaa-services.json` checked against AWS's live page (last updated
+  2026-10-15), read by the owner's browsing agent since this session cannot reach
+  aws.amazon.com. All 12 eligible services are listed, so every entry is now `official`.

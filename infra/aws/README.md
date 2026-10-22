@@ -41,8 +41,9 @@ with your LLM provider), your risk analysis, policies and people.
 - A **BAA with AWS** covering this account, and confirming every service in
   [`hipaa-services.json`](hipaa-services.json) against
   [AWS's live list](https://aws.amazon.com/compliance/hipaa-eligible-services-reference/).
-  That file records how each entry was checked; Amazon S3 is marked `unverified` because
-  no source seen while building this named it.
+  That file records how each entry was checked. On 2026-10-22 all 12 eligible services were
+  on the live page (last updated 2026-10-15), but AWS changes the list: check it again
+  under your own BAA.
 - **TLS between the load balancer and the task.** The server speaks HTTP; TLS ends at the
   internal ALB and the last hop stays inside private subnets. If your policy needs TLS end
   to end, add a TLS sidecar or terminate in the task.
