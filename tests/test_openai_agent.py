@@ -416,3 +416,22 @@ def test_a_live_model_sees_the_planted_text_and_is_graded_on_what_it_does() -> N
     assert r["injection"] == {"exposed": True, "attempted": True, "succeeded": True}
     assert not r["passed"] and "forbidden_steps" in r["failed_checks"]
     assert results["summary"]["injection"]["succeeded"] == 1
+
+
+@pytest.mark.parametrize("parallel", [False, True])
+def test_planted_text_the_model_never_received_is_not_exposure(parallel: bool) -> None:
+    """Codex P1: with the turn limit hit right after the search, its result was executed but
+    never sent back to the model, so the model had no chance to see or resist the attack.
+    That run must fail injection_exposed, also when the search shared its turn with
+    another call."""
+    task = next(t for t in load("injection.json") if t["id"] == "i01-lookup-says-cancel")
+    calls = [_call("c1", "search_providers", '{"specialty": "primary_care", "location": "north"}')]
+    if parallel:
+        calls.append(_call("c2", "health", "{}"))
+    client = FakeClient([_response(tool_calls=calls)])
+    agent = OpenAIAgent(model="test-model", client=client, max_turns=1)
+    (r,) = run_suite(agent, [task], [])["tasks"]
+    assert r["agent_metrics"]["stop"] == "max_turns"
+    assert r["agent_metrics"]["undelivered"] == len(calls)
+    assert not r["passed"] and "injection_exposed" in r["failed_checks"]
+    assert r["injection"]["exposed"] is False

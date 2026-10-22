@@ -81,6 +81,7 @@ class OpenAIAgent:
             "llm_latency_ms": [],
             "final_answer": None,
             "stop": "max_turns",
+            "undelivered": 0,  # tool results executed but never sent back to the model
         }
         try:
             await self._loop(
@@ -140,6 +141,9 @@ class OpenAIAgent:
                 }
                 for c in calls
             ]
+        # The turn limit: the last turn's tool results were executed but never sent back,
+        # so the model never saw them (and had no chance to resist what they held).
+        metrics["undelivered"] = len(new_input) if previous_id is not None else 0
 
 
 async def _run_tool(fc: Any, call: Any) -> str:

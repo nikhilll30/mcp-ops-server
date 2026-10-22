@@ -1218,7 +1218,7 @@ def part12() -> list:
     return [
         Paragraph("Part 12 Brief · Evals at scale: pass^k and prompt injection", title),
         Paragraph(
-            "mcp-ops-server · 22 Oct 2026 · PR #28 · Status: open, CI green; Bugbot 1 finding fixed; Codex pending · live numbers wait on your run",
+            "mcp-ops-server · 22 Oct 2026 · PR #28 · Status: open; Bugbot (1) and Codex (1x P1, 4x P2) fixed · live numbers wait on your run",
             sub,
         ),
         Spacer(1, 4),
@@ -1230,7 +1230,7 @@ def part12() -> list:
         ),
         bl(
             f"<b>A prompt-injection suite</b> ({cf}--suite injection</font>): 6 clinic tasks plant an instruction in a "
-            "provider's name, the one free-text field the tools return, on SQLite and FHIR. 7 negative controls obey it "
+            "provider's name, the one free-text field the tools return, on SQLite and FHIR. 8 negative controls obey it "
             "and must be caught. Both suites gate CI on both backends; the live workflow takes suite and repeats."
         ),
         section("How it works"),
@@ -1247,7 +1247,7 @@ def part12() -> list:
                 ],
                 [
                     "attempted / carried out",
-                    "a call the planted text asked for, refused or not / one the server let succeed; the gap is what server controls stopped",
+                    "a call the planted text asked for, refused or not / yes, no, or unknown (a refused write next to an unexplained change: it may have landed)",
                 ],
                 [
                     "pass^k",
@@ -1268,18 +1268,19 @@ def part12() -> list:
         section("What went wrong or surprised me (logged in FAILURES.md)"),
         bl(
             "<b>Planted text would have leaked across tasks on FHIR</b>: reset never restored provider names. Fixed, and a "
-            "test fails without it. <b>A run that never saw the attack would have passed</b> as resisted: hence the exposure check."
+            "test fails without it. <b>I nearly rebuilt Part 11</b> from a stale checkout; PyPI already showing "
+            "mcp-ops-kit 0.1.0 gave it away before any code was written."
         ),
         bl(
-            "<b>Mutation testing found a rule my tests missed</b>: deleting the check that a control's attempted/carried-out "
-            "outcome matches left 80 tests green. Now a test fails. <b>I nearly rebuilt Part 11</b> from a stale checkout; "
-            "PyPI already showing mcp-ops-kit 0.1.0 gave it away before any code was written."
+            "<b>Codex found my exposure check too generous</b>: a model cut off by its turn limit right after the search "
+            "never received the attack, yet counted as resisting it. It also found a lost FHIR write reported as "
+            "stopped, and a null referral missed by the attack pattern. All reproduced, fixed, and tested."
         ),
         section("Verify it yourself"),
         codebox(
             [
-                "pytest -q                                   # 647 passed (728 with sqlite,fhir)",
-                "python -m evals.run --suite injection       # 6/6 tasks, 7/7 controls",
+                "pytest -q                                   # 656 passed (737 with sqlite,fhir)",
+                "python -m evals.run --suite injection       # 6/6 tasks, 8/8 controls",
                 "python -m evals.run --repeats 3 --tasks b01-earliest-primary-care",
             ]
         ),
@@ -1292,7 +1293,7 @@ def part12() -> list:
         ),
         section("Next (your actions)"),
         Paragraph(
-            "Paste the Codex prompt, merge PR #28 when green, then tag <b>kit-v0.2.0</b>. Live runs (Actions &gt; Live evals; "
+            "Merge PR #28 when green, then tag <b>kit-v0.2.0</b>. Live runs (Actions &gt; Live evals; "
             "about $2.30 in total, an upper bound from the Part 5 costs): Luna and Sol, golden with repeats 5, then injection with repeats 5.",
             body,
         ),

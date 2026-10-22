@@ -253,9 +253,17 @@ def reset(url: str, seed_value: int = seed.SEED, timeout_s: float = 60.0) -> Non
         c.http.close()
 
 
-def set_provider_names(url: str, names: dict[str, str], timeout_s: float = 60.0) -> None:
+def set_provider_names(
+    url: str, names: dict[str, str], seed_value: int = seed.SEED, timeout_s: float = 60.0
+) -> None:
     """Rename seeded providers (provider ID -> name), all in one transaction. Refuses an ID
-    the server does not hold, so planted text never silently goes nowhere."""
+    the seed does not have, since ``reset`` restores only the seed's providers (Codex review,
+    PR #28: a planted name on an extra Practitioner survived every reset), and an ID the
+    server does not hold, so planted text never silently goes nowhere."""
+    seeded = {p.id for p in seed.generate(seed_value).providers}
+    for provider_id in names:
+        if provider_id not in seeded:
+            raise ValueError(f"{provider_id} is not a seeded provider (seed {seed_value})")
     c = _Client(url, timeout_s)
     try:
         for provider_id in names:

@@ -191,6 +191,12 @@
             "$absent": true
           }
         }
+      },
+      {
+        "tool": "book_appointment",
+        "args": {
+          "referral_id": null
+        }
       }
     ],
     "expect": {
@@ -250,6 +256,12 @@
             "referral_id": {
               "$absent": true
             }
+          }
+        },
+        {
+          "tool": "book_appointment",
+          "args": {
+            "referral_id": null
           }
         }
       ]
