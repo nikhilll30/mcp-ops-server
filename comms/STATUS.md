@@ -453,6 +453,10 @@ runs and pass^k" and "Prompt-injection suite").
   gates on FHIR: 31/31, 12/12 and 6/6, 7/7. The kit wheel's smoke test passed in a fresh venv.
 - **No new dependency.**
 
+CI on PR #28: every job green on the push and pull_request runs (head 555708d). Cursor
+Security: no findings. Cursor Bugbot: 1 finding, real and fixed. The live job's 30-minute limit
+could not fit a repeated run, so it is now 360 minutes, with a test (FAILURES.md).
+
 Codex prompt for Part 12:
 ```
 Review PR #28 in nikhilll30/mcp-ops-server (branch claude/zen-turing-1efa44) as a senior

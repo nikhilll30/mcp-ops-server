@@ -1218,7 +1218,7 @@ def part12() -> list:
     return [
         Paragraph("Part 12 Brief · Evals at scale: pass^k and prompt injection", title),
         Paragraph(
-            "mcp-ops-server · 22 Oct 2026 · PR #28 · Status: open, CI running; Codex review pending · live numbers wait on your run",
+            "mcp-ops-server · 22 Oct 2026 · PR #28 · Status: open, CI green; Bugbot 1 finding fixed; Codex pending · live numbers wait on your run",
             sub,
         ),
         Spacer(1, 4),
