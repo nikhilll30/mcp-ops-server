@@ -17,7 +17,7 @@
 | 8 Booking example, then extract mcp-ops-kit | done (PR #18 merged) | docs/briefs/part-8-mcp-ops-kit.pdf |
 | 9 Audit log, OAuth 2.1 expiry/revocation, encryption at rest, data minimisation, audience binding | done (PR #20 merged) | docs/briefs/part-9-safeguards.pdf |
 | 10 Terraform blueprint (HIPAA-eligible AWS, validated, never applied) | done (PR #22 merged) | docs/briefs/part-10-terraform.pdf |
-| 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | **in review** (PR #24) | docs/briefs/part-11-assurance.pdf |
+| 11 Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, PyPI, signed images | done (PR #24 merged; kit 0.1.0 on PyPI) | docs/briefs/part-11-assurance.pdf |
 | 12 Repeated live runs, pass^k, prompt-injection suite | planned | |
 
 ## Tasks
@@ -35,7 +35,7 @@
 | 008 | Salon example (copy), then mcp-ops-kit extracted from both domains | Claude | merged | #18 |
 | 009 | Safeguards in the kit: tokens v2 + audience, OAuth JWTs, audit log, encryption at rest, minimisation | Claude | merged | #20 |
 | 010 | Terraform blueprint (infra/aws), CI terraform job, check_infra.py, hardened container run | Claude | merged | #22 |
-| 011 | Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, pinned actions, kit packaging + release, signed images with an SBOM | Claude | in review | #24 |
+| 011 | Controls matrix, threat model, SECURITY.md, CodeQL, Dependabot, pinned actions, kit packaging + release, signed images with an SBOM | Claude | merged | #24 |
 
 ## Workflow
 Claude builds each part in a fresh Claude Code session (rules in `CLAUDE.md`); Codex reviews each
@@ -317,7 +317,7 @@ merge commit (6ee5502) every CI job passed, `terraform` and `publish` included.
 Open, owner's call (not blocking): check `infra/aws/hipaa-services.json` against AWS's live
 HIPAA-eligible list. It was checked through web search only; Amazon S3 is `unverified`.
 
-## Part 11 (in review, PR #24)
+## Part 11 (done, PR #24 merged 2026-10-21)
 Built on branch `claude/gifted-brown-k8ak51` (the branch this session was assigned). The owner's
 "start the next part" on 2026-10-21 was the go.
 - **Controls matrix** (`docs/hipaa-controls.md`): all 12 standards and specifications of
@@ -361,14 +361,16 @@ accepted (FAILURES.md).
   residual), Fargate and `no-new-privileges`.
 
 ### Owner's steps for Part 11
-Done by the owner, 2026-10-21 (reported, not yet verified by me):
+Done by the owner, 2026-10-21 (reported by the owner; the release below exercised every one):
 - Environment `pypi`: required reviewer nikhilll30 (self-review allowed), one deployment rule
   for tags `kit-v*`, no secrets or variables. "Allow administrators to bypass" is on.
 - Tag ruleset `release-tags`: active, targets `kit-v*`, restricts creations, updates and
   deletions; bypass: Repository admin only. The `main` ruleset is unchanged.
 - Private vulnerability reporting: enabled. CodeQL: already on advanced setup.
-- **Still open:** the PyPI pending publisher (step 3); pypi.org returned 503. It is needed
-  before the first `kit-v*` tag, not before merging.
+- PyPI pending publisher for `release-kit.yml`, environment `pypi` (first added with the
+  environment blank, which PyPI shows as "Any"; removed and re-added with `pypi`).
+- `package` added to the `main` ruleset's required checks: lint, test, evals, secrets,
+  container, fhir, terraform, package.
 
 1. **Before merging: the release boundary.** The release workflow's own checks (tag on
    `main`, CI green on the commit) run from the tag's copy of the file, so anyone who can push
@@ -395,6 +397,20 @@ Done by the owner, 2026-10-21 (reported, not yet verified by me):
    Then https://pypi.org/project/mcp-ops-kit/ should show 0.1.0 with attestations.
 6. Optional check, signed out: `scripts/supply_chain.sh verify ghcr.io/nikhilll30/mcp-ops-server@<digest from the publish job>`.
 
+### After the merge (verified by me, 2026-10-22)
+- **Merge commit 0039c55:** CI run #161 green on all nine jobs, CodeQL green.
+- **First keyless signature:** the `publish` job signed and attested
+  `ghcr.io/nikhilll30/mcp-ops-server@sha256:c7bbc16ada962d0df8d084b1c2e01036a1084321d72087409d3ec7b484d68b4e`
+  as `ci.yml@refs/heads/main`, verified it, then moved `latest` to that digest.
+- **mcp-ops-kit 0.1.0 on PyPI** from the `kit-v0.1.0` release on 0039c55 (release run
+  39709810441: build, then the owner's approval in `pypi`, then publish). PyPI's provenance
+  API shows an attestation for both the wheel and the sdist, naming
+  `nikhilll30/mcp-ops-server`, `release-kit.yml` and environment `pypi`. `pip install
+  mcp-ops-kit==0.1.0` into a fresh venv passes `scripts/check_kit_dist.py smoke`.
+- **Open (owner's call, not blocking):** a second Codex pass over the review fixes
+  (b782b69 to fe8d3fa); the actions' Node 20 deprecation warnings, which Dependabot's
+  update PRs will clear.
+
 Codex prompt for Part 11:
 ```
 Review PR #24 in nikhilll30/mcp-ops-server (branch claude/gifted-brown-k8ak51) as a senior
@@ -412,3 +428,9 @@ checks could miss), and Dependabot coverage. Also check test quality and anythin
 embarrass this repo once public. List findings as P0/P1/P2 with file and line. Do not change
 code.
 ```
+
+## Next action: Part 12, after the owner says "go"
+Not started. Scope is in `comms/PLAN.md`: repeated live runs per model with pass^k and
+per-task variance, and a prompt-injection suite (instructions planted in synthetic tool
+results) graded by the trajectory grader, owner-triggered, with costs measured. Threat
+model E2 names it as the open residual.

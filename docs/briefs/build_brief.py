@@ -1120,7 +1120,7 @@ def part11() -> list:
     return [
         Paragraph("Part 11 Brief · Assurance and supply chain", title),
         Paragraph(
-            "mcp-ops-server · 21 Oct 2026 · PR #24 · Status: in review; Codex (2x P1, 7x P2) fixed · HIPAA-ready, never compliant",
+            "mcp-ops-server · 21 Oct 2026 · PR #24 · Status: merged 21 Oct 2026; Codex (2x P1, 7x P2) fixed; kit 0.1.0 on PyPI · HIPAA-ready, never compliant",
             sub,
         ),
         Spacer(1, 4),
@@ -1205,8 +1205,8 @@ def part11() -> list:
         ),
         section("Next (your actions)"),
         Paragraph(
-            "Create the <b>pypi</b> environment with yourself as required reviewer, a <b>kit-v*</b> tag ruleset, private "
-            "vulnerability reporting and the PyPI pending publisher (STATUS.md); merge; tag <b>kit-v0.1.0</b>. Then say <b>go</b> for Part 12.",
+            "Done: PR #24 merged, the image signed keyless (digest c7bbc16a), <b>mcp-ops-kit 0.1.0</b> on PyPI with "
+            "attestations, <b>package</b> a required check. Optional: a second Codex pass. Then say <b>go</b> for Part 12.",
             body,
         ),
     ]
